@@ -35,7 +35,7 @@ Nextcord-based Discord bot for Albion Online guild organization.
 
 1. Push this repo to GitHub and create a new **Railway Project** from that repo.
 2. In Railway service settings:
-   - **Build command**: `pip install -r requirements.txt`
+   - **Build command**: `pip install -r requirements.txt && pip install .`
    - **Start command**: `python -m albionbot`
 3. Add environment variables in Railway (**Variables** tab).
 4. Redeploy.
@@ -71,6 +71,7 @@ Nextcord-based Discord bot for Albion Online guild organization.
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+pip install -e .
 cp .env.example .env
 python -m albionbot
 ```
