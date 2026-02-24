@@ -30,6 +30,41 @@ Nextcord-based Discord bot for Albion Online guild organization.
 
 ---
 
+
+## Deploy on Railway
+
+1. Push this repo to GitHub and create a new **Railway Project** from that repo.
+2. In Railway service settings:
+   - **Build command**: `pip install -r requirements.txt`
+   - **Start command**: `python -m albionbot`
+3. Add environment variables in Railway (**Variables** tab).
+4. Redeploy.
+
+### Required variables
+- `DISCORD_TOKEN` (required)
+
+### Recommended variables
+- `GUILD_IDS` (comma-separated guild IDs, e.g. `123456789012345678,987654321098765432`)
+- `BANK_DATABASE_URL` (PostgreSQL URL). If empty, the bot falls back to `DATABASE_URL`.
+- `DATABASE_URL` (auto-provided by Railway when a PostgreSQL plugin is attached)
+
+### Optional variables (with defaults)
+- `DATA_PATH` = `data/state.json`
+- `BANK_SQLITE_PATH` = `data/bank.sqlite3`
+- `RAID_REQUIRE_MANAGE_GUILD` = `true`
+- `RAID_MANAGER_ROLE_ID` = *(empty)*
+- `BANK_REQUIRE_MANAGE_GUILD` = `true`
+- `BANK_MANAGER_ROLE_ID` = *(empty)*
+- `BANK_ALLOW_NEGATIVE` = `true`
+- `SCHED_TICK_SECONDS` = `15`
+- `DEFAULT_PREP_MINUTES` = `10`
+- `DEFAULT_CLEANUP_MINUTES` = `30`
+- `VOICE_CHECK_AFTER_MINUTES` = `5`
+
+> Yes: on Railway you must set at least `DISCORD_TOKEN`. For persistence, also connect PostgreSQL and use `BANK_DATABASE_URL` (or Railway's `DATABASE_URL`).
+
+---
+
 ## Setup
 
 ```bash
