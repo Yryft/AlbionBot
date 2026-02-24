@@ -268,9 +268,11 @@ class RaidModule:
                 seen.add(n)
         return merged[:25]
 
-    def _autocomplete_raid_ids(self, user_input: str) -> List[str]:
+    def _autocomplete_raid_ids(self, user_input: str, *, active_only: bool = True) -> List[str]:
         user_input = (user_input or "").lower().strip()
         raids = sorted(self.store.raids.values(), key=lambda r: r.created_at, reverse=True)
+        if active_only:
+            raids = [r for r in raids if not r.ping_done and not r.cleanup_done]
         ids = [r.raid_id for r in raids]
         if not user_input:
             return ids[:25]
