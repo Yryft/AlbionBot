@@ -38,6 +38,9 @@ class Config:
     guild_ids: List[int]
     data_path: str
 
+    bank_database_url: str
+    bank_sqlite_path: str
+
     raid_require_manage_guild: bool
     raid_manager_role_id: Optional[int]
 
