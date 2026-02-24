@@ -107,6 +107,15 @@ class BankDB:
             )
             self._exec("CREATE INDEX IF NOT EXISTS idx_bank_actions_guild_created ON bank_actions(guild_id, created_at DESC);")
             self._exec("CREATE INDEX IF NOT EXISTS idx_bank_actions_actor_created ON bank_actions(guild_id, actor_id, created_at DESC);")
+            self._exec(
+                """
+                CREATE TABLE IF NOT EXISTS bot_state (
+                    key TEXT PRIMARY KEY,
+                    value_json TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                """
+            )
         else:
             self._exec(
                 """
@@ -146,6 +155,15 @@ class BankDB:
             )
             self._exec("CREATE INDEX IF NOT EXISTS idx_bank_actions_guild_created ON bank_actions(guild_id, created_at DESC);")
             self._exec("CREATE INDEX IF NOT EXISTS idx_bank_actions_actor_created ON bank_actions(guild_id, actor_id, created_at DESC);")
+            self._exec(
+                """
+                CREATE TABLE IF NOT EXISTS bot_state (
+                    key TEXT PRIMARY KEY,
+                    value_json TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                """
+            )
 
     # -----------------------------
     # Low-level exec helpers
@@ -331,6 +349,40 @@ class BankDB:
             self._exec(
                 "UPDATE bank_actions SET undone = 1, undone_at = ? WHERE action_id = ?;",
                 (int(undone_at), str(action_id))
+            )
+
+
+    def get_state_blob(self, key: str) -> Optional[str]:
+        row = self._fetchone(
+            "SELECT value_json FROM bot_state WHERE key = ?;" if self.kind == "sqlite"
+            else "SELECT value_json FROM bot_state WHERE key = %s;",
+            (str(key),)
+        )
+        if not row:
+            return None
+        return str(row["value_json"])
+
+    def set_state_blob(self, key: str, value_json: str) -> None:
+        now = int(time.time())
+        if self.kind == "postgres":
+            self._exec(
+                """
+                INSERT INTO bot_state(key, value_json, updated_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (key)
+                DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = EXCLUDED.updated_at;
+                """,
+                (str(key), str(value_json), now)
+            )
+        else:
+            self._exec(
+                """
+                INSERT INTO bot_state(key, value_json, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key)
+                DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;
+                """,
+                (str(key), str(value_json), now)
             )
 
     def is_empty(self) -> bool:
