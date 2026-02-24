@@ -734,7 +734,7 @@ class RaidModule:
         await dm.send(
             "4) **Spec des rôles** (1 ligne = 1 rôle). Format:\n"
             "`Label ; slots ; [ip] ; [req=<role ids/mentions>] ; [key=...]`\n"
-            "`Ex:\nRL;1\nOffTank;1\nSC;1;ip\nDPS;3;ip`"
+            "Ex:\n```RL;1\nOffTank;1\nSC;1;ip\nDPS;3;ip```\n"
             + ("(envoie `.` pour garder le spec actuel)" if mode == "edit" else "")
         )
         spec = await ask("(colle ici ton bloc de rôles)")
