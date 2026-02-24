@@ -33,6 +33,8 @@ Nextcord-based Discord bot for Albion Online guild organization.
 
 ## Deploy on Railway
 
+> Important: on Railway filesystem is ephemeral. With `DATABASE_URL` configured, **bank + templates + raids** are persisted in SQL.
+
 1. Push this repo to GitHub and create a new **Railway Project** from that repo.
 2. In Railway service settings:
    - **Build command**: `pip install -r requirements.txt && pip install .`
