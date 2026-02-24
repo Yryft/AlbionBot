@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "albion-discord-bot"
+version = "0.1.0"
+description = "Discord bot for Albion Online raid organization + bank module."
+requires-python = ">=3.10"
+dependencies = [
+  "nextcord>=2.6.0",
+  "python-dotenv>=1.0.0",
+  "psycopg[binary]>=3.2.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
