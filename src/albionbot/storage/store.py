@@ -1,0 +1,315 @@
+import os
+import json
+import time
+import asyncio
+from dataclasses import dataclass, asdict, field
+from typing import Dict, List, Optional, Set, Literal
+
+RaidStatus = Literal["OPEN", "PINGED", "CLOSED"]
+BankActionType = Literal["add", "remove", "add_split", "remove_split"]
+
+@dataclass
+class CompRole:
+    key: str
+    label: str
+    slots: int
+    ip_required: bool = False
+    required_role_ids: List[int] = field(default_factory=list)
+
+@dataclass
+class CompTemplate:
+    name: str
+    description: str
+    created_by: int
+    created_at: int = field(default_factory=lambda: int(time.time()))
+    raid_required_role_ids: List[int] = field(default_factory=list)
+    roles: List[CompRole] = field(default_factory=list)
+
+@dataclass
+class Signup:
+    user_id: int
+    role_key: str
+    status: Literal["main", "wait"] = "main"
+    ip: Optional[int] = None
+    joined_at: int = field(default_factory=lambda: int(time.time()))
+
+@dataclass
+class RaidEvent:
+    raid_id: str
+    template_name: str
+    title: str
+    description: str
+    extra_message: str
+    start_at: int
+    created_by: int
+    created_at: int = field(default_factory=lambda: int(time.time()))
+
+    channel_id: Optional[int] = None
+    message_id: Optional[int] = None
+    thread_id: Optional[int] = None
+
+    voice_channel_id: Optional[int] = None
+
+    signups: Dict[int, Signup] = field(default_factory=dict)
+    absent: Set[int] = field(default_factory=set)
+
+    prep_minutes: int = 10
+    cleanup_minutes: int = 30
+
+    temp_role_id: Optional[int] = None
+
+    prep_done: bool = False
+    ping_done: bool = False
+    voice_check_done: bool = False
+    cleanup_done: bool = False
+
+@dataclass
+class BankAction:
+    action_id: str
+    guild_id: int
+    actor_id: int
+    created_at: int
+    action_type: BankActionType
+    deltas: Dict[int, int]
+    note: str = ""
+    undone: bool = False
+    undone_at: Optional[int] = None
+
+class Store:
+    def __init__(self, path: str, bank_action_log_limit: int = 500, bank_database_url: str = "", bank_sqlite_path: str = "data/bank.sqlite3"):
+        self.path = path
+        self.bank_action_log_limit = bank_action_log_limit
+        self.lock = asyncio.Lock()
+
+        # Bank storage: SQL (PostgreSQL on Railway via DATABASE_URL, or SQLite fallback).
+        self.bank_db = None
+        self._bank_migrated_from_json = False
+        try:
+            from .bank_db import BankDB, BankDBConfig  # lazy import to avoid circular imports
+            self.bank_db = BankDB(BankDBConfig(
+                database_url=(bank_database_url or "").strip(),
+                sqlite_path=(bank_sqlite_path or "data/bank.sqlite3").strip(),
+                action_log_limit=bank_action_log_limit,
+            ))
+        except Exception:
+            # If a database URL was explicitly provided, fail fast.
+            if (bank_database_url or "").strip():
+                raise
+            # Otherwise fallback to legacy JSON-only bank storage.
+            self.bank_db = None
+
+        self.templates: Dict[str, CompTemplate] = {}
+        self.raids: Dict[str, RaidEvent] = {}
+
+        self.bank_balances: Dict[int, Dict[int, int]] = {}
+        self.bank_actions: Dict[int, List[BankAction]] = {}
+
+        self.load()
+        if self.bank_db and self._bank_migrated_from_json:
+            # Remove legacy bank data from JSON to avoid confusion.
+            self.save()
+
+    def load(self) -> None:
+        if not os.path.exists(self.path):
+            return
+        with open(self.path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+
+        self.templates = {}
+        for name, t in raw.get("templates", {}).items():
+            roles = []
+            for r in t.get("roles", []):
+                roles.append(CompRole(
+                    key=r["key"],
+                    label=r["label"],
+                    slots=int(r["slots"]),
+                    ip_required=bool(r.get("ip_required", False)),
+                    required_role_ids=list(map(int, r.get("required_role_ids", []))),
+                ))
+            self.templates[name] = CompTemplate(
+                name=t["name"],
+                description=t.get("description", ""),
+                created_by=int(t["created_by"]),
+                created_at=int(t.get("created_at", int(time.time()))),
+                raid_required_role_ids=list(map(int, t.get("raid_required_role_ids", []))),
+                roles=roles,
+            )
+
+        self.raids = {}
+        for rid, r in raw.get("raids", {}).items():
+            signups = {}
+            for uid_str, s in r.get("signups", {}).items():
+                uid = int(uid_str)
+                signups[uid] = Signup(
+                    user_id=uid,
+                    role_key=s["role_key"],
+                    status=s.get("status", "main"),
+                    ip=s.get("ip"),
+                    joined_at=int(s.get("joined_at", int(time.time()))),
+                )
+            self.raids[rid] = RaidEvent(
+                raid_id=r["raid_id"],
+                template_name=r["template_name"],
+                title=r["title"],
+                description=r.get("description", ""),
+                extra_message=r.get("extra_message", ""),
+                start_at=int(r["start_at"]),
+                created_by=int(r["created_by"]),
+                created_at=int(r.get("created_at", int(time.time()))),
+                channel_id=r.get("channel_id"),
+                message_id=r.get("message_id"),
+                thread_id=r.get("thread_id"),
+                voice_channel_id=r.get("voice_channel_id"),
+                signups=signups,
+                absent=set(map(int, r.get("absent", []))),
+                prep_minutes=int(r.get("prep_minutes", 10)),
+                cleanup_minutes=int(r.get("cleanup_minutes", 30)),
+                temp_role_id=r.get("temp_role_id"),
+                prep_done=bool(r.get("prep_done", False)),
+                ping_done=bool(r.get("ping_done", False)),
+                voice_check_done=bool(r.get("voice_check_done", False)),
+                cleanup_done=bool(r.get("cleanup_done", False)),
+            )
+
+        self.bank_balances = {}
+        for gid_str, d in raw.get("bank_balances", {}).items():
+            gid = int(gid_str)
+            self.bank_balances[gid] = {int(uid): int(bal) for uid, bal in d.items()}
+
+        self.bank_actions = {}
+        for gid_str, lst in raw.get("bank_actions", {}).items():
+            gid = int(gid_str)
+            actions: List[BankAction] = []
+            for a in lst:
+                actions.append(BankAction(
+                    action_id=a["action_id"],
+                    guild_id=int(a["guild_id"]),
+                    actor_id=int(a["actor_id"]),
+                    created_at=int(a["created_at"]),
+                    action_type=a["action_type"],
+                    deltas={int(uid): int(delta) for uid, delta in a["deltas"].items()},
+                    note=a.get("note", ""),
+                    undone=bool(a.get("undone", False)),
+                    undone_at=a.get("undone_at"),
+                ))
+            self.bank_actions[gid] = actions
+
+        # If SQL bank is enabled and the DB is empty, import legacy JSON data once.
+        if self.bank_db is not None:
+            if self.bank_db.is_empty() and (self.bank_balances or self.bank_actions):
+                try:
+                    self.bank_db.import_from_json(self.bank_balances, self.bank_actions)
+                    self._bank_migrated_from_json = True
+                except Exception:
+                    # If import fails, keep legacy data in-memory as fallback.
+                    pass
+            # From now on, bank state lives in SQL. Avoid using the legacy in-memory dicts.
+            self.bank_balances = {}
+            self.bank_actions = {}
+
+
+    def save(self) -> None:
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        tmp = self.path + ".tmp"
+        raw = {"templates": {}, "raids": {}}
+        if self.bank_db is None:
+            raw["bank_balances"] = {}
+            raw["bank_actions"] = {}
+        else:
+            raw["bank_storage"] = "sql"
+
+        for name, t in self.templates.items():
+            raw["templates"][name] = {
+                "name": t.name,
+                "description": t.description,
+                "created_by": t.created_by,
+                "created_at": t.created_at,
+                "raid_required_role_ids": t.raid_required_role_ids,
+                "roles": [asdict(r) for r in t.roles],
+            }
+
+        for rid, r in self.raids.items():
+            raw["raids"][rid] = {
+                "raid_id": r.raid_id,
+                "template_name": r.template_name,
+                "title": r.title,
+                "description": r.description,
+                "extra_message": r.extra_message,
+                "start_at": r.start_at,
+                "created_by": r.created_by,
+                "created_at": r.created_at,
+                "channel_id": r.channel_id,
+                "message_id": r.message_id,
+                "thread_id": r.thread_id,
+                "voice_channel_id": r.voice_channel_id,
+                "signups": {str(uid): asdict(s) for uid, s in r.signups.items()},
+                "absent": list(r.absent),
+                "prep_minutes": r.prep_minutes,
+                "cleanup_minutes": r.cleanup_minutes,
+                "temp_role_id": r.temp_role_id,
+                "prep_done": r.prep_done,
+                "ping_done": r.ping_done,
+                "voice_check_done": r.voice_check_done,
+                "cleanup_done": r.cleanup_done,
+            }
+
+        if self.bank_db is None:
+            for gid, d in self.bank_balances.items():
+                raw["bank_balances"][str(gid)] = {str(uid): bal for uid, bal in d.items()}
+
+            for gid, actions in self.bank_actions.items():
+                raw["bank_actions"][str(gid)] = []
+                for a in actions[-self.bank_action_log_limit:]:
+                    raw["bank_actions"][str(gid)].append({
+                        "action_id": a.action_id,
+                        "guild_id": a.guild_id,
+                        "actor_id": a.actor_id,
+                        "created_at": a.created_at,
+                        "action_type": a.action_type,
+                        "deltas": {str(uid): delta for uid, delta in a.deltas.items()},
+                        "note": a.note,
+                        "undone": a.undone,
+                        "undone_at": a.undone_at,
+                    })
+
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(raw, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, self.path)
+
+    # Bank helpers
+    def bank_get_balance(self, guild_id: int, user_id: int) -> int:
+        if self.bank_db is not None:
+            return self.bank_db.get_balance(guild_id, user_id)
+        return self.bank_balances.get(guild_id, {}).get(user_id, 0)
+
+    def bank_set_balance(self, guild_id: int, user_id: int, bal: int) -> None:
+        if self.bank_db is not None:
+            self.bank_db.set_balance(guild_id, user_id, bal)
+            return
+        if guild_id not in self.bank_balances:
+            self.bank_balances[guild_id] = {}
+        self.bank_balances[guild_id][user_id] = bal
+
+    def bank_append_action(self, action: BankAction) -> None:
+        if self.bank_db is not None:
+            self.bank_db.append_action(action)
+            return
+        if action.guild_id not in self.bank_actions:
+            self.bank_actions[action.guild_id] = []
+        self.bank_actions[action.guild_id].append(action)
+        if len(self.bank_actions[action.guild_id]) > self.bank_action_log_limit:
+            self.bank_actions[action.guild_id] = self.bank_actions[action.guild_id][-self.bank_action_log_limit:]
+
+
+    def bank_find_last_action_for_actor(self, guild_id: int, actor_id: int) -> Optional[BankAction]:
+        if self.bank_db is not None:
+            return self.bank_db.find_last_action_for_actor(guild_id, actor_id)
+        actions = self.bank_actions.get(guild_id, [])
+        for a in reversed(actions):
+            if a.actor_id == actor_id and not a.undone:
+                return a
+        return None
+
+    def bank_mark_action_undone(self, action_id: str, undone_at: int) -> None:
+        if self.bank_db is not None:
+            self.bank_db.mark_action_undone(action_id, undone_at)
