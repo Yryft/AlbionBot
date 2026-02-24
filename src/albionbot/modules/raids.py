@@ -88,7 +88,7 @@ def build_roster_lines(raid: RaidEvent, tpl: CompTemplate) -> List[str]:
         users = by_role.get(r.key, [])
         main = [u for u in users if u.status == "main"]
         wait = [u for u in users if u.status == "wait"]
-        header = f"**{r.label}** `main {len(main)}/{r.slots}`"
+        header = f"**{r.label}** `prioritaire {len(main)}/{r.slots}`"
         tags = []
         if r.ip_required:
             tags.append("IP")
@@ -104,7 +104,7 @@ def build_roster_lines(raid: RaidEvent, tpl: CompTemplate) -> List[str]:
                 return f"{mention(u.user_id)}({ip_txt})"
             return f"{mention(u.user_id)}"
 
-        lines.append("• Main: " + (" ".join(fmt_user(u) for u in main) if main else "*(vide)*"))
+        lines.append("• Prioritaire: " + (" ".join(fmt_user(u) for u in main) if main else "*(vide)*"))
         if wait:
             lines.append("• Wait: " + " ".join(fmt_user(u) for u in wait))
         lines.append("")
@@ -281,6 +281,7 @@ class RaidModule:
             raid=raid,
             template=tpl,
             join_disabled=join_disabled,
+            actions_disabled=raid.cleanup_done,
             on_select=self._on_select,
             on_absent=self._on_absent,
             on_leave=self._on_leave,
@@ -591,7 +592,7 @@ class RaidModule:
             if raid:
                 await self._assign_temp_role_to_member(interaction.guild, raid, member)
 
-        await interaction.response.send_message(f"✅ Inscrit sur **{role_def.label}** ({'MAIN' if status=='main' else 'WAITLIST'}).", ephemeral=True)
+        await interaction.response.send_message(f"✅ Inscrit sur **{role_def.label}** ({'PRIORITAIRE' if status=='main' else 'WAITLIST'}).", ephemeral=True)
         await self.refresh_raid_message(raid_id)
 
     async def _on_absent(self, interaction: nextcord.Interaction, raid_id: str):
@@ -606,6 +607,8 @@ class RaidModule:
             tpl = self.store.templates.get(raid.template_name)
             if not tpl:
                 return await interaction.response.send_message("Template introuvable.", ephemeral=True)
+            if raid.cleanup_done:
+                return await interaction.response.send_message("⛔ Raid terminé : actions désactivées.", ephemeral=True)
 
             if uid in raid.absent:
                 raid.absent.discard(uid)
@@ -634,6 +637,8 @@ class RaidModule:
             tpl = self.store.templates.get(raid.template_name)
             if not tpl:
                 return await interaction.response.send_message("Template introuvable.", ephemeral=True)
+            if raid.cleanup_done:
+                return await interaction.response.send_message("⛔ Raid terminé : actions désactivées.", ephemeral=True)
 
             if uid in raid.signups:
                 del raid.signups[uid]
@@ -959,6 +964,54 @@ class RaidModule:
                 _, st_txt = raid_status_style(st)
                 lines.append(f"• **{r.raid_id}** — {r.title} — <t:{r.start_at}:F> — {st_txt}")
             await interaction.response.send_message("\n".join(lines[:40]), ephemeral=True)
+
+        @bot.slash_command(name="raid_edit", description="Modifier un raid en cours", **guild_kwargs)
+        async def raid_edit(
+            interaction: nextcord.Interaction,
+            raid_id: str = nextcord.SlashOption(description="Raid ID"),
+            title: str = nextcord.SlashOption(description="Nouveau titre", required=False, default=""),
+            start: str = nextcord.SlashOption(description="Nouvelle date Paris: YYYY-MM-DD HH:MM", required=False, default=""),
+        ):
+            if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+                return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+            if not can_manage_raids(cfg, interaction.user):
+                return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
+            if not title.strip() and not start.strip():
+                return await interaction.response.send_message("Renseigne au moins un champ à modifier (title et/ou start).", ephemeral=True)
+
+            new_start_at = None
+            if start.strip():
+                try:
+                    new_start_at = parse_dt_paris(start)
+                except Exception:
+                    return await interaction.response.send_message("Format date invalide. Ex: 2026-02-24 20:30", ephemeral=True)
+
+            async with self.store.lock:
+                raid = self.store.raids.get(raid_id)
+                if not raid:
+                    return await interaction.response.send_message("Raid introuvable.", ephemeral=True)
+                if raid.cleanup_done:
+                    return await interaction.response.send_message("⛔ Raid terminé, modification impossible.", ephemeral=True)
+
+                if title.strip():
+                    raid.title = title.strip()
+                if new_start_at is not None:
+                    raid.start_at = new_start_at
+                self.store.save()
+
+            await self.refresh_raid_message(raid_id)
+
+            raid = self.store.raids.get(raid_id)
+            if raid and raid.thread_id:
+                try:
+                    th = await self.bot.fetch_channel(raid.thread_id)
+                    if isinstance(th, nextcord.Thread):
+                        thread_name = limit_str(f"{raid.title} • {datetime.fromtimestamp(raid.start_at, TZ_PARIS).strftime('%d/%m %H:%M')}", 95)
+                        await th.edit(name=thread_name)
+                except Exception:
+                    pass
+
+            await interaction.response.send_message("✅ Raid modifié.", ephemeral=True)
 
         @bot.slash_command(name="raid_close", description="Fermer un raid (stop inscriptions immédiatement)", **guild_kwargs)
         async def raid_close(interaction: nextcord.Interaction, raid_id: str = nextcord.SlashOption(description="Raid ID")):
