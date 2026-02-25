@@ -68,6 +68,7 @@ class RaidEvent:
     ping_done: bool = False
     voice_check_done: bool = False
     cleanup_done: bool = False
+    last_voice_present_ids: List[int] = field(default_factory=list)
 
 
 @dataclass
@@ -180,6 +181,7 @@ class Store:
                 ping_done=bool(r.get("ping_done", False)),
                 voice_check_done=bool(r.get("voice_check_done", False)),
                 cleanup_done=bool(r.get("cleanup_done", False)),
+                last_voice_present_ids=list(map(int, r.get("last_voice_present_ids", []))),
             )
 
     def _load_bank_legacy_from_raw(self, raw: Dict) -> None:
@@ -243,6 +245,7 @@ class Store:
                 "ping_done": r.ping_done,
                 "voice_check_done": r.voice_check_done,
                 "cleanup_done": r.cleanup_done,
+                "last_voice_present_ids": list(r.last_voice_present_ids),
             }
         return raw
 
