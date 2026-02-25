@@ -526,6 +526,40 @@ class RaidModule:
         # Temp roles are intentionally kept after raid end for later payout/accounting workflows.
         return
 
+    async def _cleanup_temp_role_after_split(self, raid: RaidEvent) -> None:
+        if not raid.channel_id or not raid.temp_role_id:
+            return
+        try:
+            ch = await self.bot.fetch_channel(raid.channel_id)
+        except Exception:
+            return
+        if not isinstance(ch, (nextcord.TextChannel, nextcord.Thread)):
+            return
+        guild = ch.guild
+        role = guild.get_role(raid.temp_role_id)
+        if not role:
+            raid.temp_role_id = None
+            self.store.save()
+            return
+        for uid in list(raid.signups.keys()):
+            m = guild.get_member(uid)
+            if not m or m.bot:
+                continue
+            try:
+                await m.remove_roles(role, reason=f"Loot split cleanup {raid.raid_id}")
+            except Exception:
+                pass
+        if raid.voice_channel_id:
+            vc = guild.get_channel(raid.voice_channel_id)
+            if isinstance(vc, nextcord.VoiceChannel):
+                await self._remove_voice_overwrite(vc, role)
+        try:
+            await role.delete(reason=f"Loot split cleanup {raid.raid_id}")
+        except Exception:
+            pass
+        raid.temp_role_id = None
+        self.store.save()
+
     # ---------- UI callbacks
     async def _on_select(self, interaction: nextcord.Interaction, raid_id: str, role_key: str):
         raid = self.store.raids.get(raid_id)
@@ -1200,6 +1234,7 @@ class RaidModule:
             maps_lines = [ln.strip() for ln in maps.splitlines() if ln.strip()]
             map_rows = []
             maps_cost = 0
+            finished_maps_count = 0
             for ln in maps_lines:
                 parts = [x.strip() for x in ln.split(";")]
                 if len(parts) < 2:
@@ -1214,11 +1249,16 @@ class RaidModule:
                     finished = parts[2] not in ("0", "false", "non", "no")
                 effective = price if finished else int(round(price * 0.10))
                 maps_cost += effective
+                if finished:
+                    finished_maps_count += 1
                 map_rows.append((tier, price, finished, effective))
 
             coffre_net = int(round(coffre_raw * (1 - (tax_percent / 100.0))))
             total_net = coffre_net + bags_raw
             scout_min, scout_max = self._get_scout_limits(interaction.guild.id)
+            mult = max(1, finished_maps_count)
+            scout_min *= mult
+            scout_max *= mult
 
             calc = self._compute_loot_split(
                 total_net=total_net,
@@ -1231,6 +1271,10 @@ class RaidModule:
                 scout_max=scout_max,
                 maps_cost=maps_cost,
             )
+
+            calc_payouts: Dict[int, int] = dict(calc["payouts"])
+            if scout_user_id and calc["scout_paid"] > 0:
+                calc_payouts[scout_user_id] = calc_payouts.get(scout_user_id, 0) + int(calc["scout_paid"])
 
             def m(uid: Optional[int]) -> str:
                 return mention(uid) if uid else "*(non défini)*"
@@ -1265,15 +1309,15 @@ class RaidModule:
                 f"Post-scout: `{calc['post_scout']:,}`",
                 f"Post-maps: `{calc['post_maps']:,}`",
                 f"Share normal: `{calc['share']:,}`",
-                f"Joueurs split ({len(calc['payouts'])}): " + " ".join(mention(uid) for uid in list(calc['payouts'].keys())[:25]),
+                f"Joueurs split ({len(calc_payouts)}): " + " ".join(mention(uid) for uid in list(calc_payouts.keys())[:25]),
                 "",
                 "📋 **Payouts**",
             ]
-            for uid, amt in list(calc['payouts'].items())[:60]:
+            for uid, amt in list(calc_payouts.items())[:60]:
                 lines.append(f"• {mention(uid)}: `+{amt:,}`")
 
             token = f"loot:{interaction.guild.id}:{interaction.channel.id}:{interaction.user.id}:{int(time.time())}"
-            self._loot_sessions[token] = {"author_id": interaction.user.id, "summary": "\n".join(lines)}
+            self._loot_sessions[token] = {"author_id": interaction.user.id, "summary": "\n".join(lines), "raid_id": raid.raid_id, "payouts": calc_payouts}
 
             class LootConfirmView(nextcord.ui.View):
                 def __init__(self, mod: "RaidModule", tkn: str):
@@ -1293,7 +1337,27 @@ class RaidModule:
                     for c in self.children:
                         c.disabled = True
                     await inter.message.edit(view=self)
-                    await inter.response.send_message("✅ Répartition validée.", ephemeral=True)
+
+                    raid_obj = self.mod.store.raids.get(data.get("raid_id", ""))
+                    payouts = data.get("payouts", {})
+                    if inter.guild and payouts:
+                        async with self.mod.store.lock:
+                            for uid, amt in payouts.items():
+                                cur = self.mod.store.bank_get_balance(inter.guild.id, int(uid))
+                                self.mod.store.bank_set_balance(inter.guild.id, int(uid), cur + int(amt))
+                            self.mod.store.save()
+
+                    if raid_obj:
+                        await self.mod._cleanup_temp_role_after_split(raid_obj)
+
+                    ping_targets = " ".join(mention(int(uid)) for uid in payouts.keys()) if payouts else ""
+                    if ping_targets:
+                        try:
+                            await inter.channel.send(f"💰 Paiement split effectué pour: {ping_targets}")
+                        except Exception:
+                            pass
+
+                    await inter.response.send_message("✅ Répartition validée et paiements appliqués.", ephemeral=True)
 
                 @nextcord.ui.button(label="❌ Annuler", style=nextcord.ButtonStyle.danger)
                 async def cancel(self, button: nextcord.ui.Button, inter: nextcord.Interaction):
