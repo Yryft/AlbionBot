@@ -10,6 +10,7 @@ from nextcord.ext import commands, tasks
 from ..config import Config
 from ..storage.store import Store, CompTemplate, CompRole, RaidEvent, Signup
 from ..utils.discord import parse_ids, mention, channel_mention, has_any_role
+from ..utils.permissions import can_manage_raids
 from ..utils.text import chunk_text_lines, limit_str
 from ..utils.timeutil import parse_dt_paris, TZ_PARIS
 from ..ui.raid_views import RaidView, IpModal
@@ -23,15 +24,6 @@ AVA_RAID = "ava_raid"
 
 def _now() -> int:
     return int(time.time())
-
-def can_manage_raids(cfg: Config, member: nextcord.Member) -> bool:
-    if member.guild_permissions.administrator:
-        return True
-    if cfg.raid_require_manage_guild and member.guild_permissions.manage_guild:
-        return True
-    if cfg.raid_manager_role_id is not None:
-        return any(r.id == cfg.raid_manager_role_id for r in member.roles)
-    return False
 
 def role_map(tpl: CompTemplate):
     return {r.key: r for r in tpl.roles}
@@ -1001,7 +993,7 @@ class RaidModule:
         async def comp_wizard(interaction: nextcord.Interaction):
             if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
-            if not can_manage_raids(cfg, interaction.user):
+            if not can_manage_raids(cfg, interaction.user, self.store):
                 return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
             await interaction.response.send_message("✅ Wizard envoyé en DM.", ephemeral=True)
             await self._dm_wizard_template(interaction.user, "create")
@@ -1010,7 +1002,7 @@ class RaidModule:
         async def comp_edit(interaction: nextcord.Interaction, name: str = nextcord.SlashOption(description="Template", autocomplete=True)):
             if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
-            if not can_manage_raids(cfg, interaction.user):
+            if not can_manage_raids(cfg, interaction.user, self.store):
                 return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
             if name not in self.store.templates:
                 return await interaction.response.send_message("Template introuvable.", ephemeral=True)
@@ -1025,7 +1017,7 @@ class RaidModule:
         async def comp_delete(interaction: nextcord.Interaction, name: str = nextcord.SlashOption(description="Template", autocomplete=True)):
             if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
-            if not can_manage_raids(cfg, interaction.user):
+            if not can_manage_raids(cfg, interaction.user, self.store):
                 return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
             async with self.store.lock:
                 if name not in self.store.templates:
@@ -1064,7 +1056,7 @@ class RaidModule:
         ):
             if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
-            if not can_manage_raids(cfg, interaction.user):
+            if not can_manage_raids(cfg, interaction.user, self.store):
                 return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
 
             tpl = self.store.templates.get(template)
@@ -1160,7 +1152,7 @@ class RaidModule:
         ):
             if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
-            if not can_manage_raids(cfg, interaction.user):
+            if not can_manage_raids(cfg, interaction.user, self.store):
                 return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
             if not title.strip() and not start.strip():
                 return await interaction.response.send_message("Renseigne au moins un champ à modifier (title et/ou start).", ephemeral=True)
@@ -1207,7 +1199,7 @@ class RaidModule:
         async def raid_close(interaction: nextcord.Interaction, raid_id: str = nextcord.SlashOption(description="Raid ID")):
             if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
-            if not can_manage_raids(cfg, interaction.user):
+            if not can_manage_raids(cfg, interaction.user, self.store):
                 return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
             async with self.store.lock:
                 raid = self.store.raids.get(raid_id)
@@ -1230,7 +1222,7 @@ class RaidModule:
         ):
             if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
-            if not can_manage_raids(cfg, interaction.user):
+            if not can_manage_raids(cfg, interaction.user, self.store):
                 return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
             if min_amount > max_amount:
                 return await interaction.response.send_message("Min doit être <= max.", ephemeral=True)
@@ -1260,7 +1252,7 @@ class RaidModule:
             if not raid:
                 return await interaction.response.send_message("Thread non lié à un raid.", ephemeral=True)
 
-            if not can_manage_raids(cfg, interaction.user):
+            if not can_manage_raids(cfg, interaction.user, self.store):
                 s = raid.signups.get(interaction.user.id)
                 if not (s and s.role_key == "raid_leader"):
                     return await interaction.response.send_message("⛔ Seul le Raid Leader ou un manager peut lancer la répartition.", ephemeral=True)
@@ -1396,7 +1388,7 @@ class RaidModule:
                         return await inter.response.send_message("Session expirée.", ephemeral=True)
                     if not inter.guild or not isinstance(inter.user, nextcord.Member):
                         return await inter.response.send_message("Contexte serveur requis.", ephemeral=True)
-                    if inter.user.id != data["author_id"] and not can_manage_raids(self.mod.cfg, inter.user):
+                    if inter.user.id != data["author_id"] and not can_manage_raids(self.mod.cfg, inter.user, self.mod.store):
                         return await inter.response.send_message("⛔ Non autorisé.", ephemeral=True)
                     for c in self.children:
                         c.disabled = True
@@ -1430,7 +1422,7 @@ class RaidModule:
                         return await inter.response.send_message("Session expirée.", ephemeral=True)
                     if not inter.guild or not isinstance(inter.user, nextcord.Member):
                         return await inter.response.send_message("Contexte serveur requis.", ephemeral=True)
-                    if inter.user.id != data["author_id"] and not can_manage_raids(self.mod.cfg, inter.user):
+                    if inter.user.id != data["author_id"] and not can_manage_raids(self.mod.cfg, inter.user, self.mod.store):
                         return await inter.response.send_message("⛔ Non autorisé.", ephemeral=True)
                     for c in self.children:
                         c.disabled = True

@@ -8,6 +8,7 @@ from nextcord.ext import commands
 from ..config import Config
 from ..storage.store import Store, BankAction, BankActionType
 from ..utils.discord import parse_ids, mention
+from ..utils.permissions import can_manage_bank
 
 log = logging.getLogger("albionbot.bank")
 
@@ -15,15 +16,6 @@ UNDO_WINDOW_SECONDS = 15 * 60
 
 def _now() -> int:
     return int(time.time())
-
-def can_manage_bank(cfg: Config, member: nextcord.Member) -> bool:
-    if member.guild_permissions.administrator:
-        return True
-    if cfg.bank_require_manage_guild and member.guild_permissions.manage_guild:
-        return True
-    if cfg.bank_manager_role_id is not None:
-        return any(r.id == cfg.bank_manager_role_id for r in member.roles)
-    return False
 
 def resolve_targets(guild: nextcord.Guild,
                     user: Optional[nextcord.Member],
@@ -105,7 +97,7 @@ class BankModule:
     ):
         if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
             return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
-        if not can_manage_bank(self.cfg, interaction.user):
+        if not can_manage_bank(self.cfg, interaction.user, self.store):
             return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
         if amount < 0:
             return await interaction.response.send_message("Montant invalide (>=0).", ephemeral=True)
@@ -168,7 +160,7 @@ class BankModule:
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
 
             target = user or interaction.user
-            if target.id != interaction.user.id and not can_manage_bank(cfg, interaction.user):
+            if target.id != interaction.user.id and not can_manage_bank(cfg, interaction.user, self.store):
                 return await interaction.response.send_message("⛔ Tu ne peux voir que ta balance.", ephemeral=True)
 
             balance = self.store.bank_get_balance(interaction.guild.id, target.id)
@@ -257,7 +249,7 @@ class BankModule:
         async def bank_undo(interaction: nextcord.Interaction):
             if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
-            if not can_manage_bank(cfg, interaction.user):
+            if not can_manage_bank(cfg, interaction.user, self.store):
                 return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
 
             guild_id = interaction.guild.id
