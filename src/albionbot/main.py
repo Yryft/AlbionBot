@@ -1,7 +1,7 @@
 import logging
 from typing import List
 import nextcord
-from nextcord.ext import commands
+from nextcord.ext import commands, tasks
 from dotenv import load_dotenv
 
 from .config import load_config
@@ -30,6 +30,17 @@ def main():
     bank = BankModule(bot, store, cfg)
 
     guild_kwargs = {"guild_ids": cfg.guild_ids} if cfg.guild_ids else {}
+    rotating_statuses = [
+        nextcord.Streaming(
+            name="regarde mon tuto cuisine",
+            url="https://www.tiktok.com/@stephaniecooks1/video/7606490781146254600",
+        ),
+        nextcord.Streaming(
+            name="listening to Can't Stop — Red Hot Chili Peppers",
+            url="https://open.spotify.com/track/2aibwv5hGXSgw7Yru8IYTO",
+        ),
+    ]
+    status_index = 0
 
     def _can_manage_raids(member: nextcord.Member) -> bool:
         if member.guild_permissions.administrator:
@@ -117,6 +128,9 @@ def main():
     async def on_ready():
         log.info("Logged in as %s", bot.user)
 
+        if not rotate_presence.is_running():
+            rotate_presence.start()
+
         raids.start()
 
         # persistent views for existing raids after restart
@@ -133,5 +147,11 @@ def main():
                         bot.add_view(view)
                     except Exception:
                         pass
+
+    @tasks.loop(seconds=20)
+    async def rotate_presence():
+        nonlocal status_index
+        await bot.change_presence(activity=rotating_statuses[status_index])
+        status_index = (status_index + 1) % len(rotating_statuses)
 
     bot.run(cfg.discord_token)
