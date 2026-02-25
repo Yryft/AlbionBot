@@ -8,6 +8,8 @@ from .config import load_config
 from .storage.store import Store
 from .modules.raids import RaidModule
 from .modules.bank import BankModule
+from .utils.discord import parse_ids
+from .utils.permissions import can_manage_bank, can_manage_raids, is_guild_admin, PERM_BANK_MANAGER, PERM_RAID_MANAGER
 
 log = logging.getLogger("albionbot")
 
@@ -42,24 +44,6 @@ def main():
     ]
     status_index = 0
 
-    def _can_manage_raids(member: nextcord.Member) -> bool:
-        if member.guild_permissions.administrator:
-            return True
-        if cfg.raid_require_manage_guild and member.guild_permissions.manage_guild:
-            return True
-        if cfg.raid_manager_role_id is not None:
-            return any(r.id == cfg.raid_manager_role_id for r in member.roles)
-        return False
-
-    def _can_manage_bank(member: nextcord.Member) -> bool:
-        if member.guild_permissions.administrator:
-            return True
-        if cfg.bank_require_manage_guild and member.guild_permissions.manage_guild:
-            return True
-        if cfg.bank_manager_role_id is not None:
-            return any(r.id == cfg.bank_manager_role_id for r in member.roles)
-        return False
-
     @bot.slash_command(name="help", description="Afficher l'aide des commandes selon ton rôle", **guild_kwargs)
     async def help_cmd(interaction: nextcord.Interaction):
         if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
@@ -69,8 +53,8 @@ def main():
             )
 
         member = interaction.user
-        is_raid_manager = _can_manage_raids(member)
-        is_bank_manager = _can_manage_bank(member)
+        is_raid_manager = can_manage_raids(cfg, member, store)
+        is_bank_manager = can_manage_bank(cfg, member, store)
 
         lines: List[str] = [
             "📘 **Aide AlbionBot**",
@@ -110,6 +94,13 @@ def main():
                 "• `/bank_undo` — Annuler la dernière action (<15 min).",
             ]
 
+        if is_guild_admin(member):
+            lines += [
+                "",
+                "**Commande admin serveur**",
+                "• `/permissions_set <permission> [roles]` — Définir quels rôles peuvent gérer raid/banque.",
+            ]
+
         if not is_raid_manager and not is_bank_manager:
             lines += [
                 "",
@@ -122,6 +113,43 @@ def main():
             color=nextcord.Color.blurple(),
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @bot.slash_command(name="permissions_set", description="(Admin) Définir les rôles autorisés par permission", **guild_kwargs)
+    async def permissions_set(
+        interaction: nextcord.Interaction,
+        permission: str = nextcord.SlashOption(
+            description="Permission à configurer",
+            choices={"Raid manager": PERM_RAID_MANAGER, "Bank manager": PERM_BANK_MANAGER},
+        ),
+        roles: str = nextcord.SlashOption(
+            description="Mentions/IDs des rôles autorisés. Laisse vide pour vider.",
+            required=False,
+            default="",
+        ),
+    ):
+        if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+            return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+        if not is_guild_admin(interaction.user):
+            return await interaction.response.send_message("⛔ Cette commande est réservée aux administrateurs du serveur.", ephemeral=True)
+
+        requested_ids = parse_ids(roles or "")
+        valid_role_ids = [rid for rid in requested_ids if interaction.guild.get_role(rid) is not None]
+
+        async with store.lock:
+            store.set_permission_role_ids(interaction.guild.id, permission, valid_role_ids)
+            store.save()
+
+        if valid_role_ids:
+            role_mentions = " ".join(f"<@&{rid}>" for rid in valid_role_ids)
+            await interaction.response.send_message(
+                f"✅ Permission `{permission}` mise à jour: {role_mentions}",
+                ephemeral=True,
+            )
+        else:
+            await interaction.response.send_message(
+                f"✅ Permission `{permission}` vidée (plus aucun rôle explicite).",
+                ephemeral=True,
+            )
 
 
     @bot.event

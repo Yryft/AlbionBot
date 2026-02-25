@@ -108,6 +108,7 @@ class Store:
 
         self.templates: Dict[str, CompTemplate] = {}
         self.raids: Dict[str, RaidEvent] = {}
+        self.guild_permissions: Dict[int, Dict[str, List[int]]] = {}
 
         self.bank_balances: Dict[int, Dict[int, int]] = {}
         self.bank_actions: Dict[int, List[BankAction]] = {}
@@ -186,6 +187,16 @@ class Store:
                 dm_notify_users=set(map(int, r.get("dm_notify_users", []))),
             )
 
+        self.guild_permissions = {}
+        for gid_str, perm_map in raw.get("guild_permissions", {}).items():
+            gid = int(gid_str)
+            if not isinstance(perm_map, dict):
+                continue
+            out_map: Dict[str, List[int]] = {}
+            for perm_key, role_ids in perm_map.items():
+                out_map[str(perm_key)] = list(map(int, role_ids or []))
+            self.guild_permissions[gid] = out_map
+
     def _load_bank_legacy_from_raw(self, raw: Dict) -> None:
         self.bank_balances = {}
         self.bank_actions = {}
@@ -212,7 +223,7 @@ class Store:
             self.bank_actions[gid] = actions
 
     def _serialize_runtime_state(self) -> Dict:
-        raw = {"templates": {}, "raids": {}}
+        raw = {"templates": {}, "raids": {}, "guild_permissions": {}}
         for name, t in self.templates.items():
             raw["templates"][name] = {
                 "name": t.name,
@@ -250,7 +261,18 @@ class Store:
                 "last_voice_present_ids": list(r.last_voice_present_ids),
                 "dm_notify_users": list(r.dm_notify_users),
             }
+
+        for gid, perm_map in self.guild_permissions.items():
+            raw["guild_permissions"][str(gid)] = {k: list(map(int, v)) for k, v in perm_map.items()}
         return raw
+
+    def get_permission_role_ids(self, guild_id: int, permission_key: str) -> List[int]:
+        return list(self.guild_permissions.get(guild_id, {}).get(permission_key, []))
+
+    def set_permission_role_ids(self, guild_id: int, permission_key: str, role_ids: List[int]) -> None:
+        if guild_id not in self.guild_permissions:
+            self.guild_permissions[guild_id] = {}
+        self.guild_permissions[guild_id][permission_key] = list(map(int, role_ids))
 
     def load(self) -> None:
         file_raw = self._safe_read_json_file()
