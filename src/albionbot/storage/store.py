@@ -7,6 +7,8 @@ from typing import Dict, List, Optional, Set, Literal
 
 RaidStatus = Literal["OPEN", "PINGED", "CLOSED"]
 BankActionType = Literal["add", "remove", "add_split", "remove_split"]
+STATE_DB_KEY = "bot_state_v1"
+
 
 @dataclass
 class CompRole:
@@ -16,14 +18,17 @@ class CompRole:
     ip_required: bool = False
     required_role_ids: List[int] = field(default_factory=list)
 
+
 @dataclass
 class CompTemplate:
     name: str
     description: str
     created_by: int
+    content_type: Literal["ava_raid", "pvp", "pve"] = "pvp"
     created_at: int = field(default_factory=lambda: int(time.time()))
     raid_required_role_ids: List[int] = field(default_factory=list)
     roles: List[CompRole] = field(default_factory=list)
+
 
 @dataclass
 class Signup:
@@ -32,6 +37,7 @@ class Signup:
     status: Literal["main", "wait"] = "main"
     ip: Optional[int] = None
     joined_at: int = field(default_factory=lambda: int(time.time()))
+
 
 @dataclass
 class RaidEvent:
@@ -62,6 +68,9 @@ class RaidEvent:
     ping_done: bool = False
     voice_check_done: bool = False
     cleanup_done: bool = False
+    last_voice_present_ids: List[int] = field(default_factory=list)
+    dm_notify_users: Set[int] = field(default_factory=set)
+
 
 @dataclass
 class BankAction:
@@ -75,27 +84,26 @@ class BankAction:
     undone: bool = False
     undone_at: Optional[int] = None
 
+
 class Store:
     def __init__(self, path: str, bank_action_log_limit: int = 500, bank_database_url: str = "", bank_sqlite_path: str = "data/bank.sqlite3"):
         self.path = path
         self.bank_action_log_limit = bank_action_log_limit
         self.lock = asyncio.Lock()
 
-        # Bank storage: SQL (PostgreSQL on Railway via DATABASE_URL, or SQLite fallback).
         self.bank_db = None
         self._bank_migrated_from_json = False
+        self._state_migrated_from_json = False
         try:
-            from .bank_db import BankDB, BankDBConfig  # lazy import to avoid circular imports
+            from .bank_db import BankDB, BankDBConfig
             self.bank_db = BankDB(BankDBConfig(
                 database_url=(bank_database_url or "").strip(),
                 sqlite_path=(bank_sqlite_path or "data/bank.sqlite3").strip(),
                 action_log_limit=bank_action_log_limit,
             ))
         except Exception:
-            # If a database URL was explicitly provided, fail fast.
             if (bank_database_url or "").strip():
                 raise
-            # Otherwise fallback to legacy JSON-only bank storage.
             self.bank_db = None
 
         self.templates: Dict[str, CompTemplate] = {}
@@ -105,19 +113,22 @@ class Store:
         self.bank_actions: Dict[int, List[BankAction]] = {}
 
         self.load()
-        if self.bank_db and self._bank_migrated_from_json:
-            # Remove legacy bank data from JSON to avoid confusion.
+        if self.bank_db and (self._bank_migrated_from_json or self._state_migrated_from_json):
             self.save()
 
-    def load(self) -> None:
+    def _safe_read_json_file(self) -> Dict:
         if not os.path.exists(self.path):
-            return
-        with open(self.path, "r", encoding="utf-8") as f:
-            raw = json.load(f)
+            return {}
+        try:
+            with open(self.path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
 
+    def _load_templates_and_raids(self, raw: Dict) -> None:
         self.templates = {}
         for name, t in raw.get("templates", {}).items():
-            roles = []
+            roles: List[CompRole] = []
             for r in t.get("roles", []):
                 roles.append(CompRole(
                     key=r["key"],
@@ -130,6 +141,7 @@ class Store:
                 name=t["name"],
                 description=t.get("description", ""),
                 created_by=int(t["created_by"]),
+                content_type=t.get("content_type", "pvp"),
                 created_at=int(t.get("created_at", int(time.time()))),
                 raid_required_role_ids=list(map(int, t.get("raid_required_role_ids", []))),
                 roles=roles,
@@ -137,7 +149,7 @@ class Store:
 
         self.raids = {}
         for rid, r in raw.get("raids", {}).items():
-            signups = {}
+            signups: Dict[int, Signup] = {}
             for uid_str, s in r.get("signups", {}).items():
                 uid = int(uid_str)
                 signups[uid] = Signup(
@@ -147,6 +159,7 @@ class Store:
                     ip=s.get("ip"),
                     joined_at=int(s.get("joined_at", int(time.time()))),
                 )
+
             self.raids[rid] = RaidEvent(
                 raid_id=r["raid_id"],
                 template_name=r["template_name"],
@@ -169,14 +182,18 @@ class Store:
                 ping_done=bool(r.get("ping_done", False)),
                 voice_check_done=bool(r.get("voice_check_done", False)),
                 cleanup_done=bool(r.get("cleanup_done", False)),
+                last_voice_present_ids=list(map(int, r.get("last_voice_present_ids", []))),
+                dm_notify_users=set(map(int, r.get("dm_notify_users", []))),
             )
 
+    def _load_bank_legacy_from_raw(self, raw: Dict) -> None:
         self.bank_balances = {}
+        self.bank_actions = {}
+
         for gid_str, d in raw.get("bank_balances", {}).items():
             gid = int(gid_str)
             self.bank_balances[gid] = {int(uid): int(bal) for uid, bal in d.items()}
 
-        self.bank_actions = {}
         for gid_str, lst in raw.get("bank_actions", {}).items():
             gid = int(gid_str)
             actions: List[BankAction] = []
@@ -194,35 +211,14 @@ class Store:
                 ))
             self.bank_actions[gid] = actions
 
-        # If SQL bank is enabled and the DB is empty, import legacy JSON data once.
-        if self.bank_db is not None:
-            if self.bank_db.is_empty() and (self.bank_balances or self.bank_actions):
-                try:
-                    self.bank_db.import_from_json(self.bank_balances, self.bank_actions)
-                    self._bank_migrated_from_json = True
-                except Exception:
-                    # If import fails, keep legacy data in-memory as fallback.
-                    pass
-            # From now on, bank state lives in SQL. Avoid using the legacy in-memory dicts.
-            self.bank_balances = {}
-            self.bank_actions = {}
-
-
-    def save(self) -> None:
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        tmp = self.path + ".tmp"
+    def _serialize_runtime_state(self) -> Dict:
         raw = {"templates": {}, "raids": {}}
-        if self.bank_db is None:
-            raw["bank_balances"] = {}
-            raw["bank_actions"] = {}
-        else:
-            raw["bank_storage"] = "sql"
-
         for name, t in self.templates.items():
             raw["templates"][name] = {
                 "name": t.name,
                 "description": t.description,
                 "created_by": t.created_by,
+                "content_type": t.content_type,
                 "created_at": t.created_at,
                 "raid_required_role_ids": t.raid_required_role_ids,
                 "roles": [asdict(r) for r in t.roles],
@@ -251,12 +247,49 @@ class Store:
                 "ping_done": r.ping_done,
                 "voice_check_done": r.voice_check_done,
                 "cleanup_done": r.cleanup_done,
+                "last_voice_present_ids": list(r.last_voice_present_ids),
+                "dm_notify_users": list(r.dm_notify_users),
             }
+        return raw
 
-        if self.bank_db is None:
+    def load(self) -> None:
+        file_raw = self._safe_read_json_file()
+        raw_for_state = file_raw
+
+        if self.bank_db is not None:
+            db_blob = self.bank_db.get_state_blob(STATE_DB_KEY)
+            if db_blob:
+                try:
+                    raw_for_state = json.loads(db_blob)
+                except Exception:
+                    raw_for_state = file_raw
+            elif file_raw.get("templates") or file_raw.get("raids"):
+                self._state_migrated_from_json = True
+
+        self._load_templates_and_raids(raw_for_state)
+        self._load_bank_legacy_from_raw(file_raw)
+
+        if self.bank_db is not None:
+            if self.bank_db.is_empty() and (self.bank_balances or self.bank_actions):
+                try:
+                    self.bank_db.import_from_json(self.bank_balances, self.bank_actions)
+                    self._bank_migrated_from_json = True
+                except Exception:
+                    pass
+            self.bank_balances = {}
+            self.bank_actions = {}
+
+    def save(self) -> None:
+        raw = self._serialize_runtime_state()
+
+        if self.bank_db is not None:
+            raw["bank_storage"] = "sql"
+            self.bank_db.set_state_blob(STATE_DB_KEY, json.dumps(raw, ensure_ascii=False))
+        else:
+            raw["bank_balances"] = {}
+            raw["bank_actions"] = {}
             for gid, d in self.bank_balances.items():
                 raw["bank_balances"][str(gid)] = {str(uid): bal for uid, bal in d.items()}
-
             for gid, actions in self.bank_actions.items():
                 raw["bank_actions"][str(gid)] = []
                 for a in actions[-self.bank_action_log_limit:]:
@@ -272,6 +305,9 @@ class Store:
                         "undone_at": a.undone_at,
                     })
 
+        base_dir = os.path.dirname(self.path) or "."
+        os.makedirs(base_dir, exist_ok=True)
+        tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(raw, f, ensure_ascii=False, indent=2)
         os.replace(tmp, self.path)
@@ -300,7 +336,6 @@ class Store:
         if len(self.bank_actions[action.guild_id]) > self.bank_action_log_limit:
             self.bank_actions[action.guild_id] = self.bank_actions[action.guild_id][-self.bank_action_log_limit:]
 
-
     def bank_find_last_action_for_actor(self, guild_id: int, actor_id: int) -> Optional[BankAction]:
         if self.bank_db is not None:
             return self.bank_db.find_last_action_for_actor(guild_id, actor_id)
@@ -313,3 +348,10 @@ class Store:
     def bank_mark_action_undone(self, action_id: str, undone_at: int) -> None:
         if self.bank_db is not None:
             self.bank_db.mark_action_undone(action_id, undone_at)
+            return
+        for actions in self.bank_actions.values():
+            for a in actions:
+                if a.action_id == action_id:
+                    a.undone = True
+                    a.undone_at = int(undone_at)
+                    return
