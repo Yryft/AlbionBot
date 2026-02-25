@@ -43,8 +43,8 @@ class RoleSelect(nextcord.ui.Select):
         await self.on_select_cb(interaction, self.raid_id, self.values[0])
 
 class AbsentButton(nextcord.ui.Button):
-    def __init__(self, *, bot: commands.Bot, raid_id: str, on_click):
-        super().__init__(label="Absent (toggle)", style=nextcord.ButtonStyle.secondary, custom_id=f"raid:{raid_id}:absent")
+    def __init__(self, *, bot: commands.Bot, raid_id: str, disabled: bool, on_click):
+        super().__init__(label="Absent (toggle)", style=nextcord.ButtonStyle.secondary, custom_id=f"raid:{raid_id}:absent", disabled=disabled)
         self.bot = bot
         self.raid_id = raid_id
         self.on_click_cb = on_click
@@ -53,8 +53,18 @@ class AbsentButton(nextcord.ui.Button):
         await self.on_click_cb(interaction, self.raid_id)
 
 class LeaveButton(nextcord.ui.Button):
-    def __init__(self, *, bot: commands.Bot, raid_id: str, on_click):
-        super().__init__(label="Leave", style=nextcord.ButtonStyle.secondary, custom_id=f"raid:{raid_id}:leave")
+    def __init__(self, *, bot: commands.Bot, raid_id: str, disabled: bool, on_click):
+        super().__init__(label="Leave", style=nextcord.ButtonStyle.secondary, custom_id=f"raid:{raid_id}:leave", disabled=disabled)
+        self.bot = bot
+        self.raid_id = raid_id
+        self.on_click_cb = on_click
+
+    async def callback(self, interaction: nextcord.Interaction):
+        await self.on_click_cb(interaction, self.raid_id)
+
+class NotifyButton(nextcord.ui.Button):
+    def __init__(self, *, bot: commands.Bot, raid_id: str, disabled: bool, on_click):
+        super().__init__(label="DM notif (toggle)", style=nextcord.ButtonStyle.primary, custom_id=f"raid:{raid_id}:notify", disabled=disabled)
         self.bot = bot
         self.raid_id = raid_id
         self.on_click_cb = on_click
@@ -63,7 +73,7 @@ class LeaveButton(nextcord.ui.Button):
         await self.on_click_cb(interaction, self.raid_id)
 
 class RaidView(nextcord.ui.View):
-    def __init__(self, *, bot: commands.Bot, raid: RaidEvent, template: CompTemplate, join_disabled: bool, on_select, on_absent, on_leave):
+    def __init__(self, *, bot: commands.Bot, raid: RaidEvent, template: CompTemplate, join_disabled: bool, actions_disabled: bool, notify_disabled: bool, on_select, on_absent, on_leave, on_notify):
         super().__init__(timeout=None)
 
         options_all: List[nextcord.SelectOption] = []
@@ -92,5 +102,6 @@ class RaidView(nextcord.ui.View):
                 on_select=on_select,
             ))
 
-        self.add_item(AbsentButton(bot=bot, raid_id=raid.raid_id, on_click=on_absent))
-        self.add_item(LeaveButton(bot=bot, raid_id=raid.raid_id, on_click=on_leave))
+        self.add_item(AbsentButton(bot=bot, raid_id=raid.raid_id, disabled=actions_disabled, on_click=on_absent))
+        self.add_item(LeaveButton(bot=bot, raid_id=raid.raid_id, disabled=actions_disabled, on_click=on_leave))
+        self.add_item(NotifyButton(bot=bot, raid_id=raid.raid_id, disabled=notify_disabled, on_click=on_notify))

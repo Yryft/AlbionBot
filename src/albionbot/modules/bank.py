@@ -172,7 +172,7 @@ class BankModule:
                 return await interaction.response.send_message("⛔ Tu ne peux voir que ta balance.", ephemeral=True)
 
             balance = self.store.bank_get_balance(interaction.guild.id, target.id)
-            await interaction.response.send_message(f"💰 Balance de {target.mention} : **{balance}**", ephemeral=True)
+            await interaction.response.send_message(f"💰 Balance de {target.mention} : **{balance:,}**", ephemeral=True)
 
         @bot.slash_command(name="bank_add", description="Ajouter à la balance (mass possible)", **guild_kwargs)
         async def bank_add(
@@ -217,6 +217,41 @@ class BankModule:
             note: str = nextcord.SlashOption(description="Note (optionnel)", required=False, default=""),
         ):
             await self._bank_change_common(interaction, "remove_split", total, user, role, targets, note, split=True)
+
+
+        @bot.slash_command(name="pay", description="Transférer de ta balance à un joueur", **guild_kwargs)
+        async def pay(
+            interaction: nextcord.Interaction,
+            to_user: nextcord.Member = nextcord.SlashOption(description="Destinataire"),
+            amount: int = nextcord.SlashOption(description="Montant", min_value=1),
+            note: str = nextcord.SlashOption(description="Note (optionnel)", required=False, default=""),
+        ):
+            if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+                return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+            if to_user.bot:
+                return await interaction.response.send_message("Impossible de payer un bot.", ephemeral=True)
+            if to_user.id == interaction.user.id:
+                return await interaction.response.send_message("Tu ne peux pas te payer toi-même.", ephemeral=True)
+
+            guild_id = interaction.guild.id
+            from_uid = interaction.user.id
+            to_uid = to_user.id
+            amt = int(amount)
+
+            async with self.store.lock:
+                from_bal = self.store.bank_get_balance(guild_id, from_uid)
+                if from_bal < amt:
+                    return await interaction.response.send_message(f"⛔ Solde insuffisant: {from_bal:,}", ephemeral=True)
+
+                self.store.bank_set_balance(guild_id, from_uid, from_bal - amt)
+                to_bal = self.store.bank_get_balance(guild_id, to_uid)
+                self.store.bank_set_balance(guild_id, to_uid, to_bal + amt)
+                self.store.save()
+
+            await interaction.response.send_message(
+                f"💸 {interaction.user.mention} a payé {to_user.mention} : **{amt:,}**" + (f"\n📝 {note.strip()}" if note.strip() else ""),
+                ephemeral=False,
+            )
 
         @bot.slash_command(name="bank_undo", description="Annule ta dernière action banque (si <15min)", **guild_kwargs)
         async def bank_undo(interaction: nextcord.Interaction):
