@@ -24,6 +24,7 @@ class CompTemplate:
     name: str
     description: str
     created_by: int
+    content_type: Literal["ava_raid", "pvp", "pve"] = "pvp"
     created_at: int = field(default_factory=lambda: int(time.time()))
     raid_required_role_ids: List[int] = field(default_factory=list)
     roles: List[CompRole] = field(default_factory=list)
@@ -67,6 +68,8 @@ class RaidEvent:
     ping_done: bool = False
     voice_check_done: bool = False
     cleanup_done: bool = False
+    last_voice_present_ids: List[int] = field(default_factory=list)
+
 
 
 @dataclass
@@ -138,6 +141,7 @@ class Store:
                 name=t["name"],
                 description=t.get("description", ""),
                 created_by=int(t["created_by"]),
+                content_type=t.get("content_type", "pvp"),
                 created_at=int(t.get("created_at", int(time.time()))),
                 raid_required_role_ids=list(map(int, t.get("raid_required_role_ids", []))),
                 roles=roles,
@@ -178,6 +182,7 @@ class Store:
                 ping_done=bool(r.get("ping_done", False)),
                 voice_check_done=bool(r.get("voice_check_done", False)),
                 cleanup_done=bool(r.get("cleanup_done", False)),
+                last_voice_present_ids=list(map(int, r.get("last_voice_present_ids", []))),
             )
 
     def _load_bank_legacy_from_raw(self, raw: Dict) -> None:
@@ -212,6 +217,7 @@ class Store:
                 "name": t.name,
                 "description": t.description,
                 "created_by": t.created_by,
+                "content_type": t.content_type,
                 "created_at": t.created_at,
                 "raid_required_role_ids": t.raid_required_role_ids,
                 "roles": [asdict(r) for r in t.roles],
@@ -240,6 +246,7 @@ class Store:
                 "ping_done": r.ping_done,
                 "voice_check_done": r.voice_check_done,
                 "cleanup_done": r.cleanup_done,
+                "last_voice_present_ids": list(r.last_voice_present_ids),
             }
         return raw
 

@@ -2,7 +2,7 @@ import time
 import asyncio
 import logging
 from datetime import datetime
-from typing import List, Optional, Set, Tuple, Literal
+from typing import Dict, List, Optional, Set, Tuple, Literal
 
 import nextcord
 from nextcord.ext import commands, tasks
@@ -18,6 +18,8 @@ log = logging.getLogger("albionbot.raids")
 
 MIN_IP = 0
 MAX_IP = 2500
+AVA_RAID = "ava_raid"
+
 
 def _now() -> int:
     return int(time.time())
@@ -245,6 +247,8 @@ class RaidModule:
         self.store = store
         self.cfg = cfg
         self._started = False
+        self._loot_sessions: Dict[str, dict] = {}
+        self._loot_scout_limits: Dict[int, Tuple[int, int]] = {}
         self._register_commands()
 
     def start(self):
@@ -278,6 +282,43 @@ class RaidModule:
         if not user_input:
             return ids[:25]
         return [rid for rid in ids if user_input in rid.lower()][:25]
+
+    def _find_raid_by_thread(self, thread_id: int) -> Optional[RaidEvent]:
+        for r in self.store.raids.values():
+            if r.thread_id == thread_id:
+                return r
+        return None
+
+    def _parse_money_int(self, raw: str) -> int:
+        txt = (raw or "").strip().replace(" ", "").replace(",", "").replace("_", "")
+        if not txt:
+            return 0
+        return int(float(txt))
+
+    def _get_scout_limits(self, guild_id: int) -> Tuple[int, int]:
+        return self._loot_scout_limits.get(guild_id, (2_000_000, 10_000_000))
+
+    def _compute_loot_split(self, *, total_net: int, rl_user_id: Optional[int], scout_user_id: Optional[int], players: List[int], rl_bonus_pct: float, scout_pct: float, scout_min: int, scout_max: int, maps_cost: int) -> dict:
+        scout_raw = int(round(total_net * scout_pct / 100.0))
+        scout_paid = max(scout_min, min(scout_max, scout_raw)) if scout_user_id else 0
+        base_players = [uid for uid in players if uid != scout_user_id]
+        post_scout = max(0, total_net - scout_paid)
+        post_maps = max(0, post_scout - maps_cost)
+        payouts: Dict[int, int] = {}
+        rl_paid = 0
+        if not base_players:
+            share = 0
+        else:
+            bonus = max(0.0, rl_bonus_pct) / 100.0
+            rl_in = rl_user_id in base_players if rl_user_id else False
+            denom = (len(base_players) - 1 + (1.0 + bonus)) if rl_in else float(len(base_players))
+            share = int(post_maps / denom) if denom > 0 else 0
+            for uid in base_players:
+                payouts[uid] = share
+            if rl_in and rl_user_id is not None:
+                rl_paid = int(round(share * (1.0 + bonus)))
+                payouts[rl_user_id] = rl_paid
+        return {"scout_paid": scout_paid, "post_scout": post_scout, "post_maps": post_maps, "share": share, "payouts": payouts, "rl_paid": rl_paid}
 
 
     # ---------- View builder
@@ -441,6 +482,7 @@ class RaidModule:
 
         expected = set(raid.signups.keys()) - set(raid.absent)
         present_expected = sorted(expected.intersection(voice_member_ids))
+        raid.last_voice_present_ids = list(present_expected)
         present_unexpected = sorted(voice_member_ids - expected)
         missing_expected = sorted(expected - voice_member_ids)
 
@@ -482,35 +524,42 @@ class RaidModule:
                 pass
 
     async def _cleanup_raid(self, raid: RaidEvent) -> None:
-        if not raid.channel_id:
+        # Temp roles are intentionally kept after raid end for later payout/accounting workflows.
+        return
+
+    async def _cleanup_temp_role_after_split(self, raid: RaidEvent) -> None:
+        if not raid.channel_id or not raid.temp_role_id:
             return
-        ch = await self.bot.fetch_channel(raid.channel_id)
+        try:
+            ch = await self.bot.fetch_channel(raid.channel_id)
+        except Exception:
+            return
         if not isinstance(ch, (nextcord.TextChannel, nextcord.Thread)):
             return
         guild = ch.guild
-
-        role = guild.get_role(raid.temp_role_id) if raid.temp_role_id else None
-        if role:
-            for uid in list(raid.signups.keys()):
-                member = guild.get_member(uid)
-                if not member or member.bot:
-                    continue
-                try:
-                    await member.remove_roles(role, reason=f"Raid cleanup {raid.raid_id}")
-                except Exception:
-                    pass
-
-            if raid.voice_channel_id:
-                vc = guild.get_channel(raid.voice_channel_id)
-                if isinstance(vc, nextcord.VoiceChannel):
-                    await self._remove_voice_overwrite(vc, role)
-
+        role = guild.get_role(raid.temp_role_id)
+        if not role:
+            raid.temp_role_id = None
+            self.store.save()
+            return
+        for uid in list(raid.signups.keys()):
+            m = guild.get_member(uid)
+            if not m or m.bot:
+                continue
             try:
-                await role.delete(reason=f"Raid cleanup {raid.raid_id}")
+                await m.remove_roles(role, reason=f"Loot split cleanup {raid.raid_id}")
             except Exception:
                 pass
-
+        if raid.voice_channel_id:
+            vc = guild.get_channel(raid.voice_channel_id)
+            if isinstance(vc, nextcord.VoiceChannel):
+                await self._remove_voice_overwrite(vc, role)
+        try:
+            await role.delete(reason=f"Loot split cleanup {raid.raid_id}")
+        except Exception:
+            pass
         raid.temp_role_id = None
+        self.store.save()
 
     # ---------- UI callbacks
     async def _on_select(self, interaction: nextcord.Interaction, raid_id: str, role_key: str):
@@ -536,6 +585,8 @@ class RaidModule:
         role_def = rm.get(role_key)
         if not role_def:
             return await interaction.response.send_message("Rôle invalide.", ephemeral=True)
+        if role_key == "raid_leader":
+            return await interaction.response.send_message("⛔ Le rôle Raid Leader est réservé au créateur du raid.", ephemeral=True)
 
         if role_def.required_role_ids and not has_any_role(member, role_def.required_role_ids):
             req_txt = " ".join(f"<@&{rid}>" for rid in role_def.required_role_ids)
@@ -584,6 +635,8 @@ class RaidModule:
             role_def = rm.get(role_key)
             if not role_def:
                 return await interaction.response.send_message("Rôle invalide.", ephemeral=True)
+            if role_key == "raid_leader":
+                return await interaction.response.send_message("⛔ Le rôle Raid Leader est réservé au créateur du raid.", ephemeral=True)
 
             main_count = count_main_for_role(raid, role_key)
             status = "main" if main_count < role_def.slots else "wait"
@@ -619,6 +672,10 @@ class RaidModule:
             if raid.ping_done or raid.cleanup_done:
                 return await interaction.response.send_message("⛔ Actions indisponibles après mass-up.", ephemeral=True)
 
+            cur = raid.signups.get(uid)
+            if cur and cur.role_key == "raid_leader":
+                return await interaction.response.send_message("⛔ Le Raid Leader ne peut pas se mettre absent.", ephemeral=True)
+
             if uid in raid.absent:
                 raid.absent.discard(uid)
                 self.store.save()
@@ -648,6 +705,10 @@ class RaidModule:
                 return await interaction.response.send_message("Template introuvable.", ephemeral=True)
             if raid.ping_done or raid.cleanup_done:
                 return await interaction.response.send_message("⛔ Actions indisponibles après mass-up.", ephemeral=True)
+
+            cur = raid.signups.get(uid)
+            if cur and cur.role_key == "raid_leader":
+                return await interaction.response.send_message("⛔ Le Raid Leader ne peut pas quitter le raid.", ephemeral=True)
 
             if uid in raid.signups:
                 del raid.signups[uid]
@@ -719,6 +780,21 @@ class RaidModule:
         else:
             desc = "" if desc.strip() == "-" else desc.strip()
 
+        type_prompt = "2b) Type de contenu ? (`ava_raid`, `pvp`, `pve`)"
+        if mode == "edit":
+            cur_type = getattr(base, "content_type", "pvp")
+            type_prompt = f"2b) Type de contenu ? (`.` pour garder) Actuel: `{cur_type}`"
+        content_type_raw = await ask(type_prompt)
+        if content_type_raw is None:
+            return
+        if mode == "edit" and content_type_raw.strip() == ".":
+            content_type = getattr(base, "content_type", "pvp")
+        else:
+            content_type = content_type_raw.strip().lower()
+            if content_type not in ("ava_raid", "pvp", "pve"):
+                await dm.send("❌ Type invalide. Utilise `ava_raid`, `pvp` ou `pve`.")
+                return
+
         raid_req_prompt = "3) Rôle(s) Discord requis pour rejoindre le RAID ? (IDs/mentions) (ou `-` pour aucun)"
         if mode == "edit":
             cur = ", ".join(map(str, base.raid_required_role_ids)) if base.raid_required_role_ids else "-"
@@ -730,6 +806,26 @@ class RaidModule:
             raid_req_ids = list(base.raid_required_role_ids)
         else:
             raid_req_ids = [] if raid_req.strip() == "-" else parse_ids(raid_req)
+
+        scout_req_ids: List[int] = []
+        if content_type == AVA_RAID:
+            cur_scout_req: List[int] = []
+            if mode == "edit" and base:
+                for rr in base.roles:
+                    if rr.key == "scout":
+                        cur_scout_req = list(rr.required_role_ids)
+                        break
+            scout_prompt = "3b) Rôle(s) Discord requis pour rejoindre **Scout** ? (IDs/mentions) (`-` pour aucun)"
+            if mode == "edit":
+                cur = ", ".join(map(str, cur_scout_req)) if cur_scout_req else "-"
+                scout_prompt = f"3b) Rôle(s) requis pour Scout ? (`.` pour garder) Actuel: `{cur}`"
+            scout_req = await ask(scout_prompt)
+            if scout_req is None:
+                return
+            if mode == "edit" and scout_req.strip() == ".":
+                scout_req_ids = cur_scout_req
+            else:
+                scout_req_ids = [] if scout_req.strip() == "-" else parse_ids(scout_req)
 
         await dm.send(
             "4) **Spec des rôles** (1 ligne = 1 rôle). Format:\n"
@@ -750,6 +846,14 @@ class RaidModule:
                 await dm.send("❌ Spec invalide.")
                 return
 
+        if content_type == AVA_RAID:
+            roles = [r for r in roles if r.key not in ("raid_leader", "scout")]
+            forced = [
+                CompRole(key="raid_leader", label="Raid Leader", slots=1, ip_required=False, required_role_ids=[]),
+                CompRole(key="scout", label="Scout", slots=1, ip_required=False, required_role_ids=scout_req_ids),
+            ]
+            roles = [forced[0]] + roles + [forced[1]]
+
         async with self.store.lock:
             if mode == "edit" and base and name != base.name and base.name in self.store.templates:
                 del self.store.templates[base.name]
@@ -757,6 +861,7 @@ class RaidModule:
                 name=name,
                 description=desc,
                 created_by=member.id,
+                content_type=content_type,
                 raid_required_role_ids=raid_req_ids,
                 roles=roles,
             )
@@ -923,6 +1028,16 @@ class RaidModule:
                 voice_channel_id=(voice_channel.id if voice_channel else None),
             )
 
+            if getattr(tpl, "content_type", "pvp") == AVA_RAID:
+                if any(r.key == "raid_leader" for r in tpl.roles):
+                    raid.signups[interaction.user.id] = Signup(
+                        user_id=interaction.user.id,
+                        role_key="raid_leader",
+                        status="main",
+                        ip=None,
+                        joined_at=_now(),
+                    )
+
             embed = build_raid_embed(interaction.guild, raid, tpl)
             view = self.build_view(raid, tpl)
 
@@ -1043,3 +1158,221 @@ class RaidModule:
         @raid_close.on_autocomplete("raid_id")
         async def _raid_close_ac(interaction: nextcord.Interaction, user_input: str):
             return self._autocomplete_raid_ids(user_input)
+
+        @bot.slash_command(name="loot_scout_limits", description="Définir min/max de part scout", **guild_kwargs)
+        async def loot_scout_limits(
+            interaction: nextcord.Interaction,
+            min_amount: int = nextcord.SlashOption(description="Minimum scout", min_value=0),
+            max_amount: int = nextcord.SlashOption(description="Maximum scout", min_value=0),
+        ):
+            if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+                return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+            if not can_manage_raids(cfg, interaction.user):
+                return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
+            if min_amount > max_amount:
+                return await interaction.response.send_message("Min doit être <= max.", ephemeral=True)
+            self._loot_scout_limits[interaction.guild.id] = (int(min_amount), int(max_amount))
+            await interaction.response.send_message(f"✅ Limites scout: {min_amount:,} - {max_amount:,}", ephemeral=True)
+
+        @bot.slash_command(name="loot_split", description="Préparer la répartition loot (thread raid)", **guild_kwargs)
+        async def loot_split(
+            interaction: nextcord.Interaction,
+            coffre_value: str = nextcord.SlashOption(description="Valeur coffre"),
+            silver_bags: str = nextcord.SlashOption(description="Valeur sacs d'argent"),
+            tax_percent: float = nextcord.SlashOption(description="Tax coffre %", required=False, default=10.0),
+            rl_bonus_percent: float = nextcord.SlashOption(description="Bonus RL %", required=False, default=7.5),
+            scout_percent: float = nextcord.SlashOption(description="Part scout %", required=False, default=10.0),
+            maps: str = nextcord.SlashOption(description="Maps (lignes: tier;prix;finish[1/0])", required=False, default=""),
+            add_players: str = nextcord.SlashOption(description="Ajouter joueurs (mentions/ids)", required=False, default=""),
+            remove_players: str = nextcord.SlashOption(description="Retirer joueurs (mentions/ids)", required=False, default=""),
+            rl_override: str = nextcord.SlashOption(description="Override RL (mention/id)", required=False, default=""),
+            scout_override: str = nextcord.SlashOption(description="Override Scout (mention/id)", required=False, default=""),
+        ):
+            if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+                return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+            if not isinstance(interaction.channel, nextcord.Thread):
+                return await interaction.response.send_message("Commande utilisable uniquement dans un thread de raid.", ephemeral=True)
+
+            raid = self._find_raid_by_thread(interaction.channel.id)
+            if not raid:
+                return await interaction.response.send_message("Thread non lié à un raid.", ephemeral=True)
+
+            if not can_manage_raids(cfg, interaction.user):
+                s = raid.signups.get(interaction.user.id)
+                if not (s and s.role_key == "raid_leader"):
+                    return await interaction.response.send_message("⛔ Seul le Raid Leader ou un manager peut lancer la répartition.", ephemeral=True)
+
+            try:
+                coffre_raw = self._parse_money_int(coffre_value)
+                bags_raw = self._parse_money_int(silver_bags)
+            except Exception:
+                return await interaction.response.send_message("Montants invalides.", ephemeral=True)
+
+            rl_user_id = raid.created_by
+            scout_user_id = None
+            for uid, s in raid.signups.items():
+                if s.role_key == "raid_leader":
+                    rl_user_id = uid
+                if s.role_key == "scout":
+                    scout_user_id = uid
+
+            rl_ids = parse_ids(rl_override)
+            scout_ids = parse_ids(scout_override)
+            if rl_ids:
+                rl_user_id = rl_ids[0]
+            if scout_ids:
+                scout_user_id = scout_ids[0]
+
+            players = list(raid.last_voice_present_ids or [])
+            if not players:
+                players = sorted([uid for uid in raid.signups.keys() if uid not in raid.absent])
+            for uid in parse_ids(add_players):
+                if uid not in players:
+                    players.append(uid)
+            to_remove = set(parse_ids(remove_players))
+            players = [uid for uid in players if uid not in to_remove]
+
+            maps_lines = [ln.strip() for ln in maps.splitlines() if ln.strip()]
+            map_rows = []
+            maps_cost = 0
+            finished_maps_count = 0
+            for ln in maps_lines:
+                parts = [x.strip() for x in ln.split(";")]
+                if len(parts) < 2:
+                    continue
+                tier = parts[0]
+                try:
+                    price = self._parse_money_int(parts[1])
+                except Exception:
+                    continue
+                finished = True
+                if len(parts) >= 3:
+                    finished = parts[2] not in ("0", "false", "non", "no")
+                effective = price if finished else int(round(price * 0.10))
+                maps_cost += effective
+                if finished:
+                    finished_maps_count += 1
+                map_rows.append((tier, price, finished, effective))
+
+            coffre_net = int(round(coffre_raw * (1 - (tax_percent / 100.0))))
+            total_net = coffre_net + bags_raw
+            scout_min, scout_max = self._get_scout_limits(interaction.guild.id)
+            mult = max(1, finished_maps_count)
+            scout_min *= mult
+            scout_max *= mult
+
+            calc = self._compute_loot_split(
+                total_net=total_net,
+                rl_user_id=rl_user_id,
+                scout_user_id=scout_user_id,
+                players=players,
+                rl_bonus_pct=rl_bonus_percent,
+                scout_pct=scout_percent,
+                scout_min=scout_min,
+                scout_max=scout_max,
+                maps_cost=maps_cost,
+            )
+
+            calc_payouts: Dict[int, int] = dict(calc["payouts"])
+            if scout_user_id and calc["scout_paid"] > 0:
+                calc_payouts[scout_user_id] = calc_payouts.get(scout_user_id, 0) + int(calc["scout_paid"])
+
+            def m(uid: Optional[int]) -> str:
+                return mention(uid) if uid else "*(non défini)*"
+
+            lines = [
+                "✅ **Processed 💸**",
+                "Vérifiez les calculs puis validez avec le bouton.",
+                f"**Raid**: `{raid.raid_id}`",
+                f"**RL**: {m(rl_user_id)}",
+                f"**Scout**: {m(scout_user_id)}",
+                f"**Total Pot**: `{total_net:,}`",
+                "",
+                "📊 **Financial Summary**",
+                f"Coffre brut: `{coffre_raw:,}`",
+                f"Coffre net ({tax_percent:.1f}% tax): `{coffre_net:,}`",
+                f"Silver bags: `{bags_raw:,}`",
+                f"Total net: `{total_net:,}`",
+                "",
+                "👑 **RL / Scout**",
+                f"RL bonus: `{rl_bonus_percent:.2f}%`",
+                f"Scout part: `{scout_percent:.2f}%` clamp `{scout_min:,}`-`{scout_max:,}` => `{calc['scout_paid']:,}`",
+                "",
+                "🗺️ **Maps**",
+                f"Total maps cost: `{maps_cost:,}`",
+            ]
+            for tier, price, finished, effective in map_rows[:20]:
+                status = "Finish" if finished else "Cancel(-90%)"
+                lines.append(f"• {tier}: `{price:,}` => `{effective:,}` ({status})")
+            lines += [
+                "",
+                "👥 **Sharing**",
+                f"Post-scout: `{calc['post_scout']:,}`",
+                f"Post-maps: `{calc['post_maps']:,}`",
+                f"Share normal: `{calc['share']:,}`",
+                f"Joueurs split ({len(calc_payouts)}): " + " ".join(mention(uid) for uid in list(calc_payouts.keys())[:25]),
+                "",
+                "📋 **Payouts**",
+            ]
+            for uid, amt in list(calc_payouts.items())[:60]:
+                lines.append(f"• {mention(uid)}: `+{amt:,}`")
+
+            token = f"loot:{interaction.guild.id}:{interaction.channel.id}:{interaction.user.id}:{int(time.time())}"
+            self._loot_sessions[token] = {"author_id": interaction.user.id, "summary": "\n".join(lines), "raid_id": raid.raid_id, "payouts": calc_payouts}
+
+            class LootConfirmView(nextcord.ui.View):
+                def __init__(self, mod: "RaidModule", tkn: str):
+                    super().__init__(timeout=900)
+                    self.mod = mod
+                    self.tkn = tkn
+
+                @nextcord.ui.button(label="✅ Procéder", style=nextcord.ButtonStyle.success)
+                async def proceed(self, button: nextcord.ui.Button, inter: nextcord.Interaction):
+                    data = self.mod._loot_sessions.get(self.tkn)
+                    if not data:
+                        return await inter.response.send_message("Session expirée.", ephemeral=True)
+                    if not inter.guild or not isinstance(inter.user, nextcord.Member):
+                        return await inter.response.send_message("Contexte serveur requis.", ephemeral=True)
+                    if inter.user.id != data["author_id"] and not can_manage_raids(self.mod.cfg, inter.user):
+                        return await inter.response.send_message("⛔ Non autorisé.", ephemeral=True)
+                    for c in self.children:
+                        c.disabled = True
+                    await inter.message.edit(view=self)
+
+                    raid_obj = self.mod.store.raids.get(data.get("raid_id", ""))
+                    payouts = data.get("payouts", {})
+                    if inter.guild and payouts:
+                        async with self.mod.store.lock:
+                            for uid, amt in payouts.items():
+                                cur = self.mod.store.bank_get_balance(inter.guild.id, int(uid))
+                                self.mod.store.bank_set_balance(inter.guild.id, int(uid), cur + int(amt))
+                            self.mod.store.save()
+
+                    if raid_obj:
+                        await self.mod._cleanup_temp_role_after_split(raid_obj)
+
+                    ping_targets = " ".join(mention(int(uid)) for uid in payouts.keys()) if payouts else ""
+                    if ping_targets:
+                        try:
+                            await inter.channel.send(f"💰 Paiement split effectué pour: {ping_targets}")
+                        except Exception:
+                            pass
+
+                    await inter.response.send_message("✅ Répartition validée et paiements appliqués.", ephemeral=True)
+
+                @nextcord.ui.button(label="❌ Annuler", style=nextcord.ButtonStyle.danger)
+                async def cancel(self, button: nextcord.ui.Button, inter: nextcord.Interaction):
+                    data = self.mod._loot_sessions.get(self.tkn)
+                    if not data:
+                        return await inter.response.send_message("Session expirée.", ephemeral=True)
+                    if not inter.guild or not isinstance(inter.user, nextcord.Member):
+                        return await inter.response.send_message("Contexte serveur requis.", ephemeral=True)
+                    if inter.user.id != data["author_id"] and not can_manage_raids(self.mod.cfg, inter.user):
+                        return await inter.response.send_message("⛔ Non autorisé.", ephemeral=True)
+                    for c in self.children:
+                        c.disabled = True
+                    await inter.message.edit(view=self)
+                    await inter.response.send_message("❌ Répartition annulée.", ephemeral=True)
+
+            await interaction.response.send_message("Résumé prêt, publié dans le thread.", ephemeral=True)
+            await interaction.channel.send(self._loot_sessions[token]["summary"], view=LootConfirmView(self, token))
