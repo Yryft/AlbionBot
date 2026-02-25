@@ -172,7 +172,7 @@ class BankModule:
                 return await interaction.response.send_message("⛔ Tu ne peux voir que ta balance.", ephemeral=True)
 
             balance = self.store.bank_get_balance(interaction.guild.id, target.id)
-            await interaction.response.send_message(f"💰 Balance de {target.mention} : **{balance}**", ephemeral=True)
+            await interaction.response.send_message(f"💰 Balance de {target.mention} : **{balance:,}**", ephemeral=True)
 
         @bot.slash_command(name="bank_add", description="Ajouter à la balance (mass possible)", **guild_kwargs)
         async def bank_add(
