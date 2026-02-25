@@ -74,7 +74,7 @@ def raid_status_style(status: str) -> Tuple[nextcord.Color, str]:
     if status == "OPEN":
         return nextcord.Color.green(), "🟢 Ouvert"
     if status == "PINGED":
-        return nextcord.Color.red(), "🔴 Mass-up envoyé (inscriptions fermées)"
+        return nextcord.Color.red(), "🔴 En cours"
     return nextcord.Color.dark_grey(), "⚪ Terminé"
 
 def build_roster_lines(raid: RaidEvent, tpl: CompTemplate) -> List[str]:
@@ -92,7 +92,7 @@ def build_roster_lines(raid: RaidEvent, tpl: CompTemplate) -> List[str]:
         wait = [u for u in users if u.status == "wait"]
         header = f"**{r.label}** `{len(main)}/{r.slots}`"
         if wait:
-            header += f"  `prioritaire +{len(wait)}`"
+            header += f"  `Prioritaire +{len(wait)}`"
         tags = []
         if r.ip_required:
             tags.append("IP")
@@ -119,22 +119,23 @@ def build_raid_embed(guild: nextcord.Guild, raid: RaidEvent, tpl: CompTemplate) 
     color, status_txt = raid_status_style(status)
 
     e = nextcord.Embed(
-        title=f"⚔️ {raid.title}",
-        description=limit_str(raid.description.strip() if raid.description else "*Aucune description.*", 1800),
+        title=f"{raid.title}",
+        description=limit_str(raid.description.strip() if raid.description else "", 1800),
         color=color,
     )
+
+    if raid.extra_message.strip():
+        e.add_field(name="", value=limit_str(raid.extra_message.strip(), 1000), inline=False)
+
     e.add_field(
-        name="🕒 Date / heure",
-        value=f"<t:{raid.start_at}:F> (Paris)\n<t:{raid.start_at}:R>",
+        name="🕒",
+        value=f"<t:{raid.start_at}:F>\n<t:{raid.start_at}:R>",
         inline=True,
     )
 
     if tpl.raid_required_role_ids:
         req_txt = " ".join(f"<@&{rid}>" for rid in tpl.raid_required_role_ids)
         e.add_field(name="🔒 Accès raid", value=f"Rôle(s) requis : {req_txt}", inline=False)
-
-    if raid.extra_message.strip():
-        e.add_field(name="📝 Message du raid lead", value=limit_str(raid.extra_message.strip(), 1000), inline=False)
 
     roster_chunks = chunk_text_lines(build_roster_lines(raid, tpl), max_len=1000)
 
@@ -143,7 +144,7 @@ def build_raid_embed(guild: nextcord.Guild, raid: RaidEvent, tpl: CompTemplate) 
 
     for idx, chunk in enumerate(roster_chunks[:max_roster_fields], start=1):
         e.add_field(
-            name=f"🧩 Composition & inscriptions ({idx}/{min(len(roster_chunks), max_roster_fields)})",
+            name=f"📝 Compo & inscriptions ({idx}/{min(len(roster_chunks), max_roster_fields)})",
             value=chunk,
             inline=False,
         )
@@ -449,7 +450,7 @@ class RaidModule:
 
         msg = f"⏰ **MASS UP** {role_mention}".strip()
         if raid.voice_channel_id:
-            msg += f"\n➡️ Vocal privé : {channel_mention(raid.voice_channel_id)}"
+            msg += f"\n➡️{channel_mention(raid.voice_channel_id)}"
 
 
         try:
@@ -491,11 +492,11 @@ class RaidModule:
             return "\n".join(f"• {mention(uid)}" for uid in ids)
 
         content = (
-            f"📞 **Appel vocal (T+{self.cfg.voice_check_after_minutes}min)** — Raid **{raid.title}** (`{raid.raid_id}`)\n"
+            f"Raid **{raid.title}** (`{raid.raid_id}`)\n"
             f"🔊 Vocal: {channel_mention(raid.voice_channel_id)}\n\n"
             f"✅ **Présents attendus** ({len(present_expected)}):\n{fmt(present_expected)}\n\n"
             f"⚠️ **Présents inattendus** ({len(present_unexpected)}):\n{fmt(present_unexpected)}\n\n"
-            f"❌ **Attendus manquants** ({len(missing_expected)}):\n{fmt(missing_expected)}"
+            f"❌ **No shows** ({len(missing_expected)}):\n{fmt(missing_expected)}"
         )
 
         sent = False
@@ -628,7 +629,7 @@ class RaidModule:
                 return await interaction.response.send_message("Template introuvable.", ephemeral=True)
 
             if raid.ping_done or _now() >= raid.start_at or raid.cleanup_done:
-                return await interaction.response.send_message("⛔ Inscriptions fermées (Mass-up déjà envoyé).", ephemeral=True)
+                return await interaction.response.send_message("⛔ Inscriptions fermées.", ephemeral=True)
 
             rm = role_map(tpl)
             role_def = rm.get(role_key)
@@ -829,6 +830,7 @@ class RaidModule:
         await dm.send(
             "4) **Spec des rôles** (1 ligne = 1 rôle). Format:\n"
             "`Label ; slots ; [ip] ; [req=<role ids/mentions>] ; [key=...]`\n"
+            "Ex:\n```RL;1\nOffTank;1\nSC;1;ip\nDPS;3;ip```\n"
             + ("(envoie `.` pour garder le spec actuel)" if mode == "edit" else "")
         )
         spec = await ask("(colle ici ton bloc de rôles)")
@@ -1065,9 +1067,8 @@ class RaidModule:
             if thread:
                 try:
                     await thread.send(
-                        f"🧵 Thread du raid **{raid.title}** (`{raid.raid_id}`)\n"
+                        f"**{raid.title}**\n"
                         f"🕒 <t:{raid.start_at}:F>\n"
-                        f"📝 Message RL: {limit_str(raid.extra_message.strip() or '*aucun*', 800)}"
                     )
                 except Exception:
                     pass

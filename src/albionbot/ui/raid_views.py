@@ -15,7 +15,7 @@ class IpModal(nextcord.ui.Modal):
 
         self.ip_input = nextcord.ui.TextInput(
             label="IP de ton arme",
-            placeholder="Ex: 1380",
+            placeholder="Ex: 1750",
             min_length=1,
             max_length=4,
             required=True,

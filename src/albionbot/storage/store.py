@@ -71,6 +71,7 @@ class RaidEvent:
     last_voice_present_ids: List[int] = field(default_factory=list)
 
 
+
 @dataclass
 class BankAction:
     action_id: str
