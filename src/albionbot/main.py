@@ -105,7 +105,12 @@ def main():
                 "🔒 Tu n'as pas de permissions manager raid/banque actuellement.",
             ]
 
-        await interaction.response.send_message("\n".join(lines), ephemeral=True)
+        embed = nextcord.Embed(
+            title="📘 Aide AlbionBot",
+            description="\n".join(lines[2:]),
+            color=nextcord.Color.blurple(),
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
     @bot.event
