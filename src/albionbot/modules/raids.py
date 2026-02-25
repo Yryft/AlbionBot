@@ -330,9 +330,11 @@ class RaidModule:
             template=tpl,
             join_disabled=join_disabled,
             actions_disabled=raid.ping_done or raid.cleanup_done,
+            notify_disabled=raid.ping_done or raid.cleanup_done,
             on_select=self._on_select,
             on_absent=self._on_absent,
             on_leave=self._on_leave,
+            on_notify=self._on_notify,
         )
 
     # ---------- Refresh message
@@ -458,6 +460,20 @@ class RaidModule:
         except Exception:
             pass
 
+        # Optional DM ping for users who enabled notifications on this raid.
+        for uid in list(raid.dm_notify_users):
+            member = guild.get_member(uid)
+            if not member or member.bot:
+                continue
+            try:
+                dm = await member.create_dm()
+                dm_msg = f"⏰ **MASS UP** — Raid **{raid.title}** (`{raid.raid_id}`)"
+                if raid.voice_channel_id:
+                    dm_msg += f"\n➡️ Rejoins le vocal: {channel_mention(raid.voice_channel_id)}"
+                await dm.send(dm_msg)
+            except Exception:
+                pass
+
         if raid.thread_id:
             try:
                 th = await self.bot.fetch_channel(raid.thread_id)
@@ -477,33 +493,52 @@ class RaidModule:
 
         voice_member_ids: Set[int] = set()
         vc = guild.get_channel(raid.voice_channel_id) if raid.voice_channel_id else None
-        if isinstance(vc, nextcord.VoiceChannel):
+        has_voice = isinstance(vc, nextcord.VoiceChannel)
+        if has_voice:
             voice_member_ids = {m.id for m in vc.members if not m.bot}
 
         expected = set(raid.signups.keys()) - set(raid.absent)
-        present_expected = sorted(expected.intersection(voice_member_ids))
+        if has_voice:
+            present_expected = sorted(expected.intersection(voice_member_ids))
+            present_unexpected = sorted(voice_member_ids - expected)
+            missing_expected = sorted(expected - voice_member_ids)
+        else:
+            present_expected = sorted(expected)
+            present_unexpected = []
+            missing_expected = []
+
         raid.last_voice_present_ids = list(present_expected)
-        present_unexpected = sorted(voice_member_ids - expected)
-        missing_expected = sorted(expected - voice_member_ids)
 
         def fmt(ids: List[int]) -> str:
             if not ids:
                 return "*(aucun)*"
             return "\n".join(f"• {mention(uid)}" for uid in ids)
 
-        content = (
-            f"Raid **{raid.title}** (`{raid.raid_id}`)\n"
-            f"🔊 Vocal: {channel_mention(raid.voice_channel_id)}\n\n"
-            f"✅ **Présents attendus** ({len(present_expected)}):\n{fmt(present_expected)}\n\n"
-            f"⚠️ **Présents inattendus** ({len(present_unexpected)}):\n{fmt(present_unexpected)}\n\n"
-            f"❌ **No shows** ({len(missing_expected)}):\n{fmt(missing_expected)}"
+        if has_voice:
+            content = (
+                f"📞 **Appel vocal (T+{self.cfg.voice_check_after_minutes}min)** — Raid **{raid.title}** (`{raid.raid_id}`)\n"
+                f"🔊 Vocal: {channel_mention(raid.voice_channel_id)}\n\n"
+                f"✅ **Présents attendus** ({len(present_expected)}):\n{fmt(present_expected)}\n\n"
+                f"⚠️ **Présents inattendus** ({len(present_unexpected)}):\n{fmt(present_unexpected)}\n\n"
+                f"❌ **Attendus manquants** ({len(missing_expected)}):\n{fmt(missing_expected)}"
+            )
+        else:
+            content = (
+                f"📝 **Présences (sans vocal défini)** — Raid **{raid.title}** (`{raid.raid_id}`)\n\n"
+                f"✅ **Inscrits pris comme présents** ({len(present_expected)}):\n{fmt(present_expected)}"
+            )
+
+        report_embed = nextcord.Embed(
+            title=("📞 Appel vocal" if has_voice else "📝 Présences (sans vocal)"),
+            description=limit_str(content, 3900),
+            color=nextcord.Color.dark_teal(),
         )
 
         sent = False
         if leader:
             try:
                 dm = await leader.create_dm()
-                await dm.send(content)
+                await dm.send(embed=report_embed)
                 sent = True
             except Exception:
                 sent = False
@@ -512,14 +547,14 @@ class RaidModule:
             try:
                 th = await self.bot.fetch_channel(raid.thread_id)
                 if isinstance(th, nextcord.Thread):
-                    await th.send(content)
+                    await th.send(embed=report_embed)
                     sent = True
             except Exception:
                 pass
 
         if not sent:
             try:
-                await ch.send(content)
+                await ch.send(embed=report_embed)
             except Exception:
                 pass
 
@@ -596,6 +631,9 @@ class RaidModule:
             raid = self.store.raids.get(raid_id)
             if not raid:
                 return await interaction.response.send_message("Raid introuvable.", ephemeral=True)
+            cur_signup = raid.signups.get(member.id)
+            if cur_signup and cur_signup.role_key == "raid_leader" and role_key != "raid_leader":
+                return await interaction.response.send_message("⛔ Le Raid Leader ne peut pas s'inscrire sur un autre rôle.", ephemeral=True)
             raid.absent.discard(member.id)
             self.store.save()
 
@@ -637,6 +675,9 @@ class RaidModule:
                 return await interaction.response.send_message("Rôle invalide.", ephemeral=True)
             if role_key == "raid_leader":
                 return await interaction.response.send_message("⛔ Le rôle Raid Leader est réservé au créateur du raid.", ephemeral=True)
+            cur_signup = raid.signups.get(member.id)
+            if cur_signup and cur_signup.role_key == "raid_leader" and role_key != "raid_leader":
+                return await interaction.response.send_message("⛔ Le Raid Leader ne peut pas s'inscrire sur un autre rôle.", ephemeral=True)
 
             main_count = count_main_for_role(raid, role_key)
             status = "main" if main_count < role_def.slots else "wait"
@@ -656,6 +697,26 @@ class RaidModule:
 
         await interaction.response.send_message(f"✅ Inscrit sur **{role_def.label}** ({'PRIORITAIRE' if status=='main' else 'WAITLIST'}).", ephemeral=True)
         await self.refresh_raid_message(raid_id)
+
+    async def _on_notify(self, interaction: nextcord.Interaction, raid_id: str):
+        if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+            return await interaction.response.send_message("Contexte serveur requis.", ephemeral=True)
+        uid = interaction.user.id
+        async with self.store.lock:
+            raid = self.store.raids.get(raid_id)
+            if not raid:
+                return await interaction.response.send_message("Raid introuvable.", ephemeral=True)
+            if raid.ping_done or raid.cleanup_done:
+                return await interaction.response.send_message("⛔ Notifications closes après mass-up.", ephemeral=True)
+            if uid in raid.dm_notify_users:
+                raid.dm_notify_users.discard(uid)
+                self.store.save()
+                msg = "🔕 Notifications DM désactivées pour ce raid."
+            else:
+                raid.dm_notify_users.add(uid)
+                self.store.save()
+                msg = "🔔 Notifications DM activées pour ce raid."
+        await interaction.response.send_message(msg, ephemeral=True)
 
     async def _on_absent(self, interaction: nextcord.Interaction, raid_id: str):
         if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
@@ -981,8 +1042,9 @@ class RaidModule:
         async def comp_list(interaction: nextcord.Interaction):
             if not self.store.templates:
                 return await interaction.response.send_message("Aucun template.", ephemeral=True)
-            lines = [f"• **{t.name}** — rôles: {len(t.roles)}" for t in sorted(self.store.templates.values(), key=lambda x: x.created_at, reverse=True)]
-            await interaction.response.send_message("\n".join(lines[:40]), ephemeral=True)
+            lines = [f"• **{tp.name}** — rôles: {len(tp.roles)}" for tp in sorted(self.store.templates.values(), key=lambda x: x.created_at, reverse=True)]
+            embed = nextcord.Embed(title="🧩 Templates", description=limit_str("\n".join(lines[:40]), 3900), color=nextcord.Color.blurple())
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
         @bot.slash_command(name="raid_open", description="Ouvrir un raid depuis un template", **guild_kwargs)
         async def raid_open(
@@ -1086,7 +1148,60 @@ class RaidModule:
                 st = raid_status(r)
                 _, st_txt = raid_status_style(st)
                 lines.append(f"• **{r.raid_id}** — {r.title} — <t:{r.start_at}:F> — {st_txt}")
-            await interaction.response.send_message("\n".join(lines[:40]), ephemeral=True)
+            embed = nextcord.Embed(title="📋 Raids", description=limit_str("\n".join(lines[:40]), 3900), color=nextcord.Color.blurple())
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        @bot.slash_command(name="raid_edit", description="Modifier un raid en cours", **guild_kwargs)
+        async def raid_edit(
+            interaction: nextcord.Interaction,
+            raid_id: str = nextcord.SlashOption(description="Raid ID"),
+            title: str = nextcord.SlashOption(description="Nouveau titre", required=False, default=""),
+            start: str = nextcord.SlashOption(description="Nouvelle date Paris: YYYY-MM-DD HH:MM", required=False, default=""),
+        ):
+            if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+                return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+            if not can_manage_raids(cfg, interaction.user):
+                return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
+            if not title.strip() and not start.strip():
+                return await interaction.response.send_message("Renseigne au moins un champ à modifier (title et/ou start).", ephemeral=True)
+
+            new_start_at = None
+            if start.strip():
+                try:
+                    new_start_at = parse_dt_paris(start)
+                except Exception:
+                    return await interaction.response.send_message("Format date invalide. Ex: 2026-02-24 20:30", ephemeral=True)
+
+            async with self.store.lock:
+                raid = self.store.raids.get(raid_id)
+                if not raid:
+                    return await interaction.response.send_message("Raid introuvable.", ephemeral=True)
+                if raid.cleanup_done:
+                    return await interaction.response.send_message("⛔ Raid terminé, modification impossible.", ephemeral=True)
+
+                if title.strip():
+                    raid.title = title.strip()
+                if new_start_at is not None:
+                    raid.start_at = new_start_at
+                self.store.save()
+
+            await self.refresh_raid_message(raid_id)
+
+            raid = self.store.raids.get(raid_id)
+            if raid and raid.thread_id:
+                try:
+                    th = await self.bot.fetch_channel(raid.thread_id)
+                    if isinstance(th, nextcord.Thread):
+                        thread_name = limit_str(f"{raid.title} • {datetime.fromtimestamp(raid.start_at, TZ_PARIS).strftime('%d/%m %H:%M')}", 95)
+                        await th.edit(name=thread_name)
+                except Exception:
+                    pass
+
+            await interaction.response.send_message("✅ Raid modifié.", ephemeral=True)
+
+        @raid_edit.on_autocomplete("raid_id")
+        async def _raid_edit_ac(interaction: nextcord.Interaction, user_input: str):
+            return self._autocomplete_raid_ids(user_input)
 
         @bot.slash_command(name="raid_edit", description="Modifier un raid en cours", **guild_kwargs)
         async def raid_edit(
@@ -1375,4 +1490,9 @@ class RaidModule:
                     await inter.response.send_message("❌ Répartition annulée.", ephemeral=True)
 
             await interaction.response.send_message("Résumé prêt, publié dans le thread.", ephemeral=True)
-            await interaction.channel.send(self._loot_sessions[token]["summary"], view=LootConfirmView(self, token))
+            summary_embed = nextcord.Embed(
+                title="✅ Processed 💸",
+                description=limit_str(self._loot_sessions[token]["summary"], 3900),
+                color=nextcord.Color.green(),
+            )
+            await interaction.channel.send(embed=summary_embed, view=LootConfirmView(self, token))

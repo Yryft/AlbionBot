@@ -46,6 +46,8 @@ Nextcord-based Discord bot for Albion Online guild organization.
 - `DISCORD_TOKEN` (required)
 
 ### Recommended variables
+> Tip commandes: définis `GUILD_IDS` pour enregistrer les slash commands en scope serveur (mise à jour quasi immédiate). Sans `GUILD_IDS`, les commandes globales peuvent prendre du temps à se propager.
+
 - `GUILD_IDS` (comma-separated guild IDs, e.g. `123456789012345678,987654321098765432`)
 - `BANK_DATABASE_URL` (PostgreSQL URL). If empty, the bot falls back to `DATABASE_URL`.
 - `DATABASE_URL` (auto-provided by Railway when a PostgreSQL plugin is attached)
