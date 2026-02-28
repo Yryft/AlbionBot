@@ -85,6 +85,34 @@ class BankAction:
     undone_at: Optional[int] = None
 
 
+@dataclass
+class TicketMessage:
+    author_user_id: int
+    content: str
+    created_at: int = field(default_factory=lambda: int(time.time()))
+
+
+@dataclass
+class TicketRecord:
+    ticket_id: str
+    guild_id: int
+    owner_user_id: int
+    status: str
+    created_at: int = field(default_factory=lambda: int(time.time()))
+    updated_at: int = field(default_factory=lambda: int(time.time()))
+    closed_at: Optional[int] = None
+    participant_user_ids: List[int] = field(default_factory=list)
+    transcript_messages: List[TicketMessage] = field(default_factory=list)
+
+
+@dataclass
+class TicketAuditEntry:
+    ticket_id: str
+    viewer_user_id: int
+    viewed_at: int = field(default_factory=lambda: int(time.time()))
+    action: str = "transcript_view"
+
+
 class Store:
     def __init__(self, path: str, bank_action_log_limit: int = 500, bank_database_url: str = "", bank_sqlite_path: str = "data/bank.sqlite3"):
         self.path = path
@@ -112,6 +140,9 @@ class Store:
 
         self.bank_balances: Dict[int, Dict[int, int]] = {}
         self.bank_actions: Dict[int, List[BankAction]] = {}
+
+        self.tickets: Dict[str, TicketRecord] = {}
+        self.ticket_audit_log: List[TicketAuditEntry] = []
 
         self.load()
         if self.bank_db and (self._bank_migrated_from_json or self._state_migrated_from_json):
@@ -197,6 +228,38 @@ class Store:
                 out_map[str(perm_key)] = list(map(int, role_ids or []))
             self.guild_permissions[gid] = out_map
 
+    def _load_tickets(self, raw: Dict) -> None:
+        self.tickets = {}
+        for ticket_id, data in raw.get("tickets", {}).items():
+            messages: List[TicketMessage] = []
+            for message in data.get("transcript_messages", []):
+                messages.append(TicketMessage(
+                    author_user_id=int(message.get("author_user_id", 0)),
+                    content=str(message.get("content", "")),
+                    created_at=int(message.get("created_at", int(time.time()))),
+                ))
+
+            self.tickets[str(ticket_id)] = TicketRecord(
+                ticket_id=str(data.get("ticket_id", ticket_id)),
+                guild_id=int(data.get("guild_id", 0)),
+                owner_user_id=int(data.get("owner_user_id", 0)),
+                status=str(data.get("status", "unknown")),
+                created_at=int(data.get("created_at", int(time.time()))),
+                updated_at=int(data.get("updated_at", int(time.time()))),
+                closed_at=int(data["closed_at"]) if data.get("closed_at") is not None else None,
+                participant_user_ids=list(map(int, data.get("participant_user_ids", []))),
+                transcript_messages=messages,
+            )
+
+        self.ticket_audit_log = []
+        for entry in raw.get("ticket_audit_log", []):
+            self.ticket_audit_log.append(TicketAuditEntry(
+                ticket_id=str(entry.get("ticket_id", "")),
+                viewer_user_id=int(entry.get("viewer_user_id", 0)),
+                viewed_at=int(entry.get("viewed_at", int(time.time()))),
+                action=str(entry.get("action", "transcript_view")),
+            ))
+
     def _load_bank_legacy_from_raw(self, raw: Dict) -> None:
         self.bank_balances = {}
         self.bank_actions = {}
@@ -223,7 +286,7 @@ class Store:
             self.bank_actions[gid] = actions
 
     def _serialize_runtime_state(self) -> Dict:
-        raw = {"templates": {}, "raids": {}, "guild_permissions": {}}
+        raw = {"templates": {}, "raids": {}, "guild_permissions": {}, "tickets": {}, "ticket_audit_log": []}
         for name, t in self.templates.items():
             raw["templates"][name] = {
                 "name": t.name,
@@ -264,6 +327,21 @@ class Store:
 
         for gid, perm_map in self.guild_permissions.items():
             raw["guild_permissions"][str(gid)] = {k: list(map(int, v)) for k, v in perm_map.items()}
+
+        for ticket_id, ticket in self.tickets.items():
+            raw["tickets"][str(ticket_id)] = {
+                "ticket_id": ticket.ticket_id,
+                "guild_id": ticket.guild_id,
+                "owner_user_id": ticket.owner_user_id,
+                "status": ticket.status,
+                "created_at": ticket.created_at,
+                "updated_at": ticket.updated_at,
+                "closed_at": ticket.closed_at,
+                "participant_user_ids": list(map(int, ticket.participant_user_ids)),
+                "transcript_messages": [asdict(message) for message in ticket.transcript_messages],
+            }
+
+        raw["ticket_audit_log"] = [asdict(entry) for entry in self.ticket_audit_log[-2000:]]
         return raw
 
     def get_permission_role_ids(self, guild_id: int, permission_key: str) -> List[int]:
@@ -289,6 +367,7 @@ class Store:
                 self._state_migrated_from_json = True
 
         self._load_templates_and_raids(raw_for_state)
+        self._load_tickets(raw_for_state)
         self._load_bank_legacy_from_raw(file_raw)
 
         if self.bank_db is not None:
@@ -377,3 +456,29 @@ class Store:
                     a.undone = True
                     a.undone_at = int(undone_at)
                     return
+
+
+    # Ticket helpers
+    def ticket_get(self, ticket_id: str) -> Optional[TicketRecord]:
+        return self.tickets.get(str(ticket_id))
+
+    def ticket_list_for_owner(self, guild_id: int, owner_user_id: int) -> List[TicketRecord]:
+        return sorted(
+            [
+                ticket
+                for ticket in self.tickets.values()
+                if ticket.guild_id == guild_id and ticket.owner_user_id == owner_user_id
+            ],
+            key=lambda t: t.updated_at,
+            reverse=True,
+        )
+
+    def ticket_log_audit_view(self, ticket_id: str, viewer_user_id: int, action: str = "transcript_view") -> None:
+        self.ticket_audit_log.append(TicketAuditEntry(
+            ticket_id=str(ticket_id),
+            viewer_user_id=int(viewer_user_id),
+            viewed_at=int(time.time()),
+            action=action,
+        ))
+        if len(self.ticket_audit_log) > 2000:
+            self.ticket_audit_log = self.ticket_audit_log[-2000:]

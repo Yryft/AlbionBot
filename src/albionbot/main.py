@@ -8,8 +8,9 @@ from .config import load_config
 from .storage.store import Store
 from .modules.raids import RaidModule
 from .modules.bank import BankModule
+from .modules.tickets import TicketModule
 from .utils.discord import parse_ids
-from .utils.permissions import can_manage_bank, can_manage_raids, is_guild_admin, PERM_BANK_MANAGER, PERM_RAID_MANAGER
+from .utils.permissions import can_manage_bank, can_manage_raids, can_manage_tickets, is_guild_admin, PERM_BANK_MANAGER, PERM_RAID_MANAGER, PERM_SUPPORT_ROLE, PERM_TICKET_ADMIN
 
 log = logging.getLogger("albionbot")
 
@@ -30,6 +31,7 @@ def main():
 
     raids = RaidModule(bot, store, cfg)
     bank = BankModule(bot, store, cfg)
+    TicketModule(bot, store, cfg)
 
     guild_kwargs = {"guild_ids": cfg.guild_ids} if cfg.guild_ids else {}
     rotating_statuses = [
@@ -94,11 +96,20 @@ def main():
                 "• `/bank_undo` — Annuler la dernière action (<15 min).",
             ]
 
+        if can_manage_tickets(cfg, member, store):
+            lines += [
+                "",
+                "**Commandes tickets**",
+                "• `/my_tickets` — Voir tes tickets.",
+                "• `/ticket_history <user>` — Historique d'un membre (support/admin).",
+                "• `/ticket_export <ticket_id>` — Export transcript (support/admin + owner).",
+            ]
+
         if is_guild_admin(member):
             lines += [
                 "",
                 "**Commande admin serveur**",
-                "• `/permissions_set <permission> [roles]` — Définir quels rôles peuvent gérer raid/banque.",
+                "• `/permissions_set <permission> [roles]` — Définir quels rôles peuvent gérer raid/banque/tickets.",
                 "• `/permissions_assistant` — Version guidée via modal.",
             ]
 
@@ -120,7 +131,7 @@ def main():
         interaction: nextcord.Interaction,
         permission: str = nextcord.SlashOption(
             description="Permission à configurer",
-            choices={"Raid manager": PERM_RAID_MANAGER, "Bank manager": PERM_BANK_MANAGER},
+            choices={"Raid manager": PERM_RAID_MANAGER, "Bank manager": PERM_BANK_MANAGER, "Support": PERM_SUPPORT_ROLE, "Ticket admin": PERM_TICKET_ADMIN},
         ),
         roles: str = nextcord.SlashOption(
             description="Mentions/IDs des rôles autorisés. Laisse vide pour vider.",
@@ -164,9 +175,9 @@ def main():
             def __init__(self):
                 super().__init__(title="Permissions manager", timeout=180)
                 self.permission_input = nextcord.ui.TextInput(
-                    label="Permission (raid_manager ou bank_manager)",
+                    label="Permission (raid_manager, bank_manager, support_role, ticket_admin)",
                     required=True,
-                    placeholder=f"{PERM_RAID_MANAGER} ou {PERM_BANK_MANAGER}",
+                    placeholder=f"{PERM_RAID_MANAGER}, {PERM_BANK_MANAGER}, {PERM_SUPPORT_ROLE}, {PERM_TICKET_ADMIN}",
                     min_length=5,
                     max_length=32,
                 )
@@ -184,9 +195,9 @@ def main():
                     return await modal_interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
 
                 permission = str(self.permission_input.value).strip()
-                if permission not in {PERM_RAID_MANAGER, PERM_BANK_MANAGER}:
+                if permission not in {PERM_RAID_MANAGER, PERM_BANK_MANAGER, PERM_SUPPORT_ROLE, PERM_TICKET_ADMIN}:
                     return await modal_interaction.response.send_message(
-                        f"Permission invalide. Utilise `{PERM_RAID_MANAGER}` ou `{PERM_BANK_MANAGER}`.",
+                        f"Permission invalide. Utilise `{PERM_RAID_MANAGER}`, `{PERM_BANK_MANAGER}`, `{PERM_SUPPORT_ROLE}` ou `{PERM_TICKET_ADMIN}`.",
                         ephemeral=True,
                     )
 

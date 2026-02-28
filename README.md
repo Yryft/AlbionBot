@@ -59,6 +59,8 @@ Nextcord-based Discord bot for Albion Online guild organization.
 - `RAID_MANAGER_ROLE_ID` = *(empty)*
 - `BANK_REQUIRE_MANAGE_GUILD` = `true`
 - `BANK_MANAGER_ROLE_ID` = *(empty)*
+- `SUPPORT_ROLE_ID` = *(empty)*
+- `TICKET_ADMIN_ROLE_ID` = *(empty)*
 - `BANK_ALLOW_NEGATIVE` = `true`
 - `SCHED_TICK_SECONDS` = `15`
 - `DEFAULT_PREP_MINUTES` = `10`
@@ -116,6 +118,11 @@ The bot role must be **above** the temp role it creates.
 - `/bank_add_split` — split total add across targets
 - `/bank_remove_split` — split total remove across targets
 - `/bank_undo` — undo your last bank action (15 min)
+
+### Tickets
+- `/my_tickets` — view your own tickets
+- `/ticket_history <user>` — list tickets for a member (support/admin only)
+- `/ticket_export <ticket_id>` — export ticket summary + transcript (owner or support/admin)
 
 ---
 

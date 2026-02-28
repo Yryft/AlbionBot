@@ -7,6 +7,8 @@ from ..storage.store import Store
 
 PERM_RAID_MANAGER = "raid_manager"
 PERM_BANK_MANAGER = "bank_manager"
+PERM_SUPPORT_ROLE = "support_role"
+PERM_TICKET_ADMIN = "ticket_admin"
 
 
 def _role_ids_for_permission(cfg: Config, store: Optional[Store], guild_id: int, permission_key: str) -> List[int]:
@@ -20,6 +22,10 @@ def _role_ids_for_permission(cfg: Config, store: Optional[Store], guild_id: int,
         return [cfg.raid_manager_role_id]
     if permission_key == PERM_BANK_MANAGER and cfg.bank_manager_role_id is not None:
         return [cfg.bank_manager_role_id]
+    if permission_key == PERM_SUPPORT_ROLE and cfg.support_role_id is not None:
+        return [cfg.support_role_id]
+    if permission_key == PERM_TICKET_ADMIN and cfg.ticket_admin_role_id is not None:
+        return [cfg.ticket_admin_role_id]
     return []
 
 
@@ -48,4 +54,19 @@ def can_manage_bank(cfg: Config, member: nextcord.Member, store: Optional[Store]
     if role_ids:
         member_role_ids = {r.id for r in member.roles}
         return any(rid in member_role_ids for rid in role_ids)
+    return False
+
+
+def can_manage_tickets(cfg: Config, member: nextcord.Member, store: Optional[Store] = None) -> bool:
+    if member.guild_permissions.administrator:
+        return True
+    member_role_ids = {r.id for r in member.roles}
+
+    admin_role_ids = _role_ids_for_permission(cfg, store, member.guild.id, PERM_TICKET_ADMIN)
+    if admin_role_ids and any(rid in member_role_ids for rid in admin_role_ids):
+        return True
+
+    support_role_ids = _role_ids_for_permission(cfg, store, member.guild.id, PERM_SUPPORT_ROLE)
+    if support_role_ids and any(rid in member_role_ids for rid in support_role_ids):
+        return True
     return False
