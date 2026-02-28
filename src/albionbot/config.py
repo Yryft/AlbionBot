@@ -46,6 +46,8 @@ class Config:
 
     bank_require_manage_guild: bool
     bank_manager_role_id: Optional[int]
+    support_role_id: Optional[int]
+    ticket_admin_role_id: Optional[int]
     bank_allow_negative: bool
 
     sched_tick_seconds: int
@@ -71,6 +73,8 @@ def load_config() -> Config:
 
         bank_require_manage_guild=_env_bool("BANK_REQUIRE_MANAGE_GUILD", True),
         bank_manager_role_id=_env_int("BANK_MANAGER_ROLE_ID"),
+        support_role_id=_env_int("SUPPORT_ROLE_ID"),
+        ticket_admin_role_id=_env_int("TICKET_ADMIN_ROLE_ID"),
         bank_allow_negative=_env_bool("BANK_ALLOW_NEGATIVE", True),
 
         sched_tick_seconds=int(os.getenv("SCHED_TICK_SECONDS", "15")),

@@ -108,11 +108,20 @@ def main():
                 "• `/bank_undo` — Annuler la dernière action (<15 min).",
             ]
 
+        if can_manage_tickets(cfg, member, store):
+            lines += [
+                "",
+                "**Commandes tickets**",
+                "• `/my_tickets` — Voir tes tickets.",
+                "• `/ticket_history <user>` — Historique d'un membre (support/admin).",
+                "• `/ticket_export <ticket_id>` — Export transcript (support/admin + owner).",
+            ]
+
         if is_guild_admin(member):
             lines += [
                 "",
                 "**Commande admin serveur**",
-                "• `/permissions_set <permission> [roles]` — Définir quels rôles peuvent gérer raid/banque.",
+                "• `/permissions_set <permission> [roles]` — Définir quels rôles peuvent gérer raid/banque/tickets.",
                 "• `/permissions_assistant` — Version guidée via modal.",
             ]
 
@@ -178,9 +187,9 @@ def main():
             def __init__(self):
                 super().__init__(title="Permissions manager", timeout=180)
                 self.permission_input = nextcord.ui.TextInput(
-                    label="Permission (raid_manager ou bank_manager)",
+                    label="Permission (raid_manager, bank_manager, support_role, ticket_admin)",
                     required=True,
-                    placeholder=f"{PERM_RAID_MANAGER} ou {PERM_BANK_MANAGER}",
+                    placeholder=f"{PERM_RAID_MANAGER}, {PERM_BANK_MANAGER}, {PERM_SUPPORT_ROLE}, {PERM_TICKET_ADMIN}",
                     min_length=5,
                     max_length=32,
                 )

@@ -21,6 +21,10 @@ def _role_ids_for_permission(cfg: Config, store: Optional[Store], guild_id: int,
         return [cfg.raid_manager_role_id]
     if permission_key == PERM_BANK_MANAGER and cfg.bank_manager_role_id is not None:
         return [cfg.bank_manager_role_id]
+    if permission_key == PERM_SUPPORT_ROLE and cfg.support_role_id is not None:
+        return [cfg.support_role_id]
+    if permission_key == PERM_TICKET_ADMIN and cfg.ticket_admin_role_id is not None:
+        return [cfg.ticket_admin_role_id]
     return []
 
 
