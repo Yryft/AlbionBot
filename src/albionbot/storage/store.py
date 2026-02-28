@@ -7,6 +7,8 @@ from typing import Dict, List, Optional, Set, Literal
 
 RaidStatus = Literal["OPEN", "PINGED", "CLOSED"]
 BankActionType = Literal["add", "remove", "add_split", "remove_split"]
+TicketStatus = Literal["open", "closed", "deleted"]
+TicketTargetType = Literal["channel", "thread"]
 STATE_DB_KEY = "bot_state_v1"
 
 
@@ -85,6 +87,28 @@ class BankAction:
     undone_at: Optional[int] = None
 
 
+@dataclass
+class TicketGuildConfig:
+    mode: TicketTargetType = "channel"
+    category_id: Optional[int] = None
+    parent_channel_id: Optional[int] = None
+    support_role_ids: List[int] = field(default_factory=list)
+
+
+@dataclass
+class TicketRecord:
+    ticket_id: str
+    guild_id: int
+    owner_id: int
+    status: TicketStatus
+    created_at: int = field(default_factory=lambda: int(time.time()))
+    closed_at: Optional[int] = None
+    deleted_at: Optional[int] = None
+    channel_id: Optional[int] = None
+    thread_id: Optional[int] = None
+    target_type: TicketTargetType = "channel"
+
+
 class Store:
     def __init__(self, path: str, bank_action_log_limit: int = 500, bank_database_url: str = "", bank_sqlite_path: str = "data/bank.sqlite3"):
         self.path = path
@@ -109,6 +133,8 @@ class Store:
         self.templates: Dict[str, CompTemplate] = {}
         self.raids: Dict[str, RaidEvent] = {}
         self.guild_permissions: Dict[int, Dict[str, List[int]]] = {}
+        self.ticket_configs: Dict[int, TicketGuildConfig] = {}
+        self.tickets: Dict[str, TicketRecord] = {}
 
         self.bank_balances: Dict[int, Dict[int, int]] = {}
         self.bank_actions: Dict[int, List[BankAction]] = {}
@@ -197,6 +223,44 @@ class Store:
                 out_map[str(perm_key)] = list(map(int, role_ids or []))
             self.guild_permissions[gid] = out_map
 
+        self.ticket_configs = {}
+        for gid_str, cfg in raw.get("ticket_configs", {}).items():
+            gid = int(gid_str)
+            if not isinstance(cfg, dict):
+                continue
+            mode = cfg.get("mode", "channel")
+            if mode not in {"channel", "thread"}:
+                mode = "channel"
+            self.ticket_configs[gid] = TicketGuildConfig(
+                mode=mode,
+                category_id=cfg.get("category_id"),
+                parent_channel_id=cfg.get("parent_channel_id"),
+                support_role_ids=list(map(int, cfg.get("support_role_ids", []))),
+            )
+
+        self.tickets = {}
+        for tid, t in raw.get("tickets", {}).items():
+            if not isinstance(t, dict):
+                continue
+            status = t.get("status", "open")
+            if status not in {"open", "closed", "deleted"}:
+                status = "open"
+            target_type = t.get("target_type", "channel")
+            if target_type not in {"channel", "thread"}:
+                target_type = "channel"
+            self.tickets[tid] = TicketRecord(
+                ticket_id=t.get("ticket_id", tid),
+                guild_id=int(t["guild_id"]),
+                owner_id=int(t["owner_id"]),
+                status=status,
+                created_at=int(t.get("created_at", int(time.time()))),
+                closed_at=t.get("closed_at"),
+                deleted_at=t.get("deleted_at"),
+                channel_id=t.get("channel_id"),
+                thread_id=t.get("thread_id"),
+                target_type=target_type,
+            )
+
     def _load_bank_legacy_from_raw(self, raw: Dict) -> None:
         self.bank_balances = {}
         self.bank_actions = {}
@@ -223,7 +287,7 @@ class Store:
             self.bank_actions[gid] = actions
 
     def _serialize_runtime_state(self) -> Dict:
-        raw = {"templates": {}, "raids": {}, "guild_permissions": {}}
+        raw = {"templates": {}, "raids": {}, "guild_permissions": {}, "ticket_configs": {}, "tickets": {}}
         for name, t in self.templates.items():
             raw["templates"][name] = {
                 "name": t.name,
@@ -264,6 +328,12 @@ class Store:
 
         for gid, perm_map in self.guild_permissions.items():
             raw["guild_permissions"][str(gid)] = {k: list(map(int, v)) for k, v in perm_map.items()}
+
+        for gid, cfg in self.ticket_configs.items():
+            raw["ticket_configs"][str(gid)] = asdict(cfg)
+
+        for tid, ticket in self.tickets.items():
+            raw["tickets"][tid] = asdict(ticket)
         return raw
 
     def get_permission_role_ids(self, guild_id: int, permission_key: str) -> List[int]:
@@ -273,6 +343,12 @@ class Store:
         if guild_id not in self.guild_permissions:
             self.guild_permissions[guild_id] = {}
         self.guild_permissions[guild_id][permission_key] = list(map(int, role_ids))
+
+    def get_ticket_config(self, guild_id: int) -> TicketGuildConfig:
+        return self.ticket_configs.get(guild_id, TicketGuildConfig())
+
+    def set_ticket_config(self, guild_id: int, cfg: TicketGuildConfig) -> None:
+        self.ticket_configs[guild_id] = cfg
 
     def load(self) -> None:
         file_raw = self._safe_read_json_file()
