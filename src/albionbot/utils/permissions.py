@@ -7,6 +7,7 @@ from ..storage.store import Store
 
 PERM_RAID_MANAGER = "raid_manager"
 PERM_BANK_MANAGER = "bank_manager"
+PERM_TICKET_MANAGER = "ticket_manager"
 
 
 def _role_ids_for_permission(cfg: Config, store: Optional[Store], guild_id: int, permission_key: str) -> List[int]:
@@ -49,3 +50,13 @@ def can_manage_bank(cfg: Config, member: nextcord.Member, store: Optional[Store]
         member_role_ids = {r.id for r in member.roles}
         return any(rid in member_role_ids for rid in role_ids)
     return False
+
+
+def can_manage_tickets(cfg: Config, member: nextcord.Member, store: Optional[Store] = None) -> bool:
+    if member.guild_permissions.administrator:
+        return True
+    role_ids = _role_ids_for_permission(cfg, store, member.guild.id, PERM_TICKET_MANAGER)
+    if role_ids:
+        member_role_ids = {r.id for r in member.roles}
+        return any(rid in member_role_ids for rid in role_ids)
+    return can_manage_raids(cfg, member, store)

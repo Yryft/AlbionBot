@@ -10,7 +10,7 @@ from .modules.raids import RaidModule
 from .modules.bank import BankModule
 from .modules.tickets import TicketModule
 from .utils.discord import parse_ids
-from .utils.permissions import can_manage_bank, can_manage_raids, is_guild_admin, PERM_BANK_MANAGER, PERM_RAID_MANAGER
+from .utils.permissions import can_manage_bank, can_manage_raids, can_manage_tickets, is_guild_admin, PERM_BANK_MANAGER, PERM_RAID_MANAGER, PERM_TICKET_MANAGER
 
 log = logging.getLogger("albionbot")
 
@@ -31,7 +31,7 @@ def main():
 
     raids = RaidModule(bot, store, cfg)
     bank = BankModule(bot, store, cfg)
-    tickets = TicketModule(store)
+    _tickets = TicketModule(bot, store, cfg)
 
     guild_kwargs = {"guild_ids": cfg.guild_ids} if cfg.guild_ids else {}
     rotating_statuses = [
@@ -57,6 +57,7 @@ def main():
         member = interaction.user
         is_raid_manager = can_manage_raids(cfg, member, store)
         is_bank_manager = can_manage_bank(cfg, member, store)
+        is_ticket_manager = can_manage_tickets(cfg, member, store)
 
         lines: List[str] = [
             "📘 **Aide AlbionBot**",
@@ -69,6 +70,7 @@ def main():
             "**Fonctions raid (UI)**",
             "• Message raid: sélection de rôle, `Absent`, `Leave`, `DM notif (toggle)`.",
             "• Le bouton DM notif permet de recevoir un DM au mass-up (avec vocal si défini).",
+            "• `/ticket_open` — Ouvre un ticket privé support.",
         ]
 
         if is_raid_manager:
@@ -85,6 +87,16 @@ def main():
                 "• `/raid_close <raid_id>` — Fermer un raid.",
                 "• `/loot_scout_limits <min> <max>` — Configurer limites scout.",
                 "• `/loot_split ...` — Split loot guidé (modal + validation, thread raid).",
+            ]
+
+        if is_ticket_manager:
+            lines += [
+                "",
+                "**Commandes support ticket**",
+                "• `/ticket_panel` — Publier un bouton d'ouverture de ticket.",
+                "• `/ticket_close` — Marquer le ticket courant comme fermé.",
+                "• `/ticket_delete` — Supprimer le canal/thread du ticket.",
+                "• `/ticket_add_user` / `/ticket_remove_user` — Gérer les accès.",
             ]
 
         if is_bank_manager:
@@ -122,7 +134,7 @@ def main():
         interaction: nextcord.Interaction,
         permission: str = nextcord.SlashOption(
             description="Permission à configurer",
-            choices={"Raid manager": PERM_RAID_MANAGER, "Bank manager": PERM_BANK_MANAGER},
+            choices={"Raid manager": PERM_RAID_MANAGER, "Bank manager": PERM_BANK_MANAGER, "Ticket manager": PERM_TICKET_MANAGER},
         ),
         roles: str = nextcord.SlashOption(
             description="Mentions/IDs des rôles autorisés. Laisse vide pour vider.",
@@ -186,9 +198,9 @@ def main():
                     return await modal_interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
 
                 permission = str(self.permission_input.value).strip()
-                if permission not in {PERM_RAID_MANAGER, PERM_BANK_MANAGER}:
+                if permission not in {PERM_RAID_MANAGER, PERM_BANK_MANAGER, PERM_TICKET_MANAGER}:
                     return await modal_interaction.response.send_message(
-                        f"Permission invalide. Utilise `{PERM_RAID_MANAGER}` ou `{PERM_BANK_MANAGER}`.",
+                        f"Permission invalide. Utilise `{PERM_RAID_MANAGER}`, `{PERM_BANK_MANAGER}` ou `{PERM_TICKET_MANAGER}`.",
                         ephemeral=True,
                     )
 
