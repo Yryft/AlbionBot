@@ -1,18 +1,28 @@
 import logging
 from typing import List
+
 import nextcord
-from nextcord.ext import commands, tasks
 from dotenv import load_dotenv
+from nextcord.ext import commands, tasks
 
 from .config import load_config
-from .storage.store import Store
-from .modules.raids import RaidModule
 from .modules.bank import BankModule
+from .modules.raids import RaidModule
 from .modules.tickets import TicketModule
+from .storage.store import Store
 from .utils.discord import parse_ids
-from .utils.permissions import can_manage_bank, can_manage_raids, can_manage_tickets, is_guild_admin, PERM_BANK_MANAGER, PERM_RAID_MANAGER, PERM_TICKET_MANAGER
+from .utils.permissions import (
+    PERM_BANK_MANAGER,
+    PERM_RAID_MANAGER,
+    PERM_TICKET_MANAGER,
+    can_manage_bank,
+    can_manage_raids,
+    can_manage_tickets,
+    is_guild_admin,
+)
 
 log = logging.getLogger("albionbot")
+
 
 def build_bot() -> commands.Bot:
     intents = nextcord.Intents.default()
@@ -23,15 +33,87 @@ def build_bot() -> commands.Bot:
     # intents.message_content = True
     return commands.Bot(intents=intents)
 
+
+def _build_help_lines(member: nextcord.Member, cfg, store: Store) -> List[str]:
+    is_raid_manager = can_manage_raids(cfg, member, store)
+    is_bank_manager = can_manage_bank(cfg, member, store)
+    is_ticket_manager = can_manage_tickets(cfg, member, store)
+
+    lines: List[str] = [
+        "**Commandes joueur**",
+        "• `/help` — Affiche cette aide.",
+        "• `/bal [user]` — Voir ta balance (ou un autre joueur si autorisé).",
+        "• `/pay <joueur>` — Paiement rapide via formulaire.",
+        "• `/bank_assistant` — Assistant interactif pour les actions banque.",
+        "• `/raid_assistant` — Assistant interactif pour les raids.",
+    ]
+
+    if is_raid_manager:
+        lines += [
+            "",
+            "**Commandes manager raid**",
+            "• `/comp_wizard` — Créer un template via DM.",
+            "• `/comp_edit <template>` — Modifier un template via DM.",
+            "• `/comp_delete <template>` — Supprimer un template.",
+            "• `/comp_list` — Lister les templates.",
+            "• `/raid_open <template> <start> [vocal]` — Ouvrir un raid.",
+            "• `/raid_edit <raid_id> [title] [start]` — Modifier un raid actif.",
+            "• `/raid_list` — Lister les raids.",
+            "• `/raid_close <raid_id>` — Fermer un raid.",
+            "• `/loot_scout_limits <min> <max>` — Définir les limites scout.",
+            "• `/loot_split ...` — Répartition du loot (thread raid).",
+        ]
+
+    if is_bank_manager:
+        lines += [
+            "",
+            "**Commandes manager banque**",
+            "• `/bank_add` / `/bank_remove` — Ajouter ou retirer des silver.",
+            "• `/bank_add_split` / `/bank_remove_split` — Répartir une somme.",
+            "• `/bank_undo` — Annuler la dernière action (<15 min).",
+        ]
+
+    if is_ticket_manager:
+        lines += [
+            "",
+            "**Commandes manager tickets**",
+            "• `/ticket_config_mode` — Définir le mode thread/canal privé.",
+            "• `/ticket_config_category` — Définir ou retirer la catégorie tickets.",
+            "• `/ticket_config_roles` — Définir les rôles support.",
+            "• `/ticket_config_open_style` — Choisir le style d'ouverture (message/bouton).",
+        ]
+
+    if is_guild_admin(member):
+        lines += [
+            "",
+            "**Commande admin serveur**",
+            "• `/permissions_set <permission> [roles]` — Définir les rôles autorisés.",
+            "• `/permissions_assistant` — Version guidée via modal.",
+        ]
+
+    if not any([is_raid_manager, is_bank_manager, is_ticket_manager]):
+        lines += [
+            "",
+            "🔒 Tu n'as pas de permissions manager actuellement.",
+        ]
+
+    return lines
+
+
 def main():
     load_dotenv()
     cfg = load_config()
-    store = Store(cfg.data_path, bank_action_log_limit=500, bank_database_url=cfg.bank_database_url, bank_sqlite_path=cfg.bank_sqlite_path)
+    store = Store(
+        cfg.data_path,
+        bank_action_log_limit=500,
+        bank_database_url=cfg.bank_database_url,
+        bank_sqlite_path=cfg.bank_sqlite_path,
+    )
     bot = build_bot()
 
     raids = RaidModule(bot, store, cfg)
     bank = BankModule(bot, store, cfg)
-    _tickets = TicketModule(bot, store, cfg)
+    tickets = TicketModule(bot, store, cfg)
 
     guild_kwargs = {"guild_ids": cfg.guild_ids} if cfg.guild_ids else {}
     rotating_statuses = [
@@ -54,86 +136,10 @@ def main():
                 ephemeral=True,
             )
 
-        member = interaction.user
-        is_raid_manager = can_manage_raids(cfg, member, store)
-        is_bank_manager = can_manage_bank(cfg, member, store)
-        is_ticket_manager = can_manage_tickets(cfg, member, store)
-
-        lines: List[str] = [
-            "📘 **Aide AlbionBot**",
-            "",
-            "**Commandes joueur**",
-            "• `/help` — Affiche cette aide.",
-            "• `/bal [user]` — Voir ta balance (ou un autre si autorisé).",
-            "• `/pay <joueur>` — Choisir un joueur puis saisir montant/note en modal.",
-            "",
-            "**Fonctions raid (UI)**",
-            "• Message raid: sélection de rôle, `Absent`, `Leave`, `DM notif (toggle)`.",
-            "• Le bouton DM notif permet de recevoir un DM au mass-up (avec vocal si défini).",
-            "• `/ticket_open` — Ouvre un ticket privé support.",
-        ]
-
-        if is_raid_manager:
-            lines += [
-                "",
-                "**Commandes manager raid**",
-                "• `/comp_wizard` — Créer un template via DM.",
-                "• `/comp_edit <template>` — Modifier un template via DM.",
-                "• `/comp_delete <template>` — Supprimer un template.",
-                "• `/comp_list` — Lister les templates.",
-                "• `/raid_open <template> <start> [vocal]` — Ouvrir via modal + confirmation.",
-                "• `/raid_edit <raid_id> [title] [start]` — Modifier un raid actif.",
-                "• `/raid_list` — Lister les raids.",
-                "• `/raid_close <raid_id>` — Fermer un raid.",
-                "• `/loot_scout_limits <min> <max>` — Configurer limites scout.",
-                "• `/loot_split ...` — Split loot guidé (modal + validation, thread raid).",
-            ]
-
-        if is_ticket_manager:
-            lines += [
-                "",
-                "**Commandes support ticket**",
-                "• `/ticket_panel` — Publier un bouton d'ouverture de ticket.",
-                "• `/ticket_close` — Marquer le ticket courant comme fermé.",
-                "• `/ticket_delete` — Supprimer le canal/thread du ticket.",
-                "• `/ticket_add_user` / `/ticket_remove_user` — Gérer les accès.",
-            ]
-
-        if is_bank_manager:
-            lines += [
-                "",
-                "**Commandes manager banque**",
-                "• `/bank_add` / `/bank_remove` — Ajouter/retirer avec écran de confirmation.",
-                "• `/bank_add_split` / `/bank_remove_split` — Répartir une somme.",
-                "• `/bank_undo` — Annuler la dernière action (<15 min).",
-            ]
-
-        if can_manage_tickets(cfg, member, store):
-            lines += [
-                "",
-                "**Commandes tickets**",
-                "• `/my_tickets` — Voir tes tickets.",
-                "• `/ticket_history <user>` — Historique d'un membre (support/admin).",
-                "• `/ticket_export <ticket_id>` — Export transcript (support/admin + owner).",
-            ]
-
-        if is_guild_admin(member):
-            lines += [
-                "",
-                "**Commande admin serveur**",
-                "• `/permissions_set <permission> [roles]` — Définir quels rôles peuvent gérer raid/banque/tickets.",
-                "• `/permissions_assistant` — Version guidée via modal.",
-            ]
-
-        if not is_raid_manager and not is_bank_manager:
-            lines += [
-                "",
-                "🔒 Tu n'as pas de permissions manager raid/banque actuellement.",
-            ]
-
+        lines = _build_help_lines(interaction.user, cfg, store)
         embed = nextcord.Embed(
             title="📘 Aide AlbionBot",
-            description="\n".join(lines[2:]),
+            description="\n".join(lines),
             color=nextcord.Color.blurple(),
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -175,7 +181,6 @@ def main():
                 ephemeral=True,
             )
 
-
     @bot.slash_command(name="permissions_assistant", description="(Admin) Assistant guidé des permissions", **guild_kwargs)
     async def permissions_assistant(interaction: nextcord.Interaction):
         if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
@@ -187,9 +192,9 @@ def main():
             def __init__(self):
                 super().__init__(title="Permissions manager", timeout=180)
                 self.permission_input = nextcord.ui.TextInput(
-                    label="Permission (raid_manager, bank_manager, support_role, ticket_admin)",
+                    label="Permission (raid_manager, bank_manager, ticket_manager)",
                     required=True,
-                    placeholder=f"{PERM_RAID_MANAGER}, {PERM_BANK_MANAGER}, {PERM_SUPPORT_ROLE}, {PERM_TICKET_ADMIN}",
+                    placeholder=f"{PERM_RAID_MANAGER}, {PERM_BANK_MANAGER}, {PERM_TICKET_MANAGER}",
                     min_length=5,
                     max_length=32,
                 )
@@ -233,9 +238,6 @@ def main():
                     )
 
         await interaction.response.send_modal(PermissionsModal())
-
-
-
 
     @bot.event
     async def on_message(message: nextcord.Message):

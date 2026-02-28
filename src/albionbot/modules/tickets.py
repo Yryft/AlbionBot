@@ -1,10 +1,11 @@
+import time
 from typing import List, Optional, Tuple
 
 import nextcord
 from nextcord.ext import commands
 
 from ..config import Config
-from ..storage.store import Store
+from ..storage.store import Store, TicketMessageSnapshot, TicketRecord
 from ..utils.discord import parse_ids
 from ..utils.permissions import can_manage_raids
 
@@ -193,3 +194,61 @@ class TicketModule:
                 self.store.save()
 
             await interaction.response.send_message(f"✅ Style d'ouverture configuré sur `{style}`.", ephemeral=True)
+
+    def _find_ticket_by_message(self, message: nextcord.Message) -> Optional[TicketRecord]:
+        if not message.guild:
+            return None
+        if isinstance(message.channel, nextcord.Thread):
+            return self.store.ticket_find_by_channel(message.guild.id, thread_id=message.channel.id)
+        return self.store.ticket_find_by_channel(message.guild.id, channel_id=message.channel.id)
+
+    def append_message_snapshot(self, message: nextcord.Message) -> None:
+        ticket = self._find_ticket_by_message(message)
+        if ticket is None:
+            return
+        snapshot = TicketMessageSnapshot(
+            message_id=message.id,
+            author_id=message.author.id,
+            content=message.content or "",
+            embeds=[embed.to_dict() for embed in message.embeds],
+            attachments=[{"id": str(a.id), "filename": a.filename, "url": a.url} for a in message.attachments],
+            created_at=int(message.created_at.timestamp()) if message.created_at else int(time.time()),
+        )
+        self.store.ticket_append_snapshot(ticket.ticket_id, snapshot)
+
+    def append_edit_snapshot(self, before: nextcord.Message, after: nextcord.Message) -> None:
+        ticket = self._find_ticket_by_message(after)
+        if ticket is None:
+            return
+        before_content = before.content or ""
+        after_content = after.content or ""
+        if before_content == after_content:
+            return
+        snapshot = TicketMessageSnapshot(
+            message_id=after.id,
+            author_id=after.author.id,
+            content=f"[EDIT]\nBefore: {before_content}\nAfter: {after_content}",
+            embeds=[embed.to_dict() for embed in after.embeds],
+            attachments=[{"id": str(a.id), "filename": a.filename, "url": a.url} for a in after.attachments],
+        )
+        self.store.ticket_append_snapshot(ticket.ticket_id, snapshot)
+
+    def append_delete_snapshot(self, message: nextcord.Message) -> None:
+        ticket = self._find_ticket_by_message(message)
+        if ticket is None:
+            return
+        snapshot = TicketMessageSnapshot(
+            message_id=message.id,
+            author_id=message.author.id if message.author else 0,
+            content=f"[DELETE] {message.content or ''}".strip(),
+            embeds=[embed.to_dict() for embed in message.embeds],
+            attachments=[{"id": str(a.id), "filename": a.filename, "url": a.url} for a in message.attachments],
+        )
+        self.store.ticket_append_snapshot(ticket.ticket_id, snapshot)
+
+    def finalize_ticket(self, channel_id: int, status: str) -> Optional[TicketRecord]:
+        for record in self.store.ticket_records.values():
+            if channel_id not in {record.channel_id, record.thread_id}:
+                continue
+            return self.store.ticket_update_status(record.ticket_id, status=status)  # type: ignore[arg-type]
+        return None
