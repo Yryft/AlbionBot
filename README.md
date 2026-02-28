@@ -103,7 +103,7 @@ The bot role must be **above** the temp role it creates.
 - `/comp_edit` — edit template via DM wizard (autocomplete)
 - `/comp_delete` — delete template (autocomplete)
 - `/comp_list` — list templates
-- `/raid_open` — open a raid (template autocomplete)
+- `/raid_open` — open a raid (template + start, then modal details + confirm)
 - `/raid_list` — list raids
 - `/raid_close` — close a raid immediately
 

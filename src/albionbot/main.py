@@ -62,7 +62,7 @@ def main():
             "**Commandes joueur**",
             "• `/help` — Affiche cette aide.",
             "• `/bal [user]` — Voir ta balance (ou un autre si autorisé).",
-            "• `/pay <joueur> <montant> [note]` — Payer un joueur depuis ta balance.",
+            "• `/pay <joueur>` — Choisir un joueur puis saisir montant/note en modal.",
             "",
             "**Fonctions raid (UI)**",
             "• Message raid: sélection de rôle, `Absent`, `Leave`, `DM notif (toggle)`.",
@@ -77,19 +77,19 @@ def main():
                 "• `/comp_edit <template>` — Modifier un template via DM.",
                 "• `/comp_delete <template>` — Supprimer un template.",
                 "• `/comp_list` — Lister les templates.",
-                "• `/raid_open ...` — Ouvrir un raid.",
+                "• `/raid_open <template> <start> [vocal]` — Ouvrir via modal + confirmation.",
                 "• `/raid_edit <raid_id> [title] [start]` — Modifier un raid actif.",
                 "• `/raid_list` — Lister les raids.",
                 "• `/raid_close <raid_id>` — Fermer un raid.",
                 "• `/loot_scout_limits <min> <max>` — Configurer limites scout.",
-                "• `/loot_split ...` — Calcul/paiement split loot (thread raid uniquement).",
+                "• `/loot_split ...` — Split loot guidé (modal + validation, thread raid).",
             ]
 
         if is_bank_manager:
             lines += [
                 "",
                 "**Commandes manager banque**",
-                "• `/bank_add` / `/bank_remove` — Ajouter/retirer (cibles multiples).",
+                "• `/bank_add` / `/bank_remove` — Ajouter/retirer avec écran de confirmation.",
                 "• `/bank_add_split` / `/bank_remove_split` — Répartir une somme.",
                 "• `/bank_undo` — Annuler la dernière action (<15 min).",
             ]

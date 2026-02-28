@@ -14,6 +14,7 @@ from ..utils.permissions import can_manage_raids
 from ..utils.text import chunk_text_lines, limit_str
 from ..utils.timeutil import parse_dt_paris, TZ_PARIS
 from ..ui.raid_views import RaidView, IpModal
+from ..ui.raid_manage_views import RaidOpenDetailsModal, LootSplitParamsModal, ConfirmView
 
 log = logging.getLogger("albionbot.raids")
 
@@ -448,7 +449,10 @@ class RaidModule:
 
 
         try:
-            await ch.send(msg)
+            if raid.message_id and isinstance(ch, nextcord.TextChannel):
+                await ch.send(msg, reference=nextcord.MessageReference(message_id=raid.message_id, channel_id=ch.id), mention_author=False)
+            else:
+                await ch.send(msg)
         except Exception:
             pass
 
@@ -983,6 +987,55 @@ class RaidModule:
                         self.store.save()
                 await self.refresh_raid_message(raid.raid_id)
 
+    async def _edit_raid_data(self, raid_id: str, *, title: str = "", start: str = "") -> Tuple[bool, str]:
+        if not title.strip() and not start.strip():
+            return False, "Renseigne au moins un champ à modifier (title et/ou start)."
+
+        new_start_at = None
+        if start.strip():
+            try:
+                new_start_at = parse_dt_paris(start)
+            except Exception:
+                return False, "Format date invalide. Ex: 2026-02-24 20:30"
+
+        async with self.store.lock:
+            raid = self.store.raids.get(raid_id)
+            if not raid:
+                return False, "Raid introuvable."
+            if raid.cleanup_done:
+                return False, "Raid terminé, modification impossible."
+
+            if title.strip():
+                raid.title = title.strip()
+            if new_start_at is not None:
+                raid.start_at = new_start_at
+            self.store.save()
+
+        await self.refresh_raid_message(raid_id)
+
+        raid = self.store.raids.get(raid_id)
+        if raid and raid.thread_id:
+            try:
+                th = await self.bot.fetch_channel(raid.thread_id)
+                if isinstance(th, nextcord.Thread):
+                    thread_name = limit_str(f"{raid.title} • {datetime.fromtimestamp(raid.start_at, TZ_PARIS).strftime('%d/%m %H:%M')}", 95)
+                    await th.edit(name=thread_name)
+            except Exception:
+                pass
+
+        return True, "✅ Raid modifié."
+
+    async def _close_raid_now(self, raid_id: str) -> Tuple[bool, str]:
+        async with self.store.lock:
+            raid = self.store.raids.get(raid_id)
+            if not raid:
+                return False, "Raid introuvable."
+            raid.ping_done = True
+            self.store.save()
+
+        await self.refresh_raid_message(raid_id)
+        return True, "🔒 Raid fermé."
+
     # ---------- Commands
     def _register_commands(self):
         bot = self.bot
@@ -1048,11 +1101,6 @@ class RaidModule:
                 required=False,
                 channel_types=[nextcord.ChannelType.voice],
             ),
-            title: str = nextcord.SlashOption(description="Titre (optionnel)", required=False, default=""),
-            description: str = nextcord.SlashOption(description="Description (optionnel)", required=False, default=""),
-            extra_message: str = nextcord.SlashOption(description="Message RL (optionnel)", required=False, default=""),
-            prep_minutes: int = nextcord.SlashOption(description="Rôle temp X min avant", required=False, default=cfg.default_prep_minutes, min_value=0, max_value=120),
-            cleanup_minutes: int = nextcord.SlashOption(description="Cleanup X min après", required=False, default=cfg.default_cleanup_minutes, min_value=0, max_value=240),
         ):
             if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
@@ -1068,64 +1116,110 @@ class RaidModule:
             except Exception:
                 return await interaction.response.send_message("Format date invalide. Ex: 2026-02-24 20:30", ephemeral=True)
 
-            raid_id = f"R{int(time.time()*1000)}"
-            raid = RaidEvent(
-                raid_id=raid_id,
-                template_name=tpl.name,
-                title=title.strip() or tpl.name,
-                description=description.strip() or tpl.description,
-                extra_message=extra_message.strip(),
-                start_at=start_at,
-                created_by=interaction.user.id,
-                prep_minutes=prep_minutes,
-                cleanup_minutes=cleanup_minutes,
-                voice_channel_id=(voice_channel.id if voice_channel else None),
-            )
+            async def _publish_raid(
+                source_interaction: nextcord.Interaction,
+                title: str,
+                description: str,
+                extra_message: str,
+                prep_minutes: int,
+                cleanup_minutes: int,
+            ):
+                if not source_interaction.guild or not isinstance(source_interaction.channel, (nextcord.TextChannel, nextcord.Thread)):
+                    return False, "Canal invalide pour ouvrir le raid."
 
-            if getattr(tpl, "content_type", "pvp") == AVA_RAID:
-                if any(r.key == "raid_leader" for r in tpl.roles):
-                    raid.signups[interaction.user.id] = Signup(
-                        user_id=interaction.user.id,
-                        role_key="raid_leader",
-                        status="main",
-                        ip=None,
-                        joined_at=_now(),
-                    )
+                raid_id = f"R{int(time.time()*1000)}"
+                raid = RaidEvent(
+                    raid_id=raid_id,
+                    template_name=tpl.name,
+                    title=title.strip() or tpl.name,
+                    description=description.strip() or tpl.description,
+                    extra_message=extra_message.strip(),
+                    start_at=start_at,
+                    created_by=source_interaction.user.id,
+                    prep_minutes=prep_minutes,
+                    cleanup_minutes=cleanup_minutes,
+                    voice_channel_id=(voice_channel.id if voice_channel else None),
+                )
 
-            embed = build_raid_embed(interaction.guild, raid, tpl)
-            view = self.build_view(raid, tpl)
+                if getattr(tpl, "content_type", "pvp") == AVA_RAID:
+                    if any(r.key == "raid_leader" for r in tpl.roles):
+                        raid.signups[source_interaction.user.id] = Signup(
+                            user_id=source_interaction.user.id,
+                            role_key="raid_leader",
+                            status="main",
+                            ip=None,
+                            joined_at=_now(),
+                        )
 
-            await interaction.response.send_message(embed=embed, view=view)
-            msg = await interaction.original_message()
+                embed = build_raid_embed(source_interaction.guild, raid, tpl)
+                view = self.build_view(raid, tpl)
 
-            # thread auto
-            thread = None
-            try:
-                thread_name = limit_str(f"{raid.title} • {datetime.fromtimestamp(raid.start_at, TZ_PARIS).strftime('%d/%m %H:%M')}", 95)
-                thread = await msg.create_thread(name=thread_name, auto_archive_duration=1440)
-            except Exception:
+                msg = await source_interaction.channel.send(embed=embed, view=view)
+
                 thread = None
-
-            async with self.store.lock:
-                raid.channel_id = msg.channel.id
-                raid.message_id = msg.id
-                raid.thread_id = thread.id if thread else None
-                self.store.raids[raid_id] = raid
-                self.store.save()
-
-            try:
-                self.bot.add_view(view, message_id=msg.id)
-            except Exception:
-                pass
-
-            if thread:
                 try:
-                    await thread.send(
-                        f"**{raid.title}**\n"
-                        f"🕒 <t:{raid.start_at}:F>\n"
-                    )
+                    thread_name = limit_str(f"{raid.title} • {datetime.fromtimestamp(raid.start_at, TZ_PARIS).strftime('%d/%m %H:%M')}", 95)
+                    thread = await msg.create_thread(name=thread_name, auto_archive_duration=1440)
+                except Exception:
+                    thread = None
+
+                async with self.store.lock:
+                    raid.channel_id = msg.channel.id
+                    raid.message_id = msg.id
+                    raid.thread_id = thread.id if thread else None
+                    self.store.raids[raid_id] = raid
+                    self.store.save()
+
+                try:
+                    self.bot.add_view(view, message_id=msg.id)
                 except Exception:
                     pass
+
+                if thread:
+                    try:
+                        await thread.send(
+                            f"**{raid.title}**\n"
+                            f"🕒 <t:{raid.start_at}:F>\n"
+                        )
+                    except Exception:
+                        pass
+                return True, f"✅ Raid ouvert: `{raid_id}`"
+
+            async def _on_open_details(
+                modal_interaction: nextcord.Interaction,
+                title: str,
+                description: str,
+                extra_message: str,
+                prep_text: str,
+                cleanup_text: str,
+            ):
+                if not prep_text.isdigit() or not cleanup_text.isdigit():
+                    return await modal_interaction.response.send_message("Prep/Cleanup doivent être des nombres entiers.", ephemeral=True)
+
+                prep_minutes = int(prep_text)
+                cleanup_minutes = int(cleanup_text)
+                if prep_minutes < 0 or prep_minutes > 120 or cleanup_minutes < 0 or cleanup_minutes > 240:
+                    return await modal_interaction.response.send_message("Prep 0-120 et Cleanup 0-240.", ephemeral=True)
+
+                summary = (
+                    "🧾 **Confirmer ouverture raid**\n"
+                    f"• Template: `{tpl.name}`\n"
+                    f"• Start: `{start}`\n"
+                    f"• Titre: `{title.strip() or tpl.name}`\n"
+                    f"• Prep/Cleanup: `{prep_minutes}/{cleanup_minutes}`"
+                )
+
+                async def _confirm(confirm_interaction: nextcord.Interaction):
+                    ok, message = await _publish_raid(confirm_interaction, title, description, extra_message, prep_minutes, cleanup_minutes)
+                    if ok:
+                        await confirm_interaction.response.edit_message(content=message, view=None)
+                    else:
+                        await confirm_interaction.response.send_message(f"⛔ {message}", ephemeral=True)
+
+                view = ConfirmView(owner_id=interaction.user.id, on_confirm=_confirm)
+                await modal_interaction.response.send_message(summary, ephemeral=True, view=view)
+
+            await interaction.response.send_modal(RaidOpenDetailsModal(on_submit=_on_open_details))
 
         @raid_open.on_autocomplete("template")
         async def _raid_open_ac(interaction: nextcord.Interaction, user_input: str):
@@ -1154,42 +1248,12 @@ class RaidModule:
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
             if not can_manage_raids(cfg, interaction.user, self.store):
                 return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
-            if not title.strip() and not start.strip():
-                return await interaction.response.send_message("Renseigne au moins un champ à modifier (title et/ou start).", ephemeral=True)
 
-            new_start_at = None
-            if start.strip():
-                try:
-                    new_start_at = parse_dt_paris(start)
-                except Exception:
-                    return await interaction.response.send_message("Format date invalide. Ex: 2026-02-24 20:30", ephemeral=True)
-
-            async with self.store.lock:
-                raid = self.store.raids.get(raid_id)
-                if not raid:
-                    return await interaction.response.send_message("Raid introuvable.", ephemeral=True)
-                if raid.cleanup_done:
-                    return await interaction.response.send_message("⛔ Raid terminé, modification impossible.", ephemeral=True)
-
-                if title.strip():
-                    raid.title = title.strip()
-                if new_start_at is not None:
-                    raid.start_at = new_start_at
-                self.store.save()
-
-            await self.refresh_raid_message(raid_id)
-
-            raid = self.store.raids.get(raid_id)
-            if raid and raid.thread_id:
-                try:
-                    th = await self.bot.fetch_channel(raid.thread_id)
-                    if isinstance(th, nextcord.Thread):
-                        thread_name = limit_str(f"{raid.title} • {datetime.fromtimestamp(raid.start_at, TZ_PARIS).strftime('%d/%m %H:%M')}", 95)
-                        await th.edit(name=thread_name)
-                except Exception:
-                    pass
-
-            await interaction.response.send_message("✅ Raid modifié.", ephemeral=True)
+            ok, message = await self._edit_raid_data(raid_id, title=title, start=start)
+            if ok:
+                await interaction.response.send_message(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(f"⛔ {message}", ephemeral=True)
 
         @raid_edit.on_autocomplete("raid_id")
         async def _raid_edit_ac(interaction: nextcord.Interaction, user_input: str):
@@ -1201,14 +1265,12 @@ class RaidModule:
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
             if not can_manage_raids(cfg, interaction.user, self.store):
                 return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
-            async with self.store.lock:
-                raid = self.store.raids.get(raid_id)
-                if not raid:
-                    return await interaction.response.send_message("Raid introuvable.", ephemeral=True)
-                raid.ping_done = True
-                self.store.save()
-            await self.refresh_raid_message(raid_id)
-            await interaction.response.send_message("🔒 Raid fermé.", ephemeral=True)
+
+            ok, message = await self._close_raid_now(raid_id)
+            if ok:
+                await interaction.response.send_message(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(f"⛔ {message}", ephemeral=True)
 
         @raid_close.on_autocomplete("raid_id")
         async def _raid_close_ac(interaction: nextcord.Interaction, user_input: str):
@@ -1234,14 +1296,11 @@ class RaidModule:
             interaction: nextcord.Interaction,
             coffre_value: str = nextcord.SlashOption(description="Valeur coffre"),
             silver_bags: str = nextcord.SlashOption(description="Valeur sacs d'argent"),
-            tax_percent: float = nextcord.SlashOption(description="Tax coffre %", required=False, default=10.0),
-            rl_bonus_percent: float = nextcord.SlashOption(description="Bonus RL %", required=False, default=7.5),
-            scout_percent: float = nextcord.SlashOption(description="Part scout %", required=False, default=10.0),
             maps: str = nextcord.SlashOption(description="Maps (lignes: tier;prix;finish[1/0])", required=False, default=""),
             add_players: str = nextcord.SlashOption(description="Ajouter joueurs (mentions/ids)", required=False, default=""),
             remove_players: str = nextcord.SlashOption(description="Retirer joueurs (mentions/ids)", required=False, default=""),
-            rl_override: str = nextcord.SlashOption(description="Override RL (mention/id)", required=False, default=""),
-            scout_override: str = nextcord.SlashOption(description="Override Scout (mention/id)", required=False, default=""),
+            rl_override: Optional[nextcord.Member] = nextcord.SlashOption(description="Override RL", required=False),
+            scout_override: Optional[nextcord.Member] = nextcord.SlashOption(description="Override Scout", required=False),
         ):
             if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
@@ -1263,176 +1322,184 @@ class RaidModule:
             except Exception:
                 return await interaction.response.send_message("Montants invalides.", ephemeral=True)
 
-            rl_user_id = raid.created_by
-            scout_user_id = None
-            for uid, s in raid.signups.items():
-                if s.role_key == "raid_leader":
-                    rl_user_id = uid
-                if s.role_key == "scout":
-                    scout_user_id = uid
-
-            rl_ids = parse_ids(rl_override)
-            scout_ids = parse_ids(scout_override)
-            if rl_ids:
-                rl_user_id = rl_ids[0]
-            if scout_ids:
-                scout_user_id = scout_ids[0]
-
-            players = list(raid.last_voice_present_ids or [])
-            if not players:
-                players = sorted([uid for uid in raid.signups.keys() if uid not in raid.absent])
-            for uid in parse_ids(add_players):
-                if uid not in players:
-                    players.append(uid)
-            to_remove = set(parse_ids(remove_players))
-            players = [uid for uid in players if uid not in to_remove]
-
-            maps_lines = [ln.strip() for ln in maps.splitlines() if ln.strip()]
-            map_rows = []
-            maps_cost = 0
-            finished_maps_count = 0
-            for ln in maps_lines:
-                parts = [x.strip() for x in ln.split(";")]
-                if len(parts) < 2:
-                    continue
-                tier = parts[0]
+            async def _on_loot_params(modal_interaction: nextcord.Interaction, tax_text: str, rl_bonus_text: str, scout_text: str):
                 try:
-                    price = self._parse_money_int(parts[1])
+                    tax_percent = float(tax_text.replace(",", "."))
+                    rl_bonus_percent = float(rl_bonus_text.replace(",", "."))
+                    scout_percent = float(scout_text.replace(",", "."))
                 except Exception:
-                    continue
-                finished = True
-                if len(parts) >= 3:
-                    finished = parts[2] not in ("0", "false", "non", "no")
-                effective = price if finished else int(round(price * 0.10))
-                maps_cost += effective
-                if finished:
-                    finished_maps_count += 1
-                map_rows.append((tier, price, finished, effective))
+                    return await modal_interaction.response.send_message("Paramètres % invalides.", ephemeral=True)
 
-            coffre_net = int(round(coffre_raw * (1 - (tax_percent / 100.0))))
-            total_net = coffre_net + bags_raw
-            scout_min, scout_max = self._get_scout_limits(interaction.guild.id)
-            mult = max(1, finished_maps_count)
-            scout_min *= mult
-            scout_max *= mult
+                rl_user_id = raid.created_by
+                scout_user_id = None
+                for uid, s in raid.signups.items():
+                    if s.role_key == "raid_leader":
+                        rl_user_id = uid
+                    if s.role_key == "scout":
+                        scout_user_id = uid
 
-            calc = self._compute_loot_split(
-                total_net=total_net,
-                rl_user_id=rl_user_id,
-                scout_user_id=scout_user_id,
-                players=players,
-                rl_bonus_pct=rl_bonus_percent,
-                scout_pct=scout_percent,
-                scout_min=scout_min,
-                scout_max=scout_max,
-                maps_cost=maps_cost,
-            )
+                if rl_override:
+                    rl_user_id = rl_override.id
+                if scout_override:
+                    scout_user_id = scout_override.id
 
-            calc_payouts: Dict[int, int] = dict(calc["payouts"])
-            if scout_user_id and calc["scout_paid"] > 0:
-                calc_payouts[scout_user_id] = calc_payouts.get(scout_user_id, 0) + int(calc["scout_paid"])
+                players = list(raid.last_voice_present_ids or [])
+                if not players:
+                    players = sorted([uid for uid in raid.signups.keys() if uid not in raid.absent])
+                for uid in parse_ids(add_players):
+                    if uid not in players:
+                        players.append(uid)
+                to_remove = set(parse_ids(remove_players))
+                players = [uid for uid in players if uid not in to_remove]
 
-            def m(uid: Optional[int]) -> str:
-                return mention(uid) if uid else "*(non défini)*"
+                maps_lines = [ln.strip() for ln in maps.splitlines() if ln.strip()]
+                map_rows = []
+                maps_cost = 0
+                finished_maps_count = 0
+                for ln in maps_lines:
+                    parts = [x.strip() for x in ln.split(";")]
+                    if len(parts) < 2:
+                        continue
+                    tier = parts[0]
+                    try:
+                        price = self._parse_money_int(parts[1])
+                    except Exception:
+                        continue
+                    finished = True
+                    if len(parts) >= 3:
+                        finished = parts[2] not in ("0", "false", "non", "no")
+                    effective = price if finished else int(round(price * 0.10))
+                    maps_cost += effective
+                    if finished:
+                        finished_maps_count += 1
+                    map_rows.append((tier, price, finished, effective))
 
-            lines = [
-                "✅ **Processed 💸**",
-                "Vérifiez les calculs puis validez avec le bouton.",
-                f"**Raid**: `{raid.raid_id}`",
-                f"**RL**: {m(rl_user_id)}",
-                f"**Scout**: {m(scout_user_id)}",
-                f"**Total Pot**: `{total_net:,}`",
-                "",
-                "📊 **Financial Summary**",
-                f"Coffre brut: `{coffre_raw:,}`",
-                f"Coffre net ({tax_percent:.1f}% tax): `{coffre_net:,}`",
-                f"Silver bags: `{bags_raw:,}`",
-                f"Total net: `{total_net:,}`",
-                "",
-                "👑 **RL / Scout**",
-                f"RL bonus: `{rl_bonus_percent:.2f}%`",
-                f"Scout part: `{scout_percent:.2f}%` clamp `{scout_min:,}`-`{scout_max:,}` => `{calc['scout_paid']:,}`",
-                "",
-                "🗺️ **Maps**",
-                f"Total maps cost: `{maps_cost:,}`",
-            ]
-            for tier, price, finished, effective in map_rows[:20]:
-                status = "Finish" if finished else "Cancel(-90%)"
-                lines.append(f"• {tier}: `{price:,}` => `{effective:,}` ({status})")
-            lines += [
-                "",
-                "👥 **Sharing**",
-                f"Post-scout: `{calc['post_scout']:,}`",
-                f"Post-maps: `{calc['post_maps']:,}`",
-                f"Share normal: `{calc['share']:,}`",
-                f"Joueurs split ({len(calc_payouts)}): " + " ".join(mention(uid) for uid in list(calc_payouts.keys())[:25]),
-                "",
-                "📋 **Payouts**",
-            ]
-            for uid, amt in list(calc_payouts.items())[:60]:
-                lines.append(f"• {mention(uid)}: `+{amt:,}`")
+                coffre_net = int(round(coffre_raw * (1 - (tax_percent / 100.0))))
+                total_net = coffre_net + bags_raw
+                scout_min, scout_max = self._get_scout_limits(modal_interaction.guild.id)
+                mult = max(1, finished_maps_count)
+                scout_min *= mult
+                scout_max *= mult
 
-            token = f"loot:{interaction.guild.id}:{interaction.channel.id}:{interaction.user.id}:{int(time.time())}"
-            self._loot_sessions[token] = {"author_id": interaction.user.id, "summary": "\n".join(lines), "raid_id": raid.raid_id, "payouts": calc_payouts}
+                calc = self._compute_loot_split(
+                    total_net=total_net,
+                    rl_user_id=rl_user_id,
+                    scout_user_id=scout_user_id,
+                    players=players,
+                    rl_bonus_pct=rl_bonus_percent,
+                    scout_pct=scout_percent,
+                    scout_min=scout_min,
+                    scout_max=scout_max,
+                    maps_cost=maps_cost,
+                )
 
-            class LootConfirmView(nextcord.ui.View):
-                def __init__(self, mod: "RaidModule", tkn: str):
-                    super().__init__(timeout=900)
-                    self.mod = mod
-                    self.tkn = tkn
+                calc_payouts: Dict[int, int] = dict(calc["payouts"])
+                if scout_user_id and calc["scout_paid"] > 0:
+                    calc_payouts[scout_user_id] = calc_payouts.get(scout_user_id, 0) + int(calc["scout_paid"])
 
-                @nextcord.ui.button(label="✅ Procéder", style=nextcord.ButtonStyle.success)
-                async def proceed(self, button: nextcord.ui.Button, inter: nextcord.Interaction):
-                    data = self.mod._loot_sessions.get(self.tkn)
-                    if not data:
-                        return await inter.response.send_message("Session expirée.", ephemeral=True)
-                    if not inter.guild or not isinstance(inter.user, nextcord.Member):
-                        return await inter.response.send_message("Contexte serveur requis.", ephemeral=True)
-                    if inter.user.id != data["author_id"] and not can_manage_raids(self.mod.cfg, inter.user, self.mod.store):
-                        return await inter.response.send_message("⛔ Non autorisé.", ephemeral=True)
-                    for c in self.children:
-                        c.disabled = True
-                    await inter.message.edit(view=self)
+                def m(uid: Optional[int]) -> str:
+                    return mention(uid) if uid else "*(non défini)*"
 
-                    raid_obj = self.mod.store.raids.get(data.get("raid_id", ""))
-                    payouts = data.get("payouts", {})
-                    if inter.guild and payouts:
-                        async with self.mod.store.lock:
-                            for uid, amt in payouts.items():
-                                cur = self.mod.store.bank_get_balance(inter.guild.id, int(uid))
-                                self.mod.store.bank_set_balance(inter.guild.id, int(uid), cur + int(amt))
-                            self.mod.store.save()
+                lines = [
+                    "✅ **Processed 💸**",
+                    "Vérifiez les calculs puis validez avec le bouton.",
+                    f"**Raid**: `{raid.raid_id}`",
+                    f"**RL**: {m(rl_user_id)}",
+                    f"**Scout**: {m(scout_user_id)}",
+                    f"**Total Pot**: `{total_net:,}`",
+                    "",
+                    "📊 **Financial Summary**",
+                    f"Coffre brut: `{coffre_raw:,}`",
+                    f"Coffre net ({tax_percent:.1f}% tax): `{coffre_net:,}`",
+                    f"Silver bags: `{bags_raw:,}`",
+                    f"Total net: `{total_net:,}`",
+                    "",
+                    "👑 **RL / Scout**",
+                    f"RL bonus: `{rl_bonus_percent:.2f}%`",
+                    f"Scout part: `{scout_percent:.2f}%` clamp `{scout_min:,}`-`{scout_max:,}` => `{calc['scout_paid']:,}`",
+                    "",
+                    "🗺️ **Maps**",
+                    f"Total maps cost: `{maps_cost:,}`",
+                ]
+                for tier, price, finished, effective in map_rows[:20]:
+                    status = "Finish" if finished else "Cancel(-90%)"
+                    lines.append(f"• {tier}: `{price:,}` => `{effective:,}` ({status})")
+                lines += [
+                    "",
+                    "👥 **Sharing**",
+                    f"Post-scout: `{calc['post_scout']:,}`",
+                    f"Post-maps: `{calc['post_maps']:,}`",
+                    f"Share normal: `{calc['share']:,}`",
+                    f"Joueurs split ({len(calc_payouts)}): " + " ".join(mention(uid) for uid in list(calc_payouts.keys())[:25]),
+                    "",
+                    "📋 **Payouts**",
+                ]
+                for uid, amt in list(calc_payouts.items())[:60]:
+                    lines.append(f"• {mention(uid)}: `+{amt:,}`")
 
-                    if raid_obj:
-                        await self.mod._cleanup_temp_role_after_split(raid_obj)
+                token = f"loot:{modal_interaction.guild.id}:{modal_interaction.channel.id}:{interaction.user.id}:{int(time.time())}"
+                self._loot_sessions[token] = {"author_id": interaction.user.id, "summary": "\n".join(lines), "raid_id": raid.raid_id, "payouts": calc_payouts}
 
-                    ping_targets = " ".join(mention(int(uid)) for uid in payouts.keys()) if payouts else ""
-                    if ping_targets:
-                        try:
-                            await inter.channel.send(f"💰 Paiement split effectué pour: {ping_targets}")
-                        except Exception:
-                            pass
+                class LootConfirmView(nextcord.ui.View):
+                    def __init__(self, mod: "RaidModule", tkn: str):
+                        super().__init__(timeout=900)
+                        self.mod = mod
+                        self.tkn = tkn
 
-                    await inter.response.send_message("✅ Répartition validée et paiements appliqués.", ephemeral=True)
+                    @nextcord.ui.button(label="✅ Procéder", style=nextcord.ButtonStyle.success)
+                    async def proceed(self, button: nextcord.ui.Button, inter: nextcord.Interaction):
+                        data = self.mod._loot_sessions.get(self.tkn)
+                        if not data:
+                            return await inter.response.send_message("Session expirée.", ephemeral=True)
+                        if not inter.guild or not isinstance(inter.user, nextcord.Member):
+                            return await inter.response.send_message("Contexte serveur requis.", ephemeral=True)
+                        if inter.user.id != data["author_id"] and not can_manage_raids(self.mod.cfg, inter.user, self.mod.store):
+                            return await inter.response.send_message("⛔ Non autorisé.", ephemeral=True)
+                        for c in self.children:
+                            c.disabled = True
+                        await inter.message.edit(view=self)
 
-                @nextcord.ui.button(label="❌ Annuler", style=nextcord.ButtonStyle.danger)
-                async def cancel(self, button: nextcord.ui.Button, inter: nextcord.Interaction):
-                    data = self.mod._loot_sessions.get(self.tkn)
-                    if not data:
-                        return await inter.response.send_message("Session expirée.", ephemeral=True)
-                    if not inter.guild or not isinstance(inter.user, nextcord.Member):
-                        return await inter.response.send_message("Contexte serveur requis.", ephemeral=True)
-                    if inter.user.id != data["author_id"] and not can_manage_raids(self.mod.cfg, inter.user, self.mod.store):
-                        return await inter.response.send_message("⛔ Non autorisé.", ephemeral=True)
-                    for c in self.children:
-                        c.disabled = True
-                    await inter.message.edit(view=self)
-                    await inter.response.send_message("❌ Répartition annulée.", ephemeral=True)
+                        raid_obj = self.mod.store.raids.get(data.get("raid_id", ""))
+                        payouts = data.get("payouts", {})
+                        if inter.guild and payouts:
+                            async with self.mod.store.lock:
+                                for uid, amt in payouts.items():
+                                    cur = self.mod.store.bank_get_balance(inter.guild.id, int(uid))
+                                    self.mod.store.bank_set_balance(inter.guild.id, int(uid), cur + int(amt))
+                                self.mod.store.save()
 
-            await interaction.response.send_message("Résumé prêt, publié dans le thread.", ephemeral=True)
-            summary_embed = nextcord.Embed(
-                title="✅ Processed 💸",
-                description=limit_str(self._loot_sessions[token]["summary"], 3900),
-                color=nextcord.Color.green(),
-            )
-            await interaction.channel.send(embed=summary_embed, view=LootConfirmView(self, token))
+                        if raid_obj:
+                            await self.mod._cleanup_temp_role_after_split(raid_obj)
+
+                        ping_targets = " ".join(mention(int(uid)) for uid in payouts.keys()) if payouts else ""
+                        if ping_targets:
+                            try:
+                                await inter.channel.send(f"💰 Paiement split effectué pour: {ping_targets}")
+                            except Exception:
+                                pass
+
+                        await inter.response.send_message("✅ Répartition validée et paiements appliqués.", ephemeral=True)
+
+                    @nextcord.ui.button(label="❌ Annuler", style=nextcord.ButtonStyle.danger)
+                    async def cancel(self, button: nextcord.ui.Button, inter: nextcord.Interaction):
+                        data = self.mod._loot_sessions.get(self.tkn)
+                        if not data:
+                            return await inter.response.send_message("Session expirée.", ephemeral=True)
+                        if not inter.guild or not isinstance(inter.user, nextcord.Member):
+                            return await inter.response.send_message("Contexte serveur requis.", ephemeral=True)
+                        if inter.user.id != data["author_id"] and not can_manage_raids(self.mod.cfg, inter.user, self.mod.store):
+                            return await inter.response.send_message("⛔ Non autorisé.", ephemeral=True)
+                        for c in self.children:
+                            c.disabled = True
+                        await inter.message.edit(view=self)
+                        await inter.response.send_message("❌ Répartition annulée.", ephemeral=True)
+
+                await modal_interaction.response.send_message("Résumé prêt, publié dans le thread.", ephemeral=True)
+                summary_embed = nextcord.Embed(
+                    title="✅ Processed 💸",
+                    description=limit_str(self._loot_sessions[token]["summary"], 3900),
+                    color=nextcord.Color.green(),
+                )
+                await modal_interaction.channel.send(embed=summary_embed, view=LootConfirmView(self, token))
+
+            await interaction.response.send_modal(LootSplitParamsModal(on_submit=_on_loot_params))
