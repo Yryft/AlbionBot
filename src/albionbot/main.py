@@ -62,7 +62,7 @@ def main():
             "**Commandes joueur**",
             "• `/help` — Affiche cette aide.",
             "• `/bal [user]` — Voir ta balance (ou un autre si autorisé).",
-            "• `/pay <joueur> <montant> [note]` — Payer un joueur depuis ta balance.",
+            "• `/pay <joueur>` — Choisir un joueur puis saisir montant/note en modal.",
             "",
             "**Fonctions raid (UI)**",
             "• Message raid: sélection de rôle, `Absent`, `Leave`, `DM notif (toggle)`.",
@@ -89,7 +89,7 @@ def main():
             lines += [
                 "",
                 "**Commandes manager banque**",
-                "• `/bank_add` / `/bank_remove` — Ajouter/retirer (cibles multiples).",
+                "• `/bank_add` / `/bank_remove` — Ajouter/retirer avec écran de confirmation.",
                 "• `/bank_add_split` / `/bank_remove_split` — Répartir une somme.",
                 "• `/bank_undo` — Annuler la dernière action (<15 min).",
             ]
