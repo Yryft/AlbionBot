@@ -85,6 +85,38 @@ class BankAction:
     undone_at: Optional[int] = None
 
 
+@dataclass
+class TicketSnapshot:
+    ticket_id: str
+    event_type: Literal["message", "message_edit", "message_delete", "ticket_closed", "ticket_deleted"]
+    created_at: int
+    guild_id: Optional[int]
+    channel_id: int
+    message_id: Optional[int] = None
+    author_id: Optional[int] = None
+    author_name: str = ""
+    message_created_at: Optional[int] = None
+    message_edited_at: Optional[int] = None
+    content: str = ""
+    previous_content: str = ""
+    attachments: List[Dict[str, str]] = field(default_factory=list)
+    embeds: List[Dict[str, str]] = field(default_factory=list)
+
+
+@dataclass
+class TicketRecord:
+    ticket_id: str
+    guild_id: Optional[int]
+    channel_id: int
+    owner_id: Optional[int] = None
+    status: Literal["open", "closed", "deleted"] = "open"
+    created_at: int = field(default_factory=lambda: int(time.time()))
+    closed_at: Optional[int] = None
+    transcript_markdown: str = ""
+    transcript_html: str = ""
+    transcript_path: str = ""
+
+
 class Store:
     def __init__(self, path: str, bank_action_log_limit: int = 500, bank_database_url: str = "", bank_sqlite_path: str = "data/bank.sqlite3"):
         self.path = path
@@ -109,6 +141,8 @@ class Store:
         self.templates: Dict[str, CompTemplate] = {}
         self.raids: Dict[str, RaidEvent] = {}
         self.guild_permissions: Dict[int, Dict[str, List[int]]] = {}
+        self.tickets: Dict[str, TicketRecord] = {}
+        self.ticket_events: Dict[str, List[TicketSnapshot]] = {}
 
         self.bank_balances: Dict[int, Dict[int, int]] = {}
         self.bank_actions: Dict[int, List[BankAction]] = {}
@@ -197,6 +231,43 @@ class Store:
                 out_map[str(perm_key)] = list(map(int, role_ids or []))
             self.guild_permissions[gid] = out_map
 
+        self.tickets = {}
+        for ticket_id, t in raw.get("tickets", {}).items():
+            self.tickets[ticket_id] = TicketRecord(
+                ticket_id=str(t.get("ticket_id", ticket_id)),
+                guild_id=t.get("guild_id"),
+                channel_id=int(t["channel_id"]),
+                owner_id=t.get("owner_id"),
+                status=t.get("status", "open"),
+                created_at=int(t.get("created_at", int(time.time()))),
+                closed_at=t.get("closed_at"),
+                transcript_markdown=t.get("transcript_markdown", ""),
+                transcript_html=t.get("transcript_html", ""),
+                transcript_path=t.get("transcript_path", ""),
+            )
+
+        self.ticket_events = {}
+        for ticket_id, snapshots in raw.get("ticket_events", {}).items():
+            events: List[TicketSnapshot] = []
+            for s in snapshots or []:
+                events.append(TicketSnapshot(
+                    ticket_id=str(s.get("ticket_id", ticket_id)),
+                    event_type=s.get("event_type", "message"),
+                    created_at=int(s.get("created_at", int(time.time()))),
+                    guild_id=s.get("guild_id"),
+                    channel_id=int(s["channel_id"]),
+                    message_id=s.get("message_id"),
+                    author_id=s.get("author_id"),
+                    author_name=s.get("author_name", ""),
+                    message_created_at=s.get("message_created_at"),
+                    message_edited_at=s.get("message_edited_at"),
+                    content=s.get("content", ""),
+                    previous_content=s.get("previous_content", ""),
+                    attachments=list(s.get("attachments", [])),
+                    embeds=list(s.get("embeds", [])),
+                ))
+            self.ticket_events[str(ticket_id)] = events
+
     def _load_bank_legacy_from_raw(self, raw: Dict) -> None:
         self.bank_balances = {}
         self.bank_actions = {}
@@ -223,7 +294,7 @@ class Store:
             self.bank_actions[gid] = actions
 
     def _serialize_runtime_state(self) -> Dict:
-        raw = {"templates": {}, "raids": {}, "guild_permissions": {}}
+        raw = {"templates": {}, "raids": {}, "guild_permissions": {}, "tickets": {}, "ticket_events": {}}
         for name, t in self.templates.items():
             raw["templates"][name] = {
                 "name": t.name,
@@ -264,6 +335,12 @@ class Store:
 
         for gid, perm_map in self.guild_permissions.items():
             raw["guild_permissions"][str(gid)] = {k: list(map(int, v)) for k, v in perm_map.items()}
+
+        for ticket_id, ticket in self.tickets.items():
+            raw["tickets"][ticket_id] = asdict(ticket)
+
+        for ticket_id, events in self.ticket_events.items():
+            raw["ticket_events"][ticket_id] = [asdict(event) for event in events]
         return raw
 
     def get_permission_role_ids(self, guild_id: int, permission_key: str) -> List[int]:
@@ -377,3 +454,51 @@ class Store:
                     a.undone = True
                     a.undone_at = int(undone_at)
                     return
+
+
+    def ticket_get_by_channel(self, channel_id: int) -> Optional[TicketRecord]:
+        for ticket in self.tickets.values():
+            if ticket.channel_id == int(channel_id):
+                return ticket
+        return None
+
+    def ticket_get_or_create(self, channel_id: int, guild_id: Optional[int], owner_id: Optional[int] = None) -> TicketRecord:
+        existing = self.ticket_get_by_channel(channel_id)
+        if existing is not None:
+            if existing.owner_id is None and owner_id is not None:
+                existing.owner_id = int(owner_id)
+            return existing
+
+        now = int(time.time())
+        ticket_id = f"{int(channel_id)}-{now}"
+        ticket = TicketRecord(
+            ticket_id=ticket_id,
+            guild_id=int(guild_id) if guild_id is not None else None,
+            channel_id=int(channel_id),
+            owner_id=int(owner_id) if owner_id is not None else None,
+            created_at=now,
+        )
+        self.tickets[ticket_id] = ticket
+        self.ticket_events.setdefault(ticket_id, [])
+        return ticket
+
+    def ticket_append_snapshot(self, snapshot: TicketSnapshot) -> None:
+        if snapshot.ticket_id not in self.ticket_events:
+            self.ticket_events[snapshot.ticket_id] = []
+        self.ticket_events[snapshot.ticket_id].append(snapshot)
+
+    def ticket_list_snapshots(self, ticket_id: str) -> List[TicketSnapshot]:
+        return list(self.ticket_events.get(ticket_id, []))
+
+    def ticket_finalize(self, channel_id: int, status: Literal["closed", "deleted"], transcript_markdown: str, transcript_html: str, transcript_path: str = "") -> Optional[TicketRecord]:
+        ticket = self.ticket_get_by_channel(channel_id)
+        if ticket is None:
+            return None
+
+        now = int(time.time())
+        ticket.status = status
+        ticket.closed_at = now
+        ticket.transcript_markdown = transcript_markdown
+        ticket.transcript_html = transcript_html
+        ticket.transcript_path = transcript_path
+        return ticket
