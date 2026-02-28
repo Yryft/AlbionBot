@@ -7,7 +7,7 @@ from nextcord.ext import commands
 from ..config import Config
 from ..storage.store import Store, TicketMessageSnapshot, TicketRecord
 from ..utils.discord import parse_ids
-from ..utils.permissions import can_manage_raids
+from ..utils.permissions import can_manage_tickets
 
 TICKET_MODE_THREAD = "private_thread"
 TICKET_MODE_CHANNEL = "private_channel"
@@ -74,7 +74,7 @@ class TicketModule:
         ):
             if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
-            if not can_manage_raids(cfg, interaction.user, self.store):
+            if not can_manage_tickets(cfg, interaction.user, self.store):
                 return await interaction.response.send_message("⛔ Permission insuffisante (admin/manager requis).", ephemeral=True)
 
             cur = self.store.get_ticket_config(interaction.guild.id)
@@ -110,7 +110,7 @@ class TicketModule:
         ):
             if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
-            if not can_manage_raids(cfg, interaction.user, self.store):
+            if not can_manage_tickets(cfg, interaction.user, self.store):
                 return await interaction.response.send_message("⛔ Permission insuffisante (admin/manager requis).", ephemeral=True)
 
             cur = self.store.get_ticket_config(interaction.guild.id)
@@ -157,7 +157,7 @@ class TicketModule:
         ):
             if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
-            if not can_manage_raids(cfg, interaction.user, self.store):
+            if not can_manage_tickets(cfg, interaction.user, self.store):
                 return await interaction.response.send_message("⛔ Permission insuffisante (admin/manager requis).", ephemeral=True)
 
             role_ids: List[int] = []
@@ -186,7 +186,7 @@ class TicketModule:
         ):
             if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
-            if not can_manage_raids(cfg, interaction.user, self.store):
+            if not can_manage_tickets(cfg, interaction.user, self.store):
                 return await interaction.response.send_message("⛔ Permission insuffisante (admin/manager requis).", ephemeral=True)
 
             async with self.store.lock:

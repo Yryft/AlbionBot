@@ -192,7 +192,7 @@ def main():
             def __init__(self):
                 super().__init__(title="Permissions manager", timeout=180)
                 self.permission_input = nextcord.ui.TextInput(
-                    label="Permission (raid_manager, bank_manager, ticket_manager)",
+                    label="Permission manager",
                     required=True,
                     placeholder=f"{PERM_RAID_MANAGER}, {PERM_BANK_MANAGER}, {PERM_TICKET_MANAGER}",
                     min_length=5,
