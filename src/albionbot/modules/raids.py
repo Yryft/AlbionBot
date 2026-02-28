@@ -14,6 +14,7 @@ from ..utils.permissions import can_manage_raids
 from ..utils.text import chunk_text_lines, limit_str
 from ..utils.timeutil import parse_dt_paris, TZ_PARIS
 from ..ui.raid_views import RaidView, IpModal
+from ..ui.raid_admin_views import RaidAssistantView
 
 log = logging.getLogger("albionbot.raids")
 
@@ -448,7 +449,10 @@ class RaidModule:
 
 
         try:
-            await ch.send(msg)
+            if raid.message_id and isinstance(ch, nextcord.TextChannel):
+                await ch.send(msg, reference=nextcord.MessageReference(message_id=raid.message_id, channel_id=ch.id), mention_author=False)
+            else:
+                await ch.send(msg)
         except Exception:
             pass
 
@@ -983,6 +987,55 @@ class RaidModule:
                         self.store.save()
                 await self.refresh_raid_message(raid.raid_id)
 
+    async def _edit_raid_data(self, raid_id: str, *, title: str = "", start: str = "") -> Tuple[bool, str]:
+        if not title.strip() and not start.strip():
+            return False, "Renseigne au moins un champ à modifier (title et/ou start)."
+
+        new_start_at = None
+        if start.strip():
+            try:
+                new_start_at = parse_dt_paris(start)
+            except Exception:
+                return False, "Format date invalide. Ex: 2026-02-24 20:30"
+
+        async with self.store.lock:
+            raid = self.store.raids.get(raid_id)
+            if not raid:
+                return False, "Raid introuvable."
+            if raid.cleanup_done:
+                return False, "Raid terminé, modification impossible."
+
+            if title.strip():
+                raid.title = title.strip()
+            if new_start_at is not None:
+                raid.start_at = new_start_at
+            self.store.save()
+
+        await self.refresh_raid_message(raid_id)
+
+        raid = self.store.raids.get(raid_id)
+        if raid and raid.thread_id:
+            try:
+                th = await self.bot.fetch_channel(raid.thread_id)
+                if isinstance(th, nextcord.Thread):
+                    thread_name = limit_str(f"{raid.title} • {datetime.fromtimestamp(raid.start_at, TZ_PARIS).strftime('%d/%m %H:%M')}", 95)
+                    await th.edit(name=thread_name)
+            except Exception:
+                pass
+
+        return True, "✅ Raid modifié."
+
+    async def _close_raid_now(self, raid_id: str) -> Tuple[bool, str]:
+        async with self.store.lock:
+            raid = self.store.raids.get(raid_id)
+            if not raid:
+                return False, "Raid introuvable."
+            raid.ping_done = True
+            self.store.save()
+
+        await self.refresh_raid_message(raid_id)
+        return True, "🔒 Raid fermé."
+
     # ---------- Commands
     def _register_commands(self):
         bot = self.bot
@@ -1154,42 +1207,12 @@ class RaidModule:
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
             if not can_manage_raids(cfg, interaction.user, self.store):
                 return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
-            if not title.strip() and not start.strip():
-                return await interaction.response.send_message("Renseigne au moins un champ à modifier (title et/ou start).", ephemeral=True)
 
-            new_start_at = None
-            if start.strip():
-                try:
-                    new_start_at = parse_dt_paris(start)
-                except Exception:
-                    return await interaction.response.send_message("Format date invalide. Ex: 2026-02-24 20:30", ephemeral=True)
-
-            async with self.store.lock:
-                raid = self.store.raids.get(raid_id)
-                if not raid:
-                    return await interaction.response.send_message("Raid introuvable.", ephemeral=True)
-                if raid.cleanup_done:
-                    return await interaction.response.send_message("⛔ Raid terminé, modification impossible.", ephemeral=True)
-
-                if title.strip():
-                    raid.title = title.strip()
-                if new_start_at is not None:
-                    raid.start_at = new_start_at
-                self.store.save()
-
-            await self.refresh_raid_message(raid_id)
-
-            raid = self.store.raids.get(raid_id)
-            if raid and raid.thread_id:
-                try:
-                    th = await self.bot.fetch_channel(raid.thread_id)
-                    if isinstance(th, nextcord.Thread):
-                        thread_name = limit_str(f"{raid.title} • {datetime.fromtimestamp(raid.start_at, TZ_PARIS).strftime('%d/%m %H:%M')}", 95)
-                        await th.edit(name=thread_name)
-                except Exception:
-                    pass
-
-            await interaction.response.send_message("✅ Raid modifié.", ephemeral=True)
+            ok, message = await self._edit_raid_data(raid_id, title=title, start=start)
+            if ok:
+                await interaction.response.send_message(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(f"⛔ {message}", ephemeral=True)
 
         @raid_edit.on_autocomplete("raid_id")
         async def _raid_edit_ac(interaction: nextcord.Interaction, user_input: str):
@@ -1201,18 +1224,53 @@ class RaidModule:
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
             if not can_manage_raids(cfg, interaction.user, self.store):
                 return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
-            async with self.store.lock:
-                raid = self.store.raids.get(raid_id)
-                if not raid:
-                    return await interaction.response.send_message("Raid introuvable.", ephemeral=True)
-                raid.ping_done = True
-                self.store.save()
-            await self.refresh_raid_message(raid_id)
-            await interaction.response.send_message("🔒 Raid fermé.", ephemeral=True)
+
+            ok, message = await self._close_raid_now(raid_id)
+            if ok:
+                await interaction.response.send_message(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(f"⛔ {message}", ephemeral=True)
 
         @raid_close.on_autocomplete("raid_id")
         async def _raid_close_ac(interaction: nextcord.Interaction, user_input: str):
             return self._autocomplete_raid_ids(user_input)
+
+        @bot.slash_command(name="raid_assistant", description="Assistant interactif pour gérer les raids", **guild_kwargs)
+        async def raid_assistant(interaction: nextcord.Interaction):
+            if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+                return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+            if not can_manage_raids(cfg, interaction.user, self.store):
+                return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
+
+            active_raids = [r for r in sorted(self.store.raids.values(), key=lambda x: x.created_at, reverse=True) if not r.cleanup_done]
+            if not active_raids:
+                return await interaction.response.send_message("Aucun raid disponible.", ephemeral=True)
+
+            options = [
+                nextcord.SelectOption(
+                    label=limit_str(f"{r.raid_id} • {r.title}", 100),
+                    value=r.raid_id,
+                    description=limit_str(f"<t:{r.start_at}:R>", 100),
+                )
+                for r in active_raids[:25]
+            ]
+
+            async def _close_from_assistant(confirm_interaction: nextcord.Interaction, raid_id: str):
+                ok, message = await self._close_raid_now(raid_id)
+                if ok:
+                    await confirm_interaction.response.edit_message(content=message, view=None)
+                else:
+                    await confirm_interaction.response.send_message(f"⛔ {message}", ephemeral=True)
+
+            async def _edit_from_assistant(confirm_interaction: nextcord.Interaction, raid_id: str, title: str, start: str):
+                ok, message = await self._edit_raid_data(raid_id, title=title, start=start)
+                if ok:
+                    await confirm_interaction.response.send_message(message, ephemeral=True)
+                else:
+                    await confirm_interaction.response.send_message(f"⛔ {message}", ephemeral=True)
+
+            view = RaidAssistantView(owner_id=interaction.user.id, options=options, on_close=_close_from_assistant, on_edit=_edit_from_assistant)
+            await interaction.response.send_message(view.render_content(), view=view, ephemeral=True)
 
         @bot.slash_command(name="loot_scout_limits", description="Définir min/max de part scout", **guild_kwargs)
         async def loot_scout_limits(
