@@ -227,6 +227,55 @@ def main():
 
 
 
+
+    @bot.event
+    async def on_message(message: nextcord.Message):
+        if message.author.bot:
+            return
+        async with store.lock:
+            tickets.append_message_snapshot(message)
+            store.save()
+
+    @bot.event
+    async def on_message_edit(before: nextcord.Message, after: nextcord.Message):
+        if after.author and after.author.bot:
+            return
+        async with store.lock:
+            tickets.append_edit_snapshot(before, after)
+            store.save()
+
+    @bot.event
+    async def on_message_delete(message: nextcord.Message):
+        if message.author and message.author.bot:
+            return
+        async with store.lock:
+            tickets.append_delete_snapshot(message)
+            store.save()
+
+    @bot.event
+    async def on_guild_channel_delete(channel: nextcord.abc.GuildChannel):
+        async with store.lock:
+            ticket = tickets.finalize_ticket(channel.id, status="deleted")
+            if ticket:
+                store.save()
+
+    @bot.event
+    async def on_thread_delete(thread: nextcord.Thread):
+        async with store.lock:
+            ticket = tickets.finalize_ticket(thread.id, status="deleted")
+            if ticket:
+                store.save()
+
+    @bot.event
+    async def on_guild_channel_update(before: nextcord.abc.GuildChannel, after: nextcord.abc.GuildChannel):
+        before_name = (getattr(before, "name", "") or "").lower()
+        after_name = (getattr(after, "name", "") or "").lower()
+        if "closed" in after_name and "closed" not in before_name:
+            async with store.lock:
+                ticket = tickets.finalize_ticket(after.id, status="closed")
+                if ticket:
+                    store.save()
+
     @bot.event
     async def on_ready():
         log.info("Logged in as %s", bot.user)
