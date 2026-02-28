@@ -4,7 +4,7 @@ import json
 import time
 import asyncio
 from dataclasses import dataclass, asdict, field
-from typing import Dict, List, Optional, Set, Literal
+from typing import Dict, List, Optional, Set, Literal, Tuple
 
 RaidStatus = Literal["OPEN", "PINGED", "CLOSED"]
 BankActionType = Literal["add", "remove", "add_split", "remove_split"]
@@ -720,6 +720,22 @@ class Store:
         self.bank_actions[action.guild_id].append(action)
         if len(self.bank_actions[action.guild_id]) > self.bank_action_log_limit:
             self.bank_actions[action.guild_id] = self.bank_actions[action.guild_id][-self.bank_action_log_limit:]
+
+    def bank_get_leaderboard(self, guild_id: int, limit: int, offset: int = 0) -> Tuple[List[Tuple[int, int]], int]:
+        if self.bank_db is not None:
+            rows = self.bank_db.get_leaderboard(guild_id, limit=limit, offset=offset)
+            total = self.bank_db.get_leaderboard_count(guild_id)
+            return rows, total
+
+        balances = self.bank_balances.get(guild_id, {})
+        rows = sorted(
+            ((int(uid), int(bal)) for uid, bal in balances.items() if int(bal) != 0),
+            key=lambda item: (-item[1], item[0]),
+        )
+        total = len(rows)
+        start = max(0, int(offset))
+        end = start + max(0, int(limit))
+        return rows[start:end], total
 
     def bank_find_last_action_for_actor(self, guild_id: int, actor_id: int) -> Optional[BankAction]:
         if self.bank_db is not None:

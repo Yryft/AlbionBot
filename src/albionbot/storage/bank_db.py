@@ -244,6 +244,35 @@ class BankDB:
                 (guild_id, user_id, int(balance), now)
             )
 
+    def get_leaderboard(self, guild_id: int, limit: int, offset: int = 0) -> List[Tuple[int, int]]:
+        rows = self._fetchall(
+            """
+            SELECT user_id, balance
+            FROM bank_balances
+            WHERE guild_id = ? AND balance != 0
+            ORDER BY balance DESC, user_id ASC
+            LIMIT ? OFFSET ?;
+            """ if self.kind == "sqlite" else
+            """
+            SELECT user_id, balance
+            FROM bank_balances
+            WHERE guild_id = %s AND balance <> 0
+            ORDER BY balance DESC, user_id ASC
+            LIMIT %s OFFSET %s;
+            """,
+            (int(guild_id), int(limit), int(offset))
+        )
+        return [(int(r["user_id"]), int(r["balance"])) for r in rows]
+
+    def get_leaderboard_count(self, guild_id: int) -> int:
+        row = self._fetchone(
+            "SELECT COUNT(*) as c FROM bank_balances WHERE guild_id = ? AND balance != 0;"
+            if self.kind == "sqlite" else
+            "SELECT COUNT(*) as c FROM bank_balances WHERE guild_id = %s AND balance <> 0;",
+            (int(guild_id),)
+        )
+        return int(row["c"]) if row else 0
+
     def append_action(self, action: BankAction) -> None:
         # Insert action
         if self.kind == "postgres":
