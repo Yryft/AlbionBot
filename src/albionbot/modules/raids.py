@@ -1467,6 +1467,8 @@ class RaidModule:
                     f"Post-scout: `{calc['post_scout']:,}`",
                     f"Post-maps: `{calc['post_maps']:,}`",
                     f"Share normal: `{calc['share']:,}`",
+                    f"Part du RL {m(rl_user_id)} : `{calc_payouts.get(rl_user_id, 0):,}`",
+                    f"Part du Scout {m(scout_user_id)} : `{calc_payouts.get(scout_user_id, 0) if scout_user_id else 0:,}`",
                     f"Joueurs split ({len(calc_payouts)}): " + " ".join(mention(uid) for uid in list(calc_payouts.keys())[:25]),
                     "",
                     "📋 **Payouts**",
