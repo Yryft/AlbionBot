@@ -34,13 +34,17 @@ Commandes principales :
 - `/bal`, `/pay`, `/bank_assistant`
 - `/bank_add`, `/bank_remove`, `/bank_add_split`, `/bank_remove_split`, `/bank_undo`
 
-### 3) Tickets (configuration + traçabilité)
-- Configuration du mode d'ouverture (thread privé ou canal privé).
-- Configuration catégorie et rôles support.
-- Configuration style d'ouverture.
+### 3) Tickets (multi-types + traçabilité)
+- Panneau admin/manager pour publier un message d'ouverture de ticket.
+- Types de tickets flexibles par serveur (recrutement, aide, customs...).
+- Permissions support configurables par type (rôles différents selon le type).
+- Fermeture simple pour l'auteur ou le support, avec confirmation obligatoire.
 - Historique technique des messages (création/édition/suppression) pour les tickets connus.
 
 Commandes principales :
+- `/ticket_panel_send`
+- `/ticket_open`, `/ticket_close`
+- `/ticket_type_set`, `/ticket_type_remove`
 - `/ticket_config_mode`
 - `/ticket_config_category`
 - `/ticket_config_roles`

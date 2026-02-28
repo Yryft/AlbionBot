@@ -77,9 +77,11 @@ def _build_help_lines(member: nextcord.Member, cfg, store: Store) -> List[str]:
         lines += [
             "",
             "**Commandes manager tickets**",
+            "• `/ticket_panel_send` — Envoyer le panneau d'ouverture de tickets.",
+            "• `/ticket_type_set` / `/ticket_type_remove` — Gérer les types de tickets.",
             "• `/ticket_config_mode` — Définir le mode thread/canal privé.",
-            "• `/ticket_config_category` — Définir ou retirer la catégorie tickets.",
-            "• `/ticket_config_roles` — Définir les rôles support.",
+            "• `/ticket_config_category` — Définir ou retirer la catégorie par défaut.",
+            "• `/ticket_config_roles` — Définir les rôles support par défaut.",
             "• `/ticket_config_open_style` — Choisir le style d'ouverture (message/bouton).",
         ]
 

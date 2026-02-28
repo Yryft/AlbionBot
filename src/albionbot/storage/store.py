@@ -96,6 +96,7 @@ class TicketConfig:
     support_role_ids: List[int] = field(default_factory=list)
     naming_format: str = "ticket-{user}"
     open_style: Literal["message", "button"] = "button"
+    ticket_types: Dict[str, TicketTypeConfig] = field(default_factory=dict)
 
 
 @dataclass
@@ -103,6 +104,7 @@ class TicketRecord:
     ticket_id: str
     guild_id: int
     owner_user_id: int
+    ticket_type_key: str = "default"
     channel_id: Optional[int] = None
     thread_id: Optional[int] = None
     status: TicketRecordStatus = "open"
@@ -120,6 +122,15 @@ class TicketMessageSnapshot:
     embeds: List[Dict] = field(default_factory=list)
     attachments: List[Dict[str, str]] = field(default_factory=list)
     created_at: int = field(default_factory=lambda: int(time.time()))
+
+
+@dataclass
+class TicketTypeConfig:
+    key: str
+    label: str
+    description: str = ""
+    support_role_ids: List[int] = field(default_factory=list)
+    category_id: Optional[int] = None
 
 
 class Store:
@@ -246,12 +257,22 @@ class Store:
             mode = str(ticket_cfg.get("mode", "private_channel"))
             category_id = ticket_cfg.get("category_id")
             open_style = str(ticket_cfg.get("open_style", "button"))
+            default_category_id = int(category_id) if category_id is not None else None
+            default_support_roles = list(map(int, ticket_cfg.get("support_role_ids", [])))
             self.ticket_configs[gid] = TicketConfig(
                 guild_id=gid,
                 creation_mode=mode if mode in {"private_thread", "private_channel"} else "private_channel",
-                category_id=int(category_id) if category_id is not None else None,
-                support_role_ids=list(map(int, ticket_cfg.get("support_role_ids", []))),
+                category_id=default_category_id,
+                support_role_ids=default_support_roles,
                 open_style=open_style if open_style in {"message", "button"} else "button",
+                ticket_types={
+                    "default": TicketTypeConfig(
+                        key="default",
+                        label="Support",
+                        support_role_ids=default_support_roles,
+                        category_id=default_category_id,
+                    )
+                },
             )
 
     def _load_bank_legacy_from_raw(self, raw: Dict) -> None:
@@ -292,6 +313,29 @@ class Store:
                 continue
             gid = int(gid_str)
             open_style = str(conf.get("open_style", "button"))
+            type_map: Dict[str, TicketTypeConfig] = {}
+            for type_key, type_data in (conf.get("ticket_types", {}) or {}).items():
+                if not isinstance(type_data, dict):
+                    continue
+                key = str(type_key).strip().lower()
+                if not key:
+                    continue
+                category_id = type_data.get("category_id")
+                type_map[key] = TicketTypeConfig(
+                    key=key,
+                    label=str(type_data.get("label", key.title()))[:100],
+                    description=str(type_data.get("description", ""))[:100],
+                    support_role_ids=list(map(int, type_data.get("support_role_ids", []))),
+                    category_id=int(category_id) if category_id is not None else None,
+                )
+            if "default" not in type_map:
+                type_map["default"] = TicketTypeConfig(
+                    key="default",
+                    label="Support",
+                    support_role_ids=list(map(int, conf.get("support_role_ids", []))),
+                    category_id=conf.get("category_id"),
+                )
+
             self.ticket_configs[gid] = TicketConfig(
                 guild_id=gid,
                 creation_mode=conf.get("creation_mode", "private_channel"),
@@ -300,6 +344,7 @@ class Store:
                 support_role_ids=list(map(int, conf.get("support_role_ids", []))),
                 naming_format=conf.get("naming_format", "ticket-{user}"),
                 open_style=open_style if open_style in {"message", "button"} else "button",
+                ticket_types=type_map,
             )
 
         for ticket_id, rec in ticket_raw.get("records", {}).items():
@@ -309,6 +354,7 @@ class Store:
                 ticket_id=str(rec.get("ticket_id", ticket_id)),
                 guild_id=int(rec["guild_id"]),
                 owner_user_id=int(rec["owner_user_id"]),
+                ticket_type_key=str(rec.get("ticket_type_key", "default")),
                 channel_id=rec.get("channel_id"),
                 thread_id=rec.get("thread_id"),
                 status=rec.get("status", "open"),
@@ -432,6 +478,16 @@ class Store:
                     "support_role_ids": list(map(int, conf.support_role_ids)),
                     "naming_format": conf.naming_format,
                     "open_style": conf.open_style,
+                    "ticket_types": {
+                        key: {
+                            "key": t.key,
+                            "label": t.label,
+                            "description": t.description,
+                            "support_role_ids": list(map(int, t.support_role_ids)),
+                            "category_id": t.category_id,
+                        }
+                        for key, t in conf.ticket_types.items()
+                    },
                 }
 
         for ticket_id, rec in self.ticket_records.items():
@@ -466,6 +522,15 @@ class Store:
                 "category_id": None,
                 "support_role_ids": [],
                 "open_style": "button",
+                "ticket_types": {
+                    "default": {
+                        "key": "default",
+                        "label": "Support",
+                        "description": "",
+                        "support_role_ids": [],
+                        "category_id": None,
+                    }
+                },
             }
         if isinstance(data, dict):
             return {
@@ -473,24 +538,63 @@ class Store:
                 "category_id": data.get("category_id"),
                 "support_role_ids": list(map(int, data.get("support_role_ids", []))),
                 "open_style": str(data.get("open_style", "button")),
+                "ticket_types": data.get("ticket_types", {}),
             }
+        type_map = {
+            key: {
+                "key": t.key,
+                "label": t.label,
+                "description": t.description,
+                "support_role_ids": list(map(int, t.support_role_ids)),
+                "category_id": t.category_id,
+            }
+            for key, t in data.ticket_types.items()
+        }
+        if "default" not in type_map:
+            type_map["default"] = {
+                "key": "default",
+                "label": "Support",
+                "description": "",
+                "support_role_ids": list(map(int, data.support_role_ids)),
+                "category_id": data.category_id,
+            }
+
         return {
             "mode": data.creation_mode,
             "category_id": data.category_id,
             "support_role_ids": list(map(int, data.support_role_ids)),
-            "open_style": "button",
+            "open_style": data.open_style,
+            "ticket_types": type_map,
         }
 
     def set_ticket_config(self, guild_id: int, **updates: object) -> None:
         conf = self.ticket_configs.get(guild_id)
         if conf is None or isinstance(conf, dict):
             current = self.get_ticket_config(guild_id)
+            raw_types = current.get("ticket_types", {})
+            type_map: Dict[str, TicketTypeConfig] = {}
+            if isinstance(raw_types, dict):
+                for type_key, type_data in raw_types.items():
+                    if not isinstance(type_data, dict):
+                        continue
+                    key = str(type_key).strip().lower()
+                    if not key:
+                        continue
+                    category_id = type_data.get("category_id")
+                    type_map[key] = TicketTypeConfig(
+                        key=key,
+                        label=str(type_data.get("label", key.title())),
+                        description=str(type_data.get("description", "")),
+                        support_role_ids=list(map(int, type_data.get("support_role_ids", []))),
+                        category_id=int(category_id) if category_id is not None else None,
+                    )
             conf = TicketConfig(
                 guild_id=guild_id,
                 creation_mode=str(current.get("mode", "private_channel")),
                 category_id=current.get("category_id"),
                 support_role_ids=list(map(int, current.get("support_role_ids", []))),
                 open_style=str(current.get("open_style", "button")),
+                ticket_types=type_map,
             )
 
         mode = updates.get("mode")
@@ -509,6 +613,25 @@ class Store:
         if open_style is not None:
             style_value = str(open_style)
             conf.open_style = style_value if style_value in {"message", "button"} else "button"
+
+        ticket_types = updates.get("ticket_types")
+        if ticket_types is not None and isinstance(ticket_types, dict):
+            type_map: Dict[str, TicketTypeConfig] = {}
+            for type_key, type_data in ticket_types.items():
+                if not isinstance(type_data, dict):
+                    continue
+                key = str(type_key).strip().lower()
+                if not key:
+                    continue
+                category_id = type_data.get("category_id")
+                type_map[key] = TicketTypeConfig(
+                    key=key,
+                    label=str(type_data.get("label", key.title())),
+                    description=str(type_data.get("description", "")),
+                    support_role_ids=list(map(int, type_data.get("support_role_ids", []))),
+                    category_id=int(category_id) if category_id is not None else None,
+                )
+            conf.ticket_types = type_map
 
         self.ticket_configs[guild_id] = conf
 
