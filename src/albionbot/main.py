@@ -10,7 +10,7 @@ from .modules.raids import RaidModule
 from .modules.bank import BankModule
 from .modules.tickets import TicketModule
 from .utils.discord import parse_ids
-from .utils.permissions import can_manage_bank, can_manage_raids, can_manage_tickets, is_guild_admin, PERM_BANK_MANAGER, PERM_RAID_MANAGER, PERM_SUPPORT_ROLE, PERM_TICKET_ADMIN
+from .utils.permissions import can_manage_bank, can_manage_raids, can_manage_tickets, is_guild_admin, PERM_BANK_MANAGER, PERM_RAID_MANAGER, PERM_TICKET_MANAGER
 
 log = logging.getLogger("albionbot")
 
@@ -31,7 +31,7 @@ def main():
 
     raids = RaidModule(bot, store, cfg)
     bank = BankModule(bot, store, cfg)
-    TicketModule(bot, store, cfg)
+    _tickets = TicketModule(bot, store, cfg)
 
     guild_kwargs = {"guild_ids": cfg.guild_ids} if cfg.guild_ids else {}
     rotating_statuses = [
@@ -57,6 +57,7 @@ def main():
         member = interaction.user
         is_raid_manager = can_manage_raids(cfg, member, store)
         is_bank_manager = can_manage_bank(cfg, member, store)
+        is_ticket_manager = can_manage_tickets(cfg, member, store)
 
         lines: List[str] = [
             "📘 **Aide AlbionBot**",
@@ -69,6 +70,7 @@ def main():
             "**Fonctions raid (UI)**",
             "• Message raid: sélection de rôle, `Absent`, `Leave`, `DM notif (toggle)`.",
             "• Le bouton DM notif permet de recevoir un DM au mass-up (avec vocal si défini).",
+            "• `/ticket_open` — Ouvre un ticket privé support.",
         ]
 
         if is_raid_manager:
@@ -85,6 +87,16 @@ def main():
                 "• `/raid_close <raid_id>` — Fermer un raid.",
                 "• `/loot_scout_limits <min> <max>` — Configurer limites scout.",
                 "• `/loot_split ...` — Split loot guidé (modal + validation, thread raid).",
+            ]
+
+        if is_ticket_manager:
+            lines += [
+                "",
+                "**Commandes support ticket**",
+                "• `/ticket_panel` — Publier un bouton d'ouverture de ticket.",
+                "• `/ticket_close` — Marquer le ticket courant comme fermé.",
+                "• `/ticket_delete` — Supprimer le canal/thread du ticket.",
+                "• `/ticket_add_user` / `/ticket_remove_user` — Gérer les accès.",
             ]
 
         if is_bank_manager:
@@ -131,7 +143,7 @@ def main():
         interaction: nextcord.Interaction,
         permission: str = nextcord.SlashOption(
             description="Permission à configurer",
-            choices={"Raid manager": PERM_RAID_MANAGER, "Bank manager": PERM_BANK_MANAGER, "Support": PERM_SUPPORT_ROLE, "Ticket admin": PERM_TICKET_ADMIN},
+            choices={"Raid manager": PERM_RAID_MANAGER, "Bank manager": PERM_BANK_MANAGER, "Ticket manager": PERM_TICKET_MANAGER},
         ),
         roles: str = nextcord.SlashOption(
             description="Mentions/IDs des rôles autorisés. Laisse vide pour vider.",
@@ -195,9 +207,9 @@ def main():
                     return await modal_interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
 
                 permission = str(self.permission_input.value).strip()
-                if permission not in {PERM_RAID_MANAGER, PERM_BANK_MANAGER, PERM_SUPPORT_ROLE, PERM_TICKET_ADMIN}:
+                if permission not in {PERM_RAID_MANAGER, PERM_BANK_MANAGER, PERM_TICKET_MANAGER}:
                     return await modal_interaction.response.send_message(
-                        f"Permission invalide. Utilise `{PERM_RAID_MANAGER}`, `{PERM_BANK_MANAGER}`, `{PERM_SUPPORT_ROLE}` ou `{PERM_TICKET_ADMIN}`.",
+                        f"Permission invalide. Utilise `{PERM_RAID_MANAGER}`, `{PERM_BANK_MANAGER}` ou `{PERM_TICKET_MANAGER}`.",
                         ephemeral=True,
                     )
 
@@ -223,6 +235,55 @@ def main():
         await interaction.response.send_modal(PermissionsModal())
 
 
+
+
+    @bot.event
+    async def on_message(message: nextcord.Message):
+        if message.author.bot:
+            return
+        async with store.lock:
+            tickets.append_message_snapshot(message)
+            store.save()
+
+    @bot.event
+    async def on_message_edit(before: nextcord.Message, after: nextcord.Message):
+        if after.author and after.author.bot:
+            return
+        async with store.lock:
+            tickets.append_edit_snapshot(before, after)
+            store.save()
+
+    @bot.event
+    async def on_message_delete(message: nextcord.Message):
+        if message.author and message.author.bot:
+            return
+        async with store.lock:
+            tickets.append_delete_snapshot(message)
+            store.save()
+
+    @bot.event
+    async def on_guild_channel_delete(channel: nextcord.abc.GuildChannel):
+        async with store.lock:
+            ticket = tickets.finalize_ticket(channel.id, status="deleted")
+            if ticket:
+                store.save()
+
+    @bot.event
+    async def on_thread_delete(thread: nextcord.Thread):
+        async with store.lock:
+            ticket = tickets.finalize_ticket(thread.id, status="deleted")
+            if ticket:
+                store.save()
+
+    @bot.event
+    async def on_guild_channel_update(before: nextcord.abc.GuildChannel, after: nextcord.abc.GuildChannel):
+        before_name = (getattr(before, "name", "") or "").lower()
+        after_name = (getattr(after, "name", "") or "").lower()
+        if "closed" in after_name and "closed" not in before_name:
+            async with store.lock:
+                ticket = tickets.finalize_ticket(after.id, status="closed")
+                if ticket:
+                    store.save()
 
     @bot.event
     async def on_ready():

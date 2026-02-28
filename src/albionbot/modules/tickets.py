@@ -1,72 +1,17 @@
-import io
-import html
-from datetime import datetime
-from typing import List
+from typing import List, Optional, Tuple
 
 import nextcord
 from nextcord.ext import commands
 
 from ..config import Config
-from ..storage.store import Store, TicketRecord
-from ..utils.permissions import can_manage_tickets
+from ..storage.store import Store
+from ..utils.discord import parse_ids
+from ..utils.permissions import can_manage_raids
 
-
-def _fmt_ts(ts: int) -> str:
-    return datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S UTC")
-
-
-def _ticket_summary(ticket: TicketRecord) -> str:
-    participants = ", ".join(f"<@{uid}>" for uid in ticket.participant_user_ids[:15]) or "—"
-    if len(ticket.participant_user_ids) > 15:
-        participants += f" (+{len(ticket.participant_user_ids) - 15})"
-
-    closed_at = _fmt_ts(ticket.closed_at) if ticket.closed_at is not None else "—"
-    return (
-        f"`{ticket.ticket_id}` • status=`{ticket.status}`\n"
-        f"• owner: <@{ticket.owner_user_id}>\n"
-        f"• créé: {_fmt_ts(ticket.created_at)}\n"
-        f"• maj: {_fmt_ts(ticket.updated_at)}\n"
-        f"• fermé: {closed_at}\n"
-        f"• participants: {participants}"
-    )
-
-
-def _build_transcript_text(ticket: TicketRecord) -> str:
-    header = [
-        f"Ticket {ticket.ticket_id}",
-        f"Status: {ticket.status}",
-        f"Owner: {ticket.owner_user_id}",
-        f"Created: {_fmt_ts(ticket.created_at)}",
-        f"Updated: {_fmt_ts(ticket.updated_at)}",
-        "",
-        "Messages:",
-    ]
-    body = [
-        f"[{_fmt_ts(message.created_at)}] {message.author_user_id}: {message.content}"
-        for message in ticket.transcript_messages
-    ]
-    return "\n".join(header + body)
-
-
-def _build_transcript_html(ticket: TicketRecord) -> str:
-    rows = []
-    for message in ticket.transcript_messages:
-        rows.append(
-            "<tr>"
-            f"<td>{_fmt_ts(message.created_at)}</td>"
-            f"<td>{message.author_user_id}</td>"
-            f"<td>{html.escape(message.content).replace(chr(10), '<br>')}</td>"
-            "</tr>"
-        )
-    table = "\n".join(rows) or "<tr><td colspan='3'>Aucun message</td></tr>"
-    return (
-        "<html><head><meta charset='utf-8'><title>Ticket Transcript</title></head><body>"
-        f"<h2>Ticket {ticket.ticket_id}</h2>"
-        f"<p>Status: {ticket.status} | Owner: {ticket.owner_user_id}</p>"
-        "<table border='1' cellspacing='0' cellpadding='4'>"
-        "<thead><tr><th>Date</th><th>Auteur</th><th>Message</th></tr></thead>"
-        f"<tbody>{table}</tbody></table></body></html>"
-    )
+TICKET_MODE_THREAD = "private_thread"
+TICKET_MODE_CHANNEL = "private_channel"
+OPEN_STYLE_MESSAGE = "message"
+OPEN_STYLE_BUTTON = "button"
 
 
 class TicketModule:
@@ -76,99 +21,175 @@ class TicketModule:
         self.cfg = cfg
         self._register_commands()
 
-    def _can_access_ticket(self, member: nextcord.Member, ticket: TicketRecord) -> bool:
-        if member.id == ticket.owner_user_id:
-            return True
-        return can_manage_tickets(self.cfg, member, self.store)
+    def _format_missing_perms(self, names: List[str]) -> str:
+        return ", ".join(f"`{name}`" for name in names)
 
-    async def _send_transcript(self, interaction: nextcord.Interaction, ticket: TicketRecord):
-        transcript_text = _build_transcript_text(ticket)
-        transcript_html = _build_transcript_html(ticket)
-
-        files = [
-            nextcord.File(io.BytesIO(transcript_text.encode("utf-8")), filename=f"ticket-{ticket.ticket_id}.txt"),
-            nextcord.File(io.BytesIO(transcript_html.encode("utf-8")), filename=f"ticket-{ticket.ticket_id}.html"),
+    def _required_bot_permissions(self, mode: str) -> List[Tuple[str, str]]:
+        if mode == TICKET_MODE_THREAD:
+            return [
+                ("manage_channels", "Manage Channels"),
+                ("create_private_threads", "Create Private Threads"),
+                ("send_messages_in_threads", "Send Messages in Threads"),
+            ]
+        return [
+            ("manage_channels", "Manage Channels"),
+            ("manage_roles", "Manage Roles"),
+            ("view_channel", "View Channels"),
         ]
 
-        try:
-            await interaction.followup.send("📎 Transcript du ticket.", files=files, ephemeral=True)
-            return
-        except Exception:
-            pass
+    def _check_bot_permissions(
+        self,
+        guild: nextcord.Guild,
+        mode: str,
+        category: Optional[nextcord.CategoryChannel] = None,
+    ) -> List[str]:
+        me = guild.me
+        if me is None:
+            return []
 
-        chunks: List[str] = []
-        chunk = ""
-        for line in transcript_text.splitlines():
-            line = line[:1900]
-            candidate = f"{chunk}\n{line}" if chunk else line
-            if len(candidate) > 1800:
-                chunks.append(chunk)
-                chunk = line
-            else:
-                chunk = candidate
-        if chunk:
-            chunks.append(chunk)
+        if category is not None:
+            perms = category.permissions_for(me)
+        else:
+            perms = guild.me.guild_permissions
 
-        for idx, part in enumerate(chunks[:10], start=1):
-            await interaction.followup.send(f"Transcript chunk {idx}/{len(chunks)}\n```\n{part}\n```", ephemeral=True)
+        missing: List[str] = []
+        for attr, label in self._required_bot_permissions(mode):
+            if not getattr(perms, attr, False):
+                missing.append(label)
+        return missing
 
     def _register_commands(self):
         bot = self.bot
-        guild_kwargs = {"guild_ids": self.cfg.guild_ids} if self.cfg.guild_ids else {}
+        cfg = self.cfg
+        guild_kwargs = {"guild_ids": cfg.guild_ids} if cfg.guild_ids else {}
 
-        @bot.slash_command(name="my_tickets", description="Voir la liste de tes tickets", **guild_kwargs)
-        async def my_tickets(interaction: nextcord.Interaction):
-            if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
-                return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
-
-            tickets = self.store.ticket_list_for_owner(interaction.guild.id, interaction.user.id)
-            if not tickets:
-                return await interaction.response.send_message("Tu n'as aucun ticket.", ephemeral=True)
-
-            lines = ["🎟️ **Tes tickets**", ""]
-            lines.extend(_ticket_summary(ticket) for ticket in tickets[:20])
-            await interaction.response.send_message("\n\n".join(lines), ephemeral=True)
-
-        @bot.slash_command(name="ticket_history", description="(Support/Admin) Voir l'historique ticket d'un membre", **guild_kwargs)
-        async def ticket_history(
+        @bot.slash_command(name="ticket_config_mode", description="(Admin/Manager) Configurer le mode d'ouverture ticket", **guild_kwargs)
+        async def ticket_config_mode(
             interaction: nextcord.Interaction,
-            user: nextcord.Member = nextcord.SlashOption(description="Membre cible"),
+            mode: str = nextcord.SlashOption(
+                description="Mode ticket",
+                choices={"Thread privé": TICKET_MODE_THREAD, "Canal privé": TICKET_MODE_CHANNEL},
+            ),
         ):
             if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+            if not can_manage_raids(cfg, interaction.user, self.store):
+                return await interaction.response.send_message("⛔ Permission insuffisante (admin/manager requis).", ephemeral=True)
 
-            if not can_manage_tickets(self.cfg, interaction.user, self.store):
-                return await interaction.response.send_message("⛔ Accès refusé.", ephemeral=True)
+            cur = self.store.get_ticket_config(interaction.guild.id)
+            if mode == TICKET_MODE_THREAD and cur.get("category_id") is not None:
+                return await interaction.response.send_message(
+                    "⛔ Mode `private_thread` incompatible avec une catégorie ticket définie. "
+                    "Retire d'abord la catégorie avec `/ticket_config_category`.",
+                    ephemeral=True,
+                )
 
-            tickets = self.store.ticket_list_for_owner(interaction.guild.id, user.id)
-            if not tickets:
-                return await interaction.response.send_message(f"Aucun ticket pour {user.mention}.", ephemeral=True)
-
-            lines = [f"🎟️ **Historique tickets de {user.mention}**", ""]
-            lines.extend(_ticket_summary(ticket) for ticket in tickets[:20])
-            await interaction.response.send_message("\n\n".join(lines), ephemeral=True)
-
-        @bot.slash_command(name="ticket_export", description="Exporter le transcript d'un ticket", **guild_kwargs)
-        async def ticket_export(
-            interaction: nextcord.Interaction,
-            ticket_id: str = nextcord.SlashOption(description="Identifiant ticket"),
-        ):
-            if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
-                return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
-
-            ticket = self.store.ticket_get(ticket_id)
-            if ticket is None or ticket.guild_id != interaction.guild.id:
-                return await interaction.response.send_message("Ticket introuvable.", ephemeral=True)
-
-            if not self._can_access_ticket(interaction.user, ticket):
-                return await interaction.response.send_message("⛔ Accès refusé.", ephemeral=True)
+            missing = self._check_bot_permissions(interaction.guild, mode)
+            if missing:
+                return await interaction.response.send_message(
+                    "⛔ Permissions bot insuffisantes pour ce mode: "
+                    f"{self._format_missing_perms(missing)}.",
+                    ephemeral=True,
+                )
 
             async with self.store.lock:
-                self.store.ticket_log_audit_view(ticket.ticket_id, interaction.user.id)
+                self.store.set_ticket_config(interaction.guild.id, mode=mode)
                 self.store.save()
 
-            await interaction.response.send_message(
-                "📦 **Export ticket**\n\n" + _ticket_summary(ticket),
-                ephemeral=True,
-            )
-            await self._send_transcript(interaction, ticket)
+            await interaction.response.send_message(f"✅ Mode ticket configuré sur `{mode}`.", ephemeral=True)
+
+        @bot.slash_command(name="ticket_config_category", description="(Admin/Manager) Configurer la catégorie des tickets", **guild_kwargs)
+        async def ticket_config_category(
+            interaction: nextcord.Interaction,
+            category: Optional[nextcord.CategoryChannel] = nextcord.SlashOption(
+                description="Catégorie cible (laisser vide pour reset)",
+                required=False,
+                default=None,
+            ),
+        ):
+            if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+                return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+            if not can_manage_raids(cfg, interaction.user, self.store):
+                return await interaction.response.send_message("⛔ Permission insuffisante (admin/manager requis).", ephemeral=True)
+
+            cur = self.store.get_ticket_config(interaction.guild.id)
+            mode = str(cur.get("mode", TICKET_MODE_CHANNEL))
+
+            if category is not None and category.guild.id != interaction.guild.id:
+                return await interaction.response.send_message(
+                    "⛔ La catégorie fournie n'appartient pas à ce serveur.",
+                    ephemeral=True,
+                )
+            if mode == TICKET_MODE_THREAD and category is not None:
+                return await interaction.response.send_message(
+                    "⛔ Mode `private_thread` incompatible avec une catégorie ticket: "
+                    "les threads privés sont créés dans un salon parent, pas dans une catégorie.",
+                    ephemeral=True,
+                )
+
+            if category is not None:
+                missing = self._check_bot_permissions(interaction.guild, mode, category=category)
+                if missing:
+                    return await interaction.response.send_message(
+                        "⛔ Permissions bot insuffisantes dans cette catégorie: "
+                        f"{self._format_missing_perms(missing)}.",
+                        ephemeral=True,
+                    )
+
+            async with self.store.lock:
+                self.store.set_ticket_config(interaction.guild.id, category_id=(category.id if category else None))
+                self.store.save()
+
+            if category:
+                await interaction.response.send_message(f"✅ Catégorie ticket définie sur {category.mention}.", ephemeral=True)
+            else:
+                await interaction.response.send_message("✅ Catégorie ticket réinitialisée.", ephemeral=True)
+
+        @bot.slash_command(name="ticket_config_roles", description="(Admin/Manager) Configurer les rôles support/admin tickets", **guild_kwargs)
+        async def ticket_config_roles(
+            interaction: nextcord.Interaction,
+            roles: str = nextcord.SlashOption(
+                description="Mentions/IDs des rôles autorisés",
+                required=False,
+                default="",
+            ),
+        ):
+            if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+                return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+            if not can_manage_raids(cfg, interaction.user, self.store):
+                return await interaction.response.send_message("⛔ Permission insuffisante (admin/manager requis).", ephemeral=True)
+
+            role_ids: List[int] = []
+            for rid in set(parse_ids(roles or "")):
+                if interaction.guild.get_role(rid) is not None:
+                    role_ids.append(rid)
+            role_ids.sort()
+
+            async with self.store.lock:
+                self.store.set_ticket_config(interaction.guild.id, support_role_ids=role_ids)
+                self.store.save()
+
+            if role_ids:
+                mentions = " ".join(f"<@&{rid}>" for rid in role_ids)
+                await interaction.response.send_message(f"✅ Rôles ticket mis à jour: {mentions}", ephemeral=True)
+            else:
+                await interaction.response.send_message("✅ Rôles ticket vidés.", ephemeral=True)
+
+        @bot.slash_command(name="ticket_config_open_style", description="(Admin/Manager) Choisir le style d'ouverture ticket", **guild_kwargs)
+        async def ticket_config_open_style(
+            interaction: nextcord.Interaction,
+            style: str = nextcord.SlashOption(
+                description="Style d'ouverture",
+                choices={"Message": OPEN_STYLE_MESSAGE, "Bouton": OPEN_STYLE_BUTTON},
+            ),
+        ):
+            if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+                return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+            if not can_manage_raids(cfg, interaction.user, self.store):
+                return await interaction.response.send_message("⛔ Permission insuffisante (admin/manager requis).", ephemeral=True)
+
+            async with self.store.lock:
+                self.store.set_ticket_config(interaction.guild.id, open_style=style)
+                self.store.save()
+
+            await interaction.response.send_message(f"✅ Style d'ouverture configuré sur `{style}`.", ephemeral=True)
