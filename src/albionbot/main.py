@@ -8,6 +8,7 @@ from .config import load_config
 from .storage.store import Store
 from .modules.raids import RaidModule
 from .modules.bank import BankModule
+from .modules.tickets import TicketModule
 from .utils.discord import parse_ids
 from .utils.permissions import can_manage_bank, can_manage_raids, is_guild_admin, PERM_BANK_MANAGER, PERM_RAID_MANAGER
 
@@ -30,6 +31,7 @@ def main():
 
     raids = RaidModule(bot, store, cfg)
     bank = BankModule(bot, store, cfg)
+    _tickets = TicketModule(bot, store, cfg)
 
     guild_kwargs = {"guild_ids": cfg.guild_ids} if cfg.guild_ids else {}
     rotating_statuses = [
