@@ -80,9 +80,15 @@ class TicketModule:
         self.bot = bot
         self.store = store
         self.cfg = cfg
+        self._persistent_views_registered = False
+        self._register_commands()
+
+    def register_persistent_views(self) -> None:
+        if self._persistent_views_registered:
+            return
         self.bot.add_view(TicketOpenLauncherView(self))
         self.bot.add_view(TicketCloseView(self))
-        self._register_commands()
+        self._persistent_views_registered = True
 
     def _slugify_type_key(self, value: str) -> str:
         key = re.sub(r"[^a-z0-9_-]+", "-", (value or "").strip().lower()).strip("-")

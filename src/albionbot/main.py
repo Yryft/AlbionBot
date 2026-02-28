@@ -293,6 +293,8 @@ def main():
     async def on_ready():
         log.info("Logged in as %s", bot.user)
 
+        tickets.register_persistent_views()
+
         if not rotate_presence.is_running():
             rotate_presence.start()
 
