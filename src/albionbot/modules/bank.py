@@ -9,11 +9,12 @@ from ..config import Config
 from ..storage.store import Store, BankAction, BankActionType
 from ..utils.discord import parse_ids, mention
 from ..utils.permissions import can_manage_bank
-from ..ui.bank_views import BankActionConfirmView, PayDetailsModal
+from ..ui.bank_views import BankActionConfirmView, PayDetailsModal, BankLeaderboardView
 
 log = logging.getLogger("albionbot.bank")
 
 UNDO_WINDOW_SECONDS = 15 * 60
+
 
 def _now() -> int:
     return int(time.time())
@@ -331,6 +332,24 @@ class BankModule:
                     await modal_interaction.response.send_message(f"⛔ {message}", ephemeral=True)
 
             await interaction.response.send_modal(PayDetailsModal(on_submit=_submit_payment))
+
+
+        @bot.slash_command(name="bank_leaderboard", description="Afficher le classement des balances du serveur", **guild_kwargs)
+        async def bank_leaderboard(
+            interaction: nextcord.Interaction,
+            page_size: int = nextcord.SlashOption(description="Entrées par page", required=False, default=10, min_value=5, max_value=20),
+        ):
+            if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+                return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+
+            entries, _ = self.store.bank_get_leaderboard(interaction.guild.id, limit=10_000, offset=0)
+            view = BankLeaderboardView(
+                owner_id=interaction.user.id,
+                guild_name=interaction.guild.name,
+                entries=entries,
+                page_size=page_size,
+            )
+            await interaction.response.send_message(embed=view.render_embed(), view=view, ephemeral=True)
 
         @bot.slash_command(name="bank_undo", description="Annule ta dernière action banque (si <15min)", **guild_kwargs)
         async def bank_undo(interaction: nextcord.Interaction):
