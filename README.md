@@ -104,11 +104,14 @@ The bot role must be **above** the temp role it creates.
 - `/comp_delete` — delete template (autocomplete)
 - `/comp_list` — list templates
 - `/raid_open` — open a raid (template autocomplete)
+- `/raid_assistant` — guided raid admin flow (select + buttons + modal)
 - `/raid_list` — list raids
 - `/raid_close` — close a raid immediately
 
 ### Bank
 - `/bal` — view your balance (or another user if authorized)
+- `/pay_assistant` — guided payment flow (modal)
+- `/bank_assistant` — guided bank flow (menu + modal + validation)
 - `/bank_add` — add to targets
 - `/bank_remove` — remove from targets
 - `/bank_add_split` — split total add across targets

@@ -78,6 +78,7 @@ def main():
                 "• `/comp_delete <template>` — Supprimer un template.",
                 "• `/comp_list` — Lister les templates.",
                 "• `/raid_open ...` — Ouvrir un raid.",
+                "• `/raid_assistant` — Assistant guidé (sélection, close, edit).",
                 "• `/raid_edit <raid_id> [title] [start]` — Modifier un raid actif.",
                 "• `/raid_list` — Lister les raids.",
                 "• `/raid_close <raid_id>` — Fermer un raid.",
@@ -99,6 +100,7 @@ def main():
                 "",
                 "**Commande admin serveur**",
                 "• `/permissions_set <permission> [roles]` — Définir quels rôles peuvent gérer raid/banque.",
+                "• `/permissions_assistant` — Version guidée via modal.",
             ]
 
         if not is_raid_manager and not is_bank_manager:
@@ -150,6 +152,66 @@ def main():
                 f"✅ Permission `{permission}` vidée (plus aucun rôle explicite).",
                 ephemeral=True,
             )
+
+
+    @bot.slash_command(name="permissions_assistant", description="(Admin) Assistant guidé des permissions", **guild_kwargs)
+    async def permissions_assistant(interaction: nextcord.Interaction):
+        if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+            return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+        if not is_guild_admin(interaction.user):
+            return await interaction.response.send_message("⛔ Cette commande est réservée aux administrateurs du serveur.", ephemeral=True)
+
+        class PermissionsModal(nextcord.ui.Modal):
+            def __init__(self):
+                super().__init__(title="Permissions manager", timeout=180)
+                self.permission_input = nextcord.ui.TextInput(
+                    label="Permission (raid_manager ou bank_manager)",
+                    required=True,
+                    placeholder=f"{PERM_RAID_MANAGER} ou {PERM_BANK_MANAGER}",
+                    min_length=5,
+                    max_length=32,
+                )
+                self.roles_input = nextcord.ui.TextInput(
+                    label="Rôles (@roles/IDs), vide pour reset",
+                    required=False,
+                    min_length=0,
+                    max_length=400,
+                )
+                self.add_item(self.permission_input)
+                self.add_item(self.roles_input)
+
+            async def callback(self, modal_interaction: nextcord.Interaction):
+                if not modal_interaction.guild:
+                    return await modal_interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+
+                permission = str(self.permission_input.value).strip()
+                if permission not in {PERM_RAID_MANAGER, PERM_BANK_MANAGER}:
+                    return await modal_interaction.response.send_message(
+                        f"Permission invalide. Utilise `{PERM_RAID_MANAGER}` ou `{PERM_BANK_MANAGER}`.",
+                        ephemeral=True,
+                    )
+
+                requested_ids = parse_ids(str(self.roles_input.value).strip())
+                valid_role_ids = [rid for rid in requested_ids if modal_interaction.guild.get_role(rid) is not None]
+
+                async with store.lock:
+                    store.set_permission_role_ids(modal_interaction.guild.id, permission, valid_role_ids)
+                    store.save()
+
+                if valid_role_ids:
+                    role_mentions = " ".join(f"<@&{rid}>" for rid in valid_role_ids)
+                    await modal_interaction.response.send_message(
+                        f"✅ Permission `{permission}` mise à jour: {role_mentions}",
+                        ephemeral=True,
+                    )
+                else:
+                    await modal_interaction.response.send_message(
+                        f"✅ Permission `{permission}` vidée (plus aucun rôle explicite).",
+                        ephemeral=True,
+                    )
+
+        await interaction.response.send_modal(PermissionsModal())
+
 
 
     @bot.event

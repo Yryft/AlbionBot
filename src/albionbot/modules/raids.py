@@ -14,6 +14,7 @@ from ..utils.permissions import can_manage_raids
 from ..utils.text import chunk_text_lines, limit_str
 from ..utils.timeutil import parse_dt_paris, TZ_PARIS
 from ..ui.raid_views import RaidView, IpModal
+from ..ui.raid_admin_views import RaidAssistantView
 
 log = logging.getLogger("albionbot.raids")
 
@@ -1233,6 +1234,43 @@ class RaidModule:
         @raid_close.on_autocomplete("raid_id")
         async def _raid_close_ac(interaction: nextcord.Interaction, user_input: str):
             return self._autocomplete_raid_ids(user_input)
+
+        @bot.slash_command(name="raid_assistant", description="Assistant interactif pour gérer les raids", **guild_kwargs)
+        async def raid_assistant(interaction: nextcord.Interaction):
+            if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+                return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+            if not can_manage_raids(cfg, interaction.user, self.store):
+                return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
+
+            active_raids = [r for r in sorted(self.store.raids.values(), key=lambda x: x.created_at, reverse=True) if not r.cleanup_done]
+            if not active_raids:
+                return await interaction.response.send_message("Aucun raid disponible.", ephemeral=True)
+
+            options = [
+                nextcord.SelectOption(
+                    label=limit_str(f"{r.raid_id} • {r.title}", 100),
+                    value=r.raid_id,
+                    description=limit_str(f"<t:{r.start_at}:R>", 100),
+                )
+                for r in active_raids[:25]
+            ]
+
+            async def _close_from_assistant(confirm_interaction: nextcord.Interaction, raid_id: str):
+                ok, message = await self._close_raid_now(raid_id)
+                if ok:
+                    await confirm_interaction.response.edit_message(content=message, view=None)
+                else:
+                    await confirm_interaction.response.send_message(f"⛔ {message}", ephemeral=True)
+
+            async def _edit_from_assistant(confirm_interaction: nextcord.Interaction, raid_id: str, title: str, start: str):
+                ok, message = await self._edit_raid_data(raid_id, title=title, start=start)
+                if ok:
+                    await confirm_interaction.response.send_message(message, ephemeral=True)
+                else:
+                    await confirm_interaction.response.send_message(f"⛔ {message}", ephemeral=True)
+
+            view = RaidAssistantView(owner_id=interaction.user.id, options=options, on_close=_close_from_assistant, on_edit=_edit_from_assistant)
+            await interaction.response.send_message(view.render_content(), view=view, ephemeral=True)
 
         @bot.slash_command(name="loot_scout_limits", description="Définir min/max de part scout", **guild_kwargs)
         async def loot_scout_limits(
