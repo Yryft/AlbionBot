@@ -109,6 +109,8 @@ The bot role must be **above** the temp role it creates.
 
 ### Bank
 - `/bal` — view your balance (or another user if authorized)
+- `/pay_assistant` — guided payment flow (modal)
+- `/bank_assistant` — guided bank flow (menu + modal + validation)
 - `/bank_add` — add to targets
 - `/bank_remove` — remove from targets
 - `/bank_add_split` — split total add across targets

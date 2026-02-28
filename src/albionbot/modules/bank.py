@@ -281,6 +281,40 @@ class BankModule:
             await self._bank_change_common(interaction, "remove_split", total, user, role, targets, note, split=True)
 
 
+        @bot.slash_command(name="bank_assistant", description="Assistant interactif pour les actions banque", **guild_kwargs)
+        async def bank_assistant(interaction: nextcord.Interaction):
+            if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+                return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+            if not can_manage_bank(cfg, interaction.user, self.store):
+                return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
+
+            async def _confirm_wizard(
+                confirm_interaction: nextcord.Interaction,
+                action_type: BankActionType,
+                amount: int,
+                targets: str,
+                note: str,
+            ):
+                split = action_type in {"add_split", "remove_split"}
+                ok, message = await self._apply_bank_action(
+                    confirm_interaction,
+                    action_type,
+                    amount,
+                    user=None,
+                    role=None,
+                    targets=targets,
+                    note=note,
+                    split=split,
+                )
+                if ok:
+                    await confirm_interaction.response.edit_message(content=message, view=None)
+                else:
+                    await confirm_interaction.response.send_message(f"⛔ {message}", ephemeral=True)
+
+            view = BankWizardView(owner_id=interaction.user.id, on_confirm=_confirm_wizard)
+            await interaction.response.send_message(view.render_content(), view=view, ephemeral=True)
+
+
         @bot.slash_command(name="pay", description="Transférer de ta balance à un joueur", **guild_kwargs)
         async def pay(
             interaction: nextcord.Interaction,
