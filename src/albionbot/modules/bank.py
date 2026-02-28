@@ -9,7 +9,7 @@ from ..config import Config
 from ..storage.store import Store, BankAction, BankActionType
 from ..utils.discord import parse_ids, mention
 from ..utils.permissions import can_manage_bank
-from ..ui.bank_views import BankWizardView, PayModal
+from ..ui.bank_views import BankActionConfirmView, PayDetailsModal
 
 log = logging.getLogger("albionbot.bank")
 
@@ -164,11 +164,29 @@ class BankModule:
         if not can_manage_bank(self.cfg, interaction.user, self.store):
             return await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
 
-        ok, message = await self._apply_bank_action(interaction, action_type, amount, user, role, targets, note, split)
-        if ok:
-            await interaction.response.send_message(message, ephemeral=True)
-        else:
-            await interaction.response.send_message(f"⛔ {message}", ephemeral=True)
+        resolved = resolve_targets(interaction.guild, user=user, role=role, targets_text=targets or "")
+        if not resolved:
+            return await interaction.response.send_message("⛔ Aucune cible trouvée. Utilise `user`, `role` ou `targets`.", ephemeral=True)
+
+        targets_preview = ", ".join(mention(m.id) for m in resolved[:10])
+        more = "" if len(resolved) <= 10 else f" (+{len(resolved)-10} autres)"
+        summary = (
+            "🧾 **Confirmer l'action banque**\n"
+            f"• Type: `{action_type}`\n"
+            f"• Montant: **{amount}**\n"
+            f"• Cibles: {targets_preview}{more}\n"
+            f"• Note: `{note.strip() if note.strip() else '—'}`"
+        )
+
+        async def _confirm(confirm_interaction: nextcord.Interaction):
+            ok, message = await self._apply_bank_action(confirm_interaction, action_type, amount, user, role, targets, note, split)
+            if ok:
+                await confirm_interaction.response.edit_message(content=message, view=None)
+            else:
+                await confirm_interaction.response.send_message(f"⛔ {message}", ephemeral=True)
+
+        view = BankActionConfirmView(owner_id=interaction.user.id, on_confirm=_confirm)
+        await interaction.response.send_message(summary, ephemeral=True, view=view)
 
     async def _apply_payment(
         self,
@@ -301,41 +319,18 @@ class BankModule:
         async def pay(
             interaction: nextcord.Interaction,
             to_user: nextcord.Member = nextcord.SlashOption(description="Destinataire"),
-            amount: int = nextcord.SlashOption(description="Montant", min_value=1),
-            note: str = nextcord.SlashOption(description="Note (optionnel)", required=False, default=""),
         ):
             if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
                 return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
 
-            ok, message = await self._apply_payment(interaction, to_user, amount, note)
-            if ok:
-                await interaction.response.send_message(message, ephemeral=False)
-            else:
-                await interaction.response.send_message(f"⛔ {message}", ephemeral=True)
-
-        @bot.slash_command(name="pay_assistant", description="Assistant guidé pour payer un joueur", **guild_kwargs)
-        async def pay_assistant(interaction: nextcord.Interaction):
-            if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
-                return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
-
-            async def _submit_payment(modal_interaction: nextcord.Interaction, target_text: str, amount: int, note: str):
-                if not modal_interaction.guild:
-                    return await modal_interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
-
-                ids = parse_ids(target_text)
-                if not ids:
-                    return await modal_interaction.response.send_message("Destinataire invalide: mentionne un joueur ou colle son ID.", ephemeral=True)
-                to_user = modal_interaction.guild.get_member(ids[0])
-                if not to_user:
-                    return await modal_interaction.response.send_message("Joueur introuvable sur ce serveur.", ephemeral=True)
-
+            async def _submit_payment(modal_interaction: nextcord.Interaction, amount: int, note: str):
                 ok, message = await self._apply_payment(modal_interaction, to_user, amount, note)
                 if ok:
                     await modal_interaction.response.send_message(message, ephemeral=False)
                 else:
                     await modal_interaction.response.send_message(f"⛔ {message}", ephemeral=True)
 
-            await interaction.response.send_modal(PayModal(on_submit=_submit_payment))
+            await interaction.response.send_modal(PayDetailsModal(on_submit=_submit_payment))
 
         @bot.slash_command(name="bank_undo", description="Annule ta dernière action banque (si <15min)", **guild_kwargs)
         async def bank_undo(interaction: nextcord.Interaction):
