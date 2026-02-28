@@ -1438,11 +1438,9 @@ class RaidModule:
                     return mention(uid) if uid else "*(non défini)*"
 
                 lines = [
-                    "✅ **Processed 💸**",
                     "Vérifiez les calculs puis validez avec le bouton.",
                     f"**Raid**: `{raid.raid_id}`",
                     f"**RL**: {m(rl_user_id)}",
-                    f"**Scout**: {m(scout_user_id)}",
                     f"**Total Pot**: `{total_net:,}`",
                     "",
                     "📊 **Financial Summary**",
@@ -1452,8 +1450,8 @@ class RaidModule:
                     f"Total net: `{total_net:,}`",
                     "",
                     "👑 **RL / Scout**",
-                    f"RL bonus: `{rl_bonus_percent:.2f}%`",
-                    f"Scout part: `{scout_percent:.2f}%` clamp `{scout_min:,}`-`{scout_max:,}` => `{calc['scout_paid']:,}`",
+                    f"RL bonus ({m(rl_user_id)}): `{rl_bonus_percent:.2f}%`; total : `{calc_payouts.get(rl_user_id, 0):,}`",
+                    f"Scout part ({m(scout_user_id)}): `{scout_percent:.2f}%` clamp `{scout_min:,}`-`{scout_max:,}` => `{calc['scout_paid']:,}`",
                     "",
                     "🗺️ **Maps**",
                     f"Total maps cost: `{maps_cost:,}`",
@@ -1467,9 +1465,6 @@ class RaidModule:
                     f"Post-scout: `{calc['post_scout']:,}`",
                     f"Post-maps: `{calc['post_maps']:,}`",
                     f"Share normal: `{calc['share']:,}`",
-                    f"Part du RL {m(rl_user_id)} : `{calc_payouts.get(rl_user_id, 0):,}`",
-                    f"Part du Scout {m(scout_user_id)} : `{calc_payouts.get(scout_user_id, 0) if scout_user_id else 0:,}`",
-                    f"Joueurs split ({len(calc_payouts)}): " + " ".join(mention(uid) for uid in list(calc_payouts.keys())[:25]),
                     "",
                     "📋 **Payouts**",
                 ]
