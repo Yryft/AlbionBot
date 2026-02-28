@@ -145,6 +145,7 @@ class Store:
         self.templates: Dict[str, CompTemplate] = {}
         self.raids: Dict[str, RaidEvent] = {}
         self.guild_permissions: Dict[int, Dict[str, List[int]]] = {}
+        self.ticket_configs: Dict[int, Dict[str, object]] = {}
 
         self.bank_balances: Dict[int, Dict[int, int]] = {}
         self.bank_actions: Dict[int, List[BankAction]] = {}
@@ -237,6 +238,21 @@ class Store:
             for perm_key, role_ids in perm_map.items():
                 out_map[str(perm_key)] = list(map(int, role_ids or []))
             self.guild_permissions[gid] = out_map
+
+        self.ticket_configs = {}
+        for gid_str, ticket_cfg in raw.get("ticket_configs", {}).items():
+            gid = int(gid_str)
+            if not isinstance(ticket_cfg, dict):
+                continue
+            mode = str(ticket_cfg.get("mode", "private_channel"))
+            open_style = str(ticket_cfg.get("open_style", "button"))
+            category_id = ticket_cfg.get("category_id")
+            self.ticket_configs[gid] = {
+                "mode": mode if mode in {"private_thread", "private_channel"} else "private_channel",
+                "category_id": int(category_id) if category_id is not None else None,
+                "support_role_ids": list(map(int, ticket_cfg.get("support_role_ids", []))),
+                "open_style": open_style if open_style in {"message", "button"} else "button",
+            }
 
     def _load_bank_legacy_from_raw(self, raw: Dict) -> None:
         self.bank_balances = {}
@@ -427,6 +443,27 @@ class Store:
         if guild_id not in self.guild_permissions:
             self.guild_permissions[guild_id] = {}
         self.guild_permissions[guild_id][permission_key] = list(map(int, role_ids))
+
+    def get_ticket_config(self, guild_id: int) -> Dict[str, object]:
+        data = self.ticket_configs.get(guild_id)
+        if data is None:
+            return {
+                "mode": "private_channel",
+                "category_id": None,
+                "support_role_ids": [],
+                "open_style": "button",
+            }
+        return {
+            "mode": str(data.get("mode", "private_channel")),
+            "category_id": data.get("category_id"),
+            "support_role_ids": list(map(int, data.get("support_role_ids", []))),
+            "open_style": str(data.get("open_style", "button")),
+        }
+
+    def set_ticket_config(self, guild_id: int, **updates: object) -> None:
+        cur = self.get_ticket_config(guild_id)
+        cur.update(updates)
+        self.ticket_configs[guild_id] = cur
 
     def load(self) -> None:
         file_raw = self._safe_read_json_file()
