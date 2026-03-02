@@ -203,12 +203,12 @@ def check_csrf(request: Request, oauth_service: DiscordOAuthService) -> SessionD
     return session
 
 
-def set_session_cookies(response: Response, session: SessionData, secure: bool) -> None:
+def set_session_cookies(response: Response, session: SessionData, secure: bool, same_site: str) -> None:
     response.set_cookie(
         key=SESSION_COOKIE,
         value=session.session_id,
         httponly=True,
-        samesite="lax",
+        samesite=same_site,
         secure=secure,
         max_age=7 * 24 * 60 * 60,
         path="/",
@@ -217,7 +217,7 @@ def set_session_cookies(response: Response, session: SessionData, secure: bool) 
         key=CSRF_COOKIE,
         value=session.csrf_token,
         httponly=False,
-        samesite="lax",
+        samesite=same_site,
         secure=secure,
         max_age=7 * 24 * 60 * 60,
         path="/",
