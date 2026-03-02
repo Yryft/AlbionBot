@@ -1,10 +1,10 @@
 import { DiscordNav } from '../components/DiscordNav';
-import { apiGet, GuildDTO, TicketTranscriptDTO } from '../lib/api';
+import { apiGetSafe, GuildDTO, TicketTranscriptDTO } from '../lib/api';
 
 export default async function Home({ searchParams }: { searchParams: { guild?: string; ticket?: string } }) {
-  const guilds = await apiGet<GuildDTO[]>('/api/guilds');
+  const guilds = (await apiGetSafe<GuildDTO[]>('/api/guilds')) ?? [];
   const selectedGuild = Number(searchParams.guild || guilds[0]?.id || 0);
-  const tickets = selectedGuild ? await apiGet<TicketTranscriptDTO[]>(`/api/guilds/${selectedGuild}/tickets`) : [];
+  const tickets = selectedGuild ? ((await apiGetSafe<TicketTranscriptDTO[]>(`/api/guilds/${selectedGuild}/tickets`)) ?? []) : [];
   const selectedTicketId = searchParams.ticket || tickets[0]?.ticket_id;
   const selectedTicket = tickets.find((t) => t.ticket_id === selectedTicketId);
 
@@ -13,7 +13,9 @@ export default async function Home({ searchParams }: { searchParams: { guild?: s
       <DiscordNav guilds={guilds} selectedGuildId={selectedGuild} tickets={tickets} selectedTicketId={selectedTicketId} />
       <section className="transcript">
         <h2>Transcript</h2>
-        {selectedTicket ? (
+        {!guilds.length ? (
+          <p>Le service API est indisponible pour le moment (503).</p>
+        ) : selectedTicket ? (
           <>
             <p>
               Ticket <strong>{selectedTicket.ticket_id}</strong> • statut: <strong>{selectedTicket.status}</strong>

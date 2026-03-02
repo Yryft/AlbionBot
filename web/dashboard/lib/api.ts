@@ -16,3 +16,12 @@ export async function apiGet<T>(path: string): Promise<T> {
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
 }
+
+export async function apiGetSafe<T>(path: string): Promise<T | null> {
+  try {
+    return await apiGet<T>(path);
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+}
