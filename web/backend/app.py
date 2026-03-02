@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import secrets
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -74,6 +75,23 @@ def _build_oauth_service() -> DiscordOAuthService | None:
     )
 
 
+def _is_local_redirect_uri(redirect_uri: str) -> bool:
+    parsed = urlparse(redirect_uri)
+    host = (parsed.hostname or "").lower()
+    return host in {"localhost", "127.0.0.1", "::1"}
+
+
+def _resolve_secure_cookies() -> bool:
+    configured = os.getenv("DASHBOARD_COOKIE_SECURE")
+    if configured is not None:
+        return configured.strip().lower() in {"1", "true", "yes"}
+
+    redirect_uri = os.getenv("DISCORD_OAUTH_REDIRECT_URI", "").strip()
+    if redirect_uri and _is_local_redirect_uri(redirect_uri):
+        return False
+    return True
+
+
 def create_app() -> FastAPI:
     data_path = os.getenv("DATA_PATH", "data/state.json").strip()
     bank_database_url = os.getenv("BANK_DATABASE_URL", "").strip() or os.getenv("DATABASE_URL", "").strip()
@@ -98,7 +116,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    secure_cookies = os.getenv("DASHBOARD_COOKIE_SECURE", "true").strip().lower() in {"1", "true", "yes"}
+    secure_cookies = _resolve_secure_cookies()
     post_login_redirect = os.getenv("DASHBOARD_POST_LOGIN_REDIRECT", "/").strip() or "/"
 
     @app.get("/health")
