@@ -59,3 +59,22 @@ Créer **2 services** dans le même projet Railway.
 - Variables: `NEXT_PUBLIC_API_BASE_URL=https://<service-backend>.up.railway.app`
 
 > Le bot et le dashboard ont des variables d'environnement distinctes. Partager uniquement l'accès lecture/écriture aux données (`DATA_PATH` volume ou DB commune) selon votre architecture.
+
+## Dépannage: `OAuth Discord non configuré`
+
+Si le dashboard affiche cette erreur, configure les variables côté **backend FastAPI** (pas sur le bot) :
+
+```bash
+export DISCORD_OAUTH_CLIENT_ID=...
+export DISCORD_OAUTH_CLIENT_SECRET=...
+export DISCORD_OAUTH_REDIRECT_URI=http://localhost:8000/auth/discord/callback
+```
+
+Ensuite, dans le portail Discord Developer:
+
+1. Crée une application puis un lien OAuth2.
+2. Dans **OAuth2 > Redirects**, ajoute exactement la valeur de `DISCORD_OAUTH_REDIRECT_URI`.
+3. Active les scopes `identify`, `guilds`, `guilds.members.read`.
+4. Redémarre l'API backend.
+
+En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` qui pointe vers le backend.
