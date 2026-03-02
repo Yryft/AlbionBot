@@ -28,3 +28,14 @@ Base URL backend dashboard: `/api`
   - body: `CompTemplateCreateRequestDTO`
 
 Les endpoints d'action sont pensés pour être protégés derrière une auth manager (JWT/proxy) côté infra.
+
+
+## Auth Discord OAuth2
+
+- `GET /auth/discord/login`: redirige vers Discord (`identify guilds`)
+- `GET /auth/discord/callback`: callback OAuth2 sécurisé par `state`
+- `POST /auth/logout`: logout (CSRF requis via header `X-CSRF-Token`)
+- `GET /me`: profil Discord courant + guilds communes utilisateur/bot + guild sélectionnée
+- `POST /me/select-guild/{guild_id}`: met à jour la guild active (CSRF requis)
+
+Sécurité: session serveur-side, cookie HttpOnly (`albion_dash_session`), cookie CSRF (`albion_dash_csrf`), `SameSite=Lax`, refresh automatique du token, révocation au logout.

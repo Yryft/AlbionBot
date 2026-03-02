@@ -85,3 +85,24 @@ class CompTemplateCreateRequestDTO(BaseModel):
     content_type: Literal["ava_raid", "pvp", "pve"] = "pvp"
     raid_required_role_ids: List[int] = Field(default_factory=list)
     spec: str = Field(description="Spec wizard multi-lignes: Label;slots;options")
+
+
+class DiscordUserDTO(BaseModel):
+    id: str
+    username: str
+    global_name: Optional[str] = None
+    avatar: Optional[str] = None
+
+
+class DiscordGuildDTO(BaseModel):
+    id: int
+    name: str
+    icon: Optional[str] = None
+    owner: bool = False
+    permissions: str = "0"
+
+
+class MeDTO(BaseModel):
+    user: DiscordUserDTO
+    selected_guild_id: Optional[int] = None
+    guilds: List[DiscordGuildDTO] = Field(default_factory=list)
