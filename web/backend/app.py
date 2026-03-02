@@ -33,12 +33,36 @@ from .command_bus import (
 from .services import DashboardService, OpenRaidFromTemplateHandler, StartCompWizardFlowHandler
 
 
+OAUTH_REQUIRED_ENV_VARS = (
+    "DISCORD_OAUTH_CLIENT_ID",
+    "DISCORD_OAUTH_CLIENT_SECRET",
+    "DISCORD_OAUTH_REDIRECT_URI",
+)
+
+
+def _missing_oauth_env_vars() -> list[str]:
+    return [name for name in OAUTH_REQUIRED_ENV_VARS if not os.getenv(name, "").strip()]
+
+
+def _oauth_not_configured_error() -> HTTPException:
+    missing = _missing_oauth_env_vars()
+    if not missing:
+        detail = "OAuth Discord non configuré"
+    else:
+        detail = (
+            "OAuth Discord non configuré. Variables manquantes: "
+            + ", ".join(missing)
+            + "."
+        )
+    return HTTPException(status_code=503, detail=detail)
+
+
 def _build_oauth_service() -> DiscordOAuthService | None:
+    if _missing_oauth_env_vars():
+        return None
     client_id = os.getenv("DISCORD_OAUTH_CLIENT_ID", "").strip()
     client_secret = os.getenv("DISCORD_OAUTH_CLIENT_SECRET", "").strip()
     redirect_uri = os.getenv("DISCORD_OAUTH_REDIRECT_URI", "").strip()
-    if not client_id or not client_secret or not redirect_uri:
-        return None
     return DiscordOAuthService(
         config=DiscordOAuthConfig(
             client_id=client_id,
@@ -84,7 +108,7 @@ def create_app() -> FastAPI:
     @app.get("/auth/discord/login")
     def auth_discord_login():
         if oauth_service is None:
-            raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
+            raise _oauth_not_configured_error()
         state = secrets.token_urlsafe(24)
         login_url = oauth_service.create_login_url(state)
         redirect = RedirectResponse(login_url, status_code=302)
@@ -102,7 +126,7 @@ def create_app() -> FastAPI:
     @app.get("/auth/discord/callback")
     def auth_discord_callback(request: Request, code: str = "", state: str = ""):
         if oauth_service is None:
-            raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
+            raise _oauth_not_configured_error()
         state_cookie = request.cookies.get(STATE_COOKIE, "")
         if not state or state != state_cookie:
             raise HTTPException(status_code=400, detail="State OAuth invalide")
@@ -134,7 +158,7 @@ def create_app() -> FastAPI:
     @app.post("/auth/logout")
     def auth_logout(request: Request):
         if oauth_service is None:
-            raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
+            raise _oauth_not_configured_error()
         check_csrf(request)
         session_id = request.cookies.get("albion_dash_session", "")
         if session_id:
@@ -149,7 +173,7 @@ def create_app() -> FastAPI:
     @app.get("/me", response_model=MeDTO)
     def me(request: Request):
         if oauth_service is None:
-            raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
+            raise _oauth_not_configured_error()
         session = require_session(request, oauth_service)
         bot_guild_map = service.get_bot_guild_map()
         shared_guilds = []
@@ -186,7 +210,7 @@ def create_app() -> FastAPI:
     @app.post("/me/select-guild/{guild_id}")
     def select_guild(guild_id: int, request: Request):
         if oauth_service is None:
-            raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
+            raise _oauth_not_configured_error()
         check_csrf(request)
         session = require_session(request, oauth_service)
         user_guild_ids = {int(g.get("id", 0)) for g in session.guilds}
@@ -242,7 +266,7 @@ def create_app() -> FastAPI:
     @app.post("/api/actions/raids/open")
     def open_raid(payload: RaidOpenRequestDTO, request: Request):
         if authorizer is None:
-            raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
+            raise _oauth_not_configured_error()
         auth_ctx = authorizer.ensure_action_allowed(request, action="raid_open", guild_id=payload.guild_id)
         command = OpenRaidFromTemplate(
             context=CommandContext(guild_id=auth_ctx.guild_id, user_id=auth_ctx.user_id, request_id=payload.request_id),
@@ -263,7 +287,7 @@ def create_app() -> FastAPI:
     @app.post("/api/actions/comp-wizard")
     def run_comp_wizard(payload: CompTemplateCreateRequestDTO, request: Request):
         if authorizer is None:
-            raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
+            raise _oauth_not_configured_error()
         auth_ctx = authorizer.ensure_action_allowed(request, action="comp_wizard", guild_id=payload.guild_id)
         command = StartCompWizardFlow(
             context=CommandContext(guild_id=auth_ctx.guild_id, user_id=auth_ctx.user_id, request_id=payload.request_id),

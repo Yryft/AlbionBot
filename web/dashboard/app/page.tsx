@@ -109,6 +109,7 @@ export default function HomePage() {
   }, [selectedGuildId, selectedTicketId]);
 
   const canUseDashboard = Boolean(state.me?.guilds?.length);
+  const oauthNotConfigured = error.includes('OAuth Discord non configuré');
 
   const sortedTickets = useMemo(
     () => [...state.tickets].sort((a, b) => b.updated_at - a.updated_at),
@@ -205,6 +206,19 @@ export default function HomePage() {
         </header>
 
         {error && <p className="error-banner">{error}</p>}
+
+        {oauthNotConfigured && (
+          <section className="panel">
+            <h2>Configurer OAuth Discord</h2>
+            <p>Le backend n&apos;a pas les variables OAuth nécessaires. Ajoute ces variables puis redémarre l&apos;API :</p>
+            <ul>
+              <li><code>DISCORD_OAUTH_CLIENT_ID</code></li>
+              <li><code>DISCORD_OAUTH_CLIENT_SECRET</code></li>
+              <li><code>DISCORD_OAUTH_REDIRECT_URI</code> (ex: <code>http://localhost:8000/auth/discord/callback</code>)</li>
+            </ul>
+            <p>Guide complet: <code>web/README.md</code>.</p>
+          </section>
+        )}
 
         <section className="status-grid">
           <article><h3>Guilds</h3><strong>{state.overview?.guild_count ?? 0}</strong></article>
