@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 import nextcord
 
@@ -10,7 +10,14 @@ PERM_BANK_MANAGER = "bank_manager"
 PERM_TICKET_MANAGER = "ticket_manager"
 
 
-def _role_ids_for_permission(cfg: Config, store: Optional[Store], guild_id: int, permission_key: str) -> List[int]:
+MANAGER_PERMISSIONS = {
+    PERM_RAID_MANAGER,
+    PERM_BANK_MANAGER,
+    PERM_TICKET_MANAGER,
+}
+
+
+def role_ids_for_permission(cfg: Config, store: Optional[Store], guild_id: int, permission_key: str) -> List[int]:
     role_ids: List[int] = []
     if store is not None:
         role_ids = store.get_permission_role_ids(guild_id, permission_key)
@@ -34,6 +41,38 @@ def _role_ids_for_permission(cfg: Config, store: Optional[Store], guild_id: int,
     return []
 
 
+def has_logical_permission(
+    cfg: Config,
+    store: Optional[Store],
+    guild_id: int,
+    permission_key: str,
+    role_ids: Iterable[int],
+    *,
+    is_admin: bool,
+    can_manage_guild: bool = False,
+) -> bool:
+    if permission_key not in MANAGER_PERMISSIONS:
+        return False
+    if is_admin:
+        return True
+    if permission_key == PERM_RAID_MANAGER and cfg.raid_require_manage_guild and can_manage_guild:
+        return True
+    if permission_key == PERM_BANK_MANAGER and cfg.bank_require_manage_guild and can_manage_guild:
+        return True
+    allowed_role_ids = role_ids_for_permission(cfg, store, guild_id, permission_key)
+    if not allowed_role_ids:
+        return permission_key == PERM_TICKET_MANAGER and has_logical_permission(
+            cfg,
+            store,
+            guild_id,
+            PERM_RAID_MANAGER,
+            role_ids,
+            is_admin=is_admin,
+            can_manage_guild=can_manage_guild,
+        )
+    return bool(set(map(int, role_ids)).intersection(allowed_role_ids))
+
+
 def is_guild_admin(member: nextcord.Member) -> bool:
     return bool(member.guild_permissions.administrator)
 
@@ -43,11 +82,15 @@ def can_manage_raids(cfg: Config, member: nextcord.Member, store: Optional[Store
         return True
     if cfg.raid_require_manage_guild and member.guild_permissions.manage_guild:
         return True
-    role_ids = _role_ids_for_permission(cfg, store, member.guild.id, PERM_RAID_MANAGER)
-    if role_ids:
-        member_role_ids = {r.id for r in member.roles}
-        return any(rid in member_role_ids for rid in role_ids)
-    return False
+    return has_logical_permission(
+        cfg,
+        store,
+        member.guild.id,
+        PERM_RAID_MANAGER,
+        (r.id for r in member.roles),
+        is_admin=bool(member.guild_permissions.administrator),
+        can_manage_guild=bool(member.guild_permissions.manage_guild),
+    )
 
 
 def can_manage_bank(cfg: Config, member: nextcord.Member, store: Optional[Store] = None) -> bool:
@@ -55,18 +98,26 @@ def can_manage_bank(cfg: Config, member: nextcord.Member, store: Optional[Store]
         return True
     if cfg.bank_require_manage_guild and member.guild_permissions.manage_guild:
         return True
-    role_ids = _role_ids_for_permission(cfg, store, member.guild.id, PERM_BANK_MANAGER)
-    if role_ids:
-        member_role_ids = {r.id for r in member.roles}
-        return any(rid in member_role_ids for rid in role_ids)
-    return False
+    return has_logical_permission(
+        cfg,
+        store,
+        member.guild.id,
+        PERM_BANK_MANAGER,
+        (r.id for r in member.roles),
+        is_admin=bool(member.guild_permissions.administrator),
+        can_manage_guild=bool(member.guild_permissions.manage_guild),
+    )
 
 
 def can_manage_tickets(cfg: Config, member: nextcord.Member, store: Optional[Store] = None) -> bool:
     if member.guild_permissions.administrator:
         return True
-    role_ids = _role_ids_for_permission(cfg, store, member.guild.id, PERM_TICKET_MANAGER)
-    if role_ids:
-        member_role_ids = {r.id for r in member.roles}
-        return any(rid in member_role_ids for rid in role_ids)
-    return can_manage_raids(cfg, member, store)
+    return has_logical_permission(
+        cfg,
+        store,
+        member.guild.id,
+        PERM_TICKET_MANAGER,
+        (r.id for r in member.roles),
+        is_admin=bool(member.guild_permissions.administrator),
+        can_manage_guild=bool(member.guild_permissions.manage_guild),
+    )

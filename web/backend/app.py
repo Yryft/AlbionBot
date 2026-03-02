@@ -19,6 +19,7 @@ from .auth import (
     require_session,
     set_session_cookies,
 )
+from .authorization import DashboardAuthorizationService
 from .schemas import CompTemplateCreateRequestDTO, DiscordGuildDTO, DiscordUserDTO, MeDTO, RaidOpenRequestDTO
 from .services import DashboardService
 
@@ -34,7 +35,7 @@ def _build_oauth_service() -> DiscordOAuthService | None:
             client_id=client_id,
             client_secret=client_secret,
             redirect_uri=redirect_uri,
-            scope="identify guilds",
+            scope="identify guilds guilds.members.read",
         ),
         session_manager=SessionManager(),
     )
@@ -52,6 +53,7 @@ def create_app() -> FastAPI:
     )
     service = DashboardService(store)
     oauth_service = _build_oauth_service()
+    authorizer = DashboardAuthorizationService(store, oauth_service) if oauth_service is not None else None
 
     app = FastAPI(title="AlbionBot Dashboard API", version="0.1.0")
     app.add_middleware(
@@ -189,34 +191,54 @@ def create_app() -> FastAPI:
         return service.list_guilds()
 
     @app.get("/api/guilds/{guild_id}/tickets")
-    def list_ticket_transcripts(guild_id: int):
+    def list_ticket_transcripts(guild_id: int, request: Request):
+        if authorizer is None:
+            raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
+        authorizer.ensure_action_allowed(request, action="tickets_list", guild_id=guild_id)
         return service.list_ticket_transcripts(guild_id)
 
     @app.get("/api/guilds/{guild_id}/tickets/{ticket_id}")
-    def get_ticket_transcript(guild_id: int, ticket_id: str):
+    def get_ticket_transcript(guild_id: int, ticket_id: str, request: Request):
+        if authorizer is None:
+            raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
+        authorizer.ensure_action_allowed(request, action="tickets_read", guild_id=guild_id)
         row = service.get_ticket_transcript(guild_id, ticket_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Ticket introuvable")
         return row
 
     @app.get("/api/raids")
-    def list_raids():
+    def list_raids(request: Request):
+        if authorizer is None:
+            raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
+        authorizer.ensure_action_allowed(request, action="raid_list")
         return service.list_raids()
 
     @app.get("/api/raid-templates")
-    def list_templates():
+    def list_templates(request: Request):
+        if authorizer is None:
+            raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
+        authorizer.ensure_action_allowed(request, action="raid_templates_list")
         return service.list_raid_templates()
 
     @app.post("/api/actions/raids/open")
-    def open_raid(payload: RaidOpenRequestDTO):
+    def open_raid(payload: RaidOpenRequestDTO, request: Request):
+        if authorizer is None:
+            raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
+        auth_ctx = authorizer.ensure_action_allowed(request, action="raid_open")
         try:
+            payload.created_by = auth_ctx.user_id
             return service.open_raid(payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/actions/comp-wizard")
-    def run_comp_wizard(payload: CompTemplateCreateRequestDTO):
+    def run_comp_wizard(payload: CompTemplateCreateRequestDTO, request: Request):
+        if authorizer is None:
+            raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
+        auth_ctx = authorizer.ensure_action_allowed(request, action="comp_wizard")
         try:
+            payload.created_by = auth_ctx.user_id
             return service.create_comp_template_from_wizard(payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

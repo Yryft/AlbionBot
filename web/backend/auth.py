@@ -14,6 +14,7 @@ DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token"
 DISCORD_REVOKE_URL = "https://discord.com/api/oauth2/token/revoke"
 DISCORD_API_ME_URL = "https://discord.com/api/users/@me"
 DISCORD_API_GUILDS_URL = "https://discord.com/api/users/@me/guilds"
+DISCORD_API_GUILD_MEMBER_URL = "https://discord.com/api/users/@me/guilds/{guild_id}/member"
 SESSION_COOKIE = "albion_dash_session"
 CSRF_COOKIE = "albion_dash_csrf"
 STATE_COOKIE = "albion_dash_state"
@@ -24,7 +25,7 @@ class DiscordOAuthConfig:
     client_id: str
     client_secret: str
     redirect_uri: str
-    scope: str = "identify guilds"
+    scope: str = "identify guilds guilds.members.read"
 
 
 @dataclass
@@ -171,6 +172,16 @@ class DiscordOAuthService:
             resp = client.get(DISCORD_API_GUILDS_URL, headers={"Authorization": f"Bearer {access_token}"})
         if resp.status_code >= 400:
             raise HTTPException(status_code=401, detail="Impossible de lire les guilds Discord")
+        return resp.json()
+
+    def fetch_guild_member(self, access_token: str, guild_id: int) -> dict:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(
+                DISCORD_API_GUILD_MEMBER_URL.format(guild_id=int(guild_id)),
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=403, detail="Impossible de lire les rôles Discord de l'utilisateur")
         return resp.json()
 
 
