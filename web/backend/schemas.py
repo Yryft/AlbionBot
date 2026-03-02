@@ -57,7 +57,7 @@ class RaidTemplateDTO(BaseModel):
 
 class RaidOpenRequestDTO(BaseModel):
     request_id: str
-    guild_id: int
+    guild_id: str
     template_name: str
     title: str
     description: str = ""
@@ -81,7 +81,7 @@ class RaidDTO(BaseModel):
 
 class CompTemplateCreateRequestDTO(BaseModel):
     request_id: str
-    guild_id: int
+    guild_id: str
     name: str
     description: str = ""
     content_type: Literal["ava_raid", "pvp", "pve"] = "pvp"
@@ -97,7 +97,7 @@ class DiscordUserDTO(BaseModel):
 
 
 class DiscordGuildDTO(BaseModel):
-    id: int
+    id: str
     name: str
     icon: Optional[str] = None
     owner: bool = False
@@ -107,5 +107,5 @@ class DiscordGuildDTO(BaseModel):
 class MeDTO(BaseModel):
     user: DiscordUserDTO
     csrf_token: str
-    selected_guild_id: Optional[int] = None
+    selected_guild_id: Optional[str] = None
     guilds: List[DiscordGuildDTO] = Field(default_factory=list)

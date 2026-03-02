@@ -1,6 +1,6 @@
-export type RoleDTO = { id: number; name: string };
+export type RoleDTO = { id: string; name: string };
 
-export type GuildDTO = { id: number; name: string; roles?: RoleDTO[] };
+export type GuildDTO = { id: string; name: string; roles?: RoleDTO[] };
 
 export type ApiOverviewDTO = {
   ok: boolean;
@@ -18,7 +18,7 @@ export type DiscordUserDTO = {
 };
 
 export type DiscordGuildDTO = {
-  id: number;
+  id: string;
   name: string;
   icon?: string | null;
   owner?: boolean;
@@ -28,13 +28,13 @@ export type DiscordGuildDTO = {
 export type MeDTO = {
   user: DiscordUserDTO;
   csrf_token: string;
-  selected_guild_id?: number | null;
+  selected_guild_id?: string | null;
   guilds: DiscordGuildDTO[];
 };
 
 export type TicketMessageDTO = {
-  message_id: number;
-  author_id: number;
+  message_id: string;
+  author_id: string;
   content: string;
   created_at: number;
   event_type: 'message' | 'edit' | 'delete' | 'system';
@@ -42,12 +42,12 @@ export type TicketMessageDTO = {
 
 export type TicketTranscriptDTO = {
   ticket_id: string;
-  guild_id: number;
-  owner_user_id: number;
+  guild_id: string;
+  owner_user_id: string;
   status: 'open' | 'closed' | 'deleted';
   ticket_type_key: string;
-  channel_id?: number | null;
-  thread_id?: number | null;
+  channel_id?: string | null;
+  thread_id?: string | null;
   created_at: number;
   updated_at: number;
   messages: TicketMessageDTO[];
@@ -58,16 +58,16 @@ export type RaidRoleDTO = {
   label: string;
   slots: number;
   ip_required: boolean;
-  required_role_ids: number[];
+  required_role_ids: string[];
 };
 
 export type RaidTemplateDTO = {
   name: string;
   description: string;
   content_type: 'ava_raid' | 'pvp' | 'pve';
-  created_by: number;
+  created_by: string;
   created_at: number;
-  raid_required_role_ids: number[];
+  raid_required_role_ids: string[];
   roles: RaidRoleDTO[];
 };
 
@@ -78,7 +78,7 @@ export type RaidDTO = {
   description: string;
   extra_message: string;
   start_at: number;
-  created_by: number;
+  created_by: string;
   created_at: number;
   status: 'OPEN' | 'PINGED' | 'CLOSED';
 };

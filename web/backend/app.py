@@ -198,7 +198,7 @@ def create_app() -> FastAPI:
                 continue
             shared_guilds.append(
                 DiscordGuildDTO(
-                    id=guild_id,
+                    id=str(guild_id),
                     name=bot_guild_map[guild_id].name,
                     icon=guild.get("icon"),
                     owner=bool(guild.get("owner", False)),
@@ -208,7 +208,7 @@ def create_app() -> FastAPI:
 
         selected = session.selected_guild_id
         if selected is None and shared_guilds:
-            selected = shared_guilds[0].id
+            selected = int(shared_guilds[0].id)
             session.selected_guild_id = selected
 
         return MeDTO(
@@ -219,21 +219,22 @@ def create_app() -> FastAPI:
                 avatar=session.user.get("avatar"),
             ),
             csrf_token=session.csrf_token,
-            selected_guild_id=selected,
+            selected_guild_id=str(selected) if selected is not None else None,
             guilds=shared_guilds,
         )
 
     @app.post("/me/select-guild/{guild_id}")
-    def select_guild(guild_id: int, request: Request):
+    def select_guild(guild_id: str, request: Request):
         if oauth_service is None:
             raise _oauth_not_configured_error()
         session = check_csrf(request, oauth_service)
+        resolved_guild_id = int(guild_id)
         user_guild_ids = {int(g.get("id", 0)) for g in session.guilds}
         bot_guild_ids = set(service.get_bot_guild_map().keys())
-        if guild_id not in user_guild_ids or guild_id not in bot_guild_ids:
+        if resolved_guild_id not in user_guild_ids or resolved_guild_id not in bot_guild_ids:
             raise HTTPException(status_code=403, detail="Guild non autorisée")
-        session.selected_guild_id = guild_id
-        return {"ok": True, "selected_guild_id": guild_id}
+        session.selected_guild_id = resolved_guild_id
+        return {"ok": True, "selected_guild_id": str(resolved_guild_id)}
 
     @app.get("/api/guilds")
     def list_guilds():
@@ -282,7 +283,8 @@ def create_app() -> FastAPI:
     def open_raid(payload: RaidOpenRequestDTO, request: Request):
         if authorizer is None:
             raise _oauth_not_configured_error()
-        auth_ctx = authorizer.ensure_action_allowed(request, action="raid_open", guild_id=payload.guild_id)
+        guild_id = int(payload.guild_id)
+        auth_ctx = authorizer.ensure_action_allowed(request, action="raid_open", guild_id=guild_id)
         command = OpenRaidFromTemplate(
             context=CommandContext(guild_id=auth_ctx.guild_id, user_id=auth_ctx.user_id, request_id=payload.request_id),
             template_id=payload.template_name,
@@ -303,7 +305,8 @@ def create_app() -> FastAPI:
     def run_comp_wizard(payload: CompTemplateCreateRequestDTO, request: Request):
         if authorizer is None:
             raise _oauth_not_configured_error()
-        auth_ctx = authorizer.ensure_action_allowed(request, action="comp_wizard", guild_id=payload.guild_id)
+        guild_id = int(payload.guild_id)
+        auth_ctx = authorizer.ensure_action_allowed(request, action="comp_wizard", guild_id=guild_id)
         command = StartCompWizardFlow(
             context=CommandContext(guild_id=auth_ctx.guild_id, user_id=auth_ctx.user_id, request_id=payload.request_id),
             template_id=payload.name,
