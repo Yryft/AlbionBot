@@ -92,6 +92,19 @@ def _resolve_secure_cookies() -> bool:
     return True
 
 
+def _resolve_cookie_samesite() -> str:
+    configured = os.getenv("DASHBOARD_COOKIE_SAMESITE")
+    if configured is not None:
+        normalized = configured.strip().lower()
+        if normalized in {"lax", "strict", "none"}:
+            return normalized
+
+    redirect_uri = os.getenv("DISCORD_OAUTH_REDIRECT_URI", "").strip()
+    if redirect_uri and _is_local_redirect_uri(redirect_uri):
+        return "lax"
+    return "none"
+
+
 def create_app() -> FastAPI:
     data_path = os.getenv("DATA_PATH", "data/state.json").strip()
     bank_database_url = os.getenv("BANK_DATABASE_URL", "").strip() or os.getenv("DATABASE_URL", "").strip()
@@ -117,6 +130,7 @@ def create_app() -> FastAPI:
     )
 
     secure_cookies = _resolve_secure_cookies()
+    cookie_samesite = _resolve_cookie_samesite()
     post_login_redirect = os.getenv("DASHBOARD_POST_LOGIN_REDIRECT", "/").strip() or "/"
 
     @app.get("/health")
@@ -135,7 +149,7 @@ def create_app() -> FastAPI:
             value=state,
             httponly=True,
             secure=secure_cookies,
-            samesite="lax",
+            samesite=cookie_samesite,
             max_age=600,
             path="/",
         )
@@ -169,7 +183,7 @@ def create_app() -> FastAPI:
         )
 
         redirect = RedirectResponse(f"{post_login_redirect}?logged_in=1", status_code=302)
-        set_session_cookies(redirect, session, secure=secure_cookies)
+        set_session_cookies(redirect, session, secure=secure_cookies, same_site=cookie_samesite)
         redirect.delete_cookie(STATE_COOKIE, path="/")
         return redirect
 

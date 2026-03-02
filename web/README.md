@@ -25,6 +25,7 @@ Variables utiles backend:
 - `DISCORD_OAUTH_CLIENT_SECRET`
 - `DISCORD_OAUTH_REDIRECT_URI`
 - `DASHBOARD_COOKIE_SECURE` (`true` en prod)
+- `DASHBOARD_COOKIE_SAMESITE` (`none` en prod cross-domain, `lax` en local)
 - `DASHBOARD_POST_LOGIN_REDIRECT` (URL frontend après login)
 
 ### 2) Frontend
