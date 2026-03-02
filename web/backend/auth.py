@@ -195,11 +195,12 @@ def require_session(request: Request, oauth_service: DiscordOAuthService) -> Ses
     return oauth_service.ensure_valid_session(session)
 
 
-def check_csrf(request: Request) -> None:
-    cookie_token = request.cookies.get(CSRF_COOKIE, "")
+def check_csrf(request: Request, oauth_service: DiscordOAuthService) -> SessionData:
+    session = require_session(request, oauth_service)
     header_token = request.headers.get("x-csrf-token", "")
-    if not cookie_token or cookie_token != header_token:
+    if not header_token or session.csrf_token != header_token:
         raise HTTPException(status_code=403, detail="CSRF invalide")
+    return session
 
 
 def set_session_cookies(response: Response, session: SessionData, secure: bool) -> None:

@@ -106,5 +106,6 @@ class DiscordGuildDTO(BaseModel):
 
 class MeDTO(BaseModel):
     user: DiscordUserDTO
+    csrf_token: str
     selected_guild_id: Optional[int] = None
     guilds: List[DiscordGuildDTO] = Field(default_factory=list)

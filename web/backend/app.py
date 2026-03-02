@@ -177,13 +177,10 @@ def create_app() -> FastAPI:
     def auth_logout(request: Request):
         if oauth_service is None:
             raise _oauth_not_configured_error()
-        check_csrf(request)
-        session_id = request.cookies.get("albion_dash_session", "")
-        if session_id:
-            session = oauth_service.sessions.get(session_id)
-            if session is not None and session.refresh_token:
-                oauth_service.revoke_token(session.refresh_token)
-            oauth_service.sessions.delete(session_id)
+        session = check_csrf(request, oauth_service)
+        if session.refresh_token:
+            oauth_service.revoke_token(session.refresh_token)
+        oauth_service.sessions.delete(session.session_id)
         response = Response(status_code=204)
         clear_session_cookies(response)
         return response
@@ -221,6 +218,7 @@ def create_app() -> FastAPI:
                 global_name=session.user.get("global_name"),
                 avatar=session.user.get("avatar"),
             ),
+            csrf_token=session.csrf_token,
             selected_guild_id=selected,
             guilds=shared_guilds,
         )
@@ -229,8 +227,7 @@ def create_app() -> FastAPI:
     def select_guild(guild_id: int, request: Request):
         if oauth_service is None:
             raise _oauth_not_configured_error()
-        check_csrf(request)
-        session = require_session(request, oauth_service)
+        session = check_csrf(request, oauth_service)
         user_guild_ids = {int(g.get("id", 0)) for g in session.guilds}
         bot_guild_ids = set(service.get_bot_guild_map().keys())
         if guild_id not in user_guild_ids or guild_id not in bot_guild_ids:
