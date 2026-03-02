@@ -2,19 +2,73 @@ from __future__ import annotations
 
 import time
 import uuid
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from albionbot.modules.raids import parse_comp_spec, raid_status
 from albionbot.storage.store import CompTemplate, RaidEvent, Store
 
+from .command_bus import (
+    CommandHandler,
+    OpenRaidFromTemplate,
+    StartCompWizardFlow,
+    ValidationError,
+)
 from .schemas import (
-    CompTemplateCreateRequestDTO,
     GuildDTO,
     RaidDTO,
     RaidTemplateDTO,
     TicketMessageDTO,
     TicketTranscriptDTO,
 )
+
+
+@dataclass
+class OpenRaidFromTemplateHandler(CommandHandler[RaidDTO]):
+    service: "DashboardService"
+
+    def handle(self, command: OpenRaidFromTemplate) -> RaidDTO:
+        if command.template_id not in self.service.store.templates:
+            raise ValidationError(code="template_not_found", message="Template introuvable")
+
+        raid_id = uuid.uuid4().hex[:10]
+        raid = RaidEvent(
+            raid_id=raid_id,
+            template_name=command.template_id,
+            title=command.title,
+            description=command.description,
+            extra_message=command.extra_message,
+            start_at=command.start_at,
+            created_by=command.context.user_id,
+            created_at=int(time.time()),
+            prep_minutes=command.prep_minutes,
+            cleanup_minutes=command.cleanup_minutes,
+        )
+        self.service.store.raids[raid_id] = raid
+        self.service.store.save()
+        return self.service._to_raid_dto(raid)
+
+
+@dataclass
+class StartCompWizardFlowHandler(CommandHandler[RaidTemplateDTO]):
+    service: "DashboardService"
+
+    def handle(self, command: StartCompWizardFlow) -> RaidTemplateDTO:
+        roles, warnings = parse_comp_spec(command.spec)
+        if warnings and not roles:
+            raise ValidationError(code="invalid_spec", message="; ".join(warnings), details={"warnings": warnings})
+
+        template = CompTemplate(
+            name=command.template_id,
+            description=command.description,
+            created_by=command.context.user_id,
+            content_type=command.content_type,
+            raid_required_role_ids=command.raid_required_role_ids,
+            roles=roles,
+        )
+        self.service.store.templates[command.template_id] = template
+        self.service.store.save()
+        return self.service.list_raid_templates()[0]
 
 
 class DashboardService:
@@ -26,7 +80,6 @@ class DashboardService:
         guild_ids.update(record.guild_id for record in self.store.ticket_records.values())
         guild_ids.update(self.store.guild_permissions.keys())
         return [GuildDTO(id=gid, name=f"Guild {gid}") for gid in sorted(guild_ids)]
-
 
     def get_bot_guild_map(self) -> Dict[int, GuildDTO]:
         guilds = self.list_guilds()
@@ -73,44 +126,6 @@ class DashboardService:
 
     def list_raids(self) -> List[RaidDTO]:
         return [self._to_raid_dto(raid) for raid in sorted(self.store.raids.values(), key=lambda r: r.start_at)]
-
-    def open_raid(self, payload) -> RaidDTO:
-        if payload.template_name not in self.store.templates:
-            raise ValueError("Template introuvable")
-
-        raid_id = uuid.uuid4().hex[:10]
-        raid = RaidEvent(
-            raid_id=raid_id,
-            template_name=payload.template_name,
-            title=payload.title,
-            description=payload.description,
-            extra_message=payload.extra_message,
-            start_at=payload.start_at,
-            created_by=payload.created_by,
-            created_at=int(time.time()),
-            prep_minutes=payload.prep_minutes,
-            cleanup_minutes=payload.cleanup_minutes,
-        )
-        self.store.raids[raid_id] = raid
-        self.store.save()
-        return self._to_raid_dto(raid)
-
-    def create_comp_template_from_wizard(self, payload: CompTemplateCreateRequestDTO) -> RaidTemplateDTO:
-        roles, warnings = parse_comp_spec(payload.spec)
-        if warnings and not roles:
-            raise ValueError("; ".join(warnings))
-
-        template = CompTemplate(
-            name=payload.name,
-            description=payload.description,
-            created_by=payload.created_by,
-            content_type=payload.content_type,
-            raid_required_role_ids=payload.raid_required_role_ids,
-            roles=roles,
-        )
-        self.store.templates[payload.name] = template
-        self.store.save()
-        return self.list_raid_templates()[0]
 
     def _to_ticket_transcript(self, ticket) -> TicketTranscriptDTO:
         messages = []
