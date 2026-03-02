@@ -180,6 +180,59 @@ Voir `web/README.md` pour le détail complet. En résumé:
 
 Les 3 services doivent avoir des variables cohérentes (URL backend, CORS, OAuth Discord, stockage partagé DB/volume).
 
+### Railway — quoi mettre dans chaque variable (copier/coller)
+
+Voici une matrice pratique par service.
+
+#### 1) Service `albionbot` (bot Discord)
+
+| Variable | Obligatoire | Valeur à mettre | Exemple |
+|---|---:|---|---|
+| `DISCORD_TOKEN` | ✅ | Token du bot Discord (Developer Portal > Bot) | `<SECRET>` |
+| `GUILD_IDS` | recommandé | IDs de serveurs séparés par virgules | `123456789012345678,987654321098765432` |
+| `DATA_PATH` | recommandé | Chemin du fichier d'état dans le volume | `/data/state.json` |
+| `BANK_DATABASE_URL` | recommandé* | URL PostgreSQL pour la banque (prioritaire sur `DATABASE_URL`) | `postgresql://user:pass@host:5432/db` |
+| `DATABASE_URL` | recommandé* | URL PostgreSQL fallback si `BANK_DATABASE_URL` absent | `postgresql://user:pass@host:5432/db` |
+| `BANK_SQLITE_PATH` | optionnel | Chemin SQLite si pas de PostgreSQL | `/data/bank.sqlite3` |
+
+\* Utilise **au moins une** des deux (`BANK_DATABASE_URL` ou `DATABASE_URL`) si tu veux PostgreSQL.
+
+#### 2) Service `backend` (FastAPI dashboard)
+
+| Variable | Obligatoire | Valeur à mettre | Exemple |
+|---|---:|---|---|
+| `DATA_PATH` | ✅ (si lecture JSON) | Même chemin que le bot si partagé via volume | `/data/state.json` |
+| `BANK_DATABASE_URL` | recommandé | URL PostgreSQL (ou `DATABASE_URL`) | `postgresql://user:pass@host:5432/db` |
+| `DATABASE_URL` | fallback | Utilisé si `BANK_DATABASE_URL` absent | `postgresql://user:pass@host:5432/db` |
+| `BANK_SQLITE_PATH` | optionnel | Si mode SQLite | `/data/bank.sqlite3` |
+| `DASHBOARD_CORS_ORIGINS` | ✅ | URL(s) frontend autorisées, séparées par virgules | `https://frontend.up.railway.app` |
+| `DISCORD_OAUTH_CLIENT_ID` | ✅ (si login Discord) | Client ID OAuth2 Discord | `123456789012345678` |
+| `DISCORD_OAUTH_CLIENT_SECRET` | ✅ (si login Discord) | Secret OAuth2 Discord | `<SECRET>` |
+| `DISCORD_OAUTH_REDIRECT_URI` | ✅ (si login Discord) | Callback backend `/auth/callback` | `https://backend.up.railway.app/auth/callback` |
+| `DASHBOARD_COOKIE_SECURE` | ✅ en prod | `true` en HTTPS Railway | `true` |
+| `DASHBOARD_POST_LOGIN_REDIRECT` | recommandé | URL frontend après login | `https://frontend.up.railway.app/` |
+
+#### 3) Service `frontend` (Next.js dashboard)
+
+| Variable | Obligatoire | Valeur à mettre | Exemple |
+|---|---:|---|---|
+| `NEXT_PUBLIC_API_BASE_URL` | ✅ | URL publique du backend FastAPI | `https://backend.up.railway.app` |
+
+#### 4) Mapping rapide “qui utilise quoi”
+
+- **Bot seulement**: `DISCORD_TOKEN`, `GUILD_IDS`, `RAID_*`, `BANK_*` (runtime bot), `TICKET_*`.
+- **Backend seulement**: `DASHBOARD_*`, `DISCORD_OAUTH_*`, `DASHBOARD_CORS_ORIGINS`.
+- **Partagé bot + backend**: `DATA_PATH`, `BANK_DATABASE_URL` / `DATABASE_URL`, `BANK_SQLITE_PATH`.
+- **Frontend seulement**: `NEXT_PUBLIC_API_BASE_URL`.
+
+#### 5) Ordre recommandé sur Railway
+
+1. Créer/brancher PostgreSQL (option recommandé) puis copier son URL dans `BANK_DATABASE_URL`.
+2. Créer un volume `/data` pour le bot (et backend si partage fichiers).
+3. Configurer les variables du bot, déployer, vérifier que le bot se connecte.
+4. Configurer backend + OAuth Discord, vérifier `/health`.
+5. Configurer frontend avec `NEXT_PUBLIC_API_BASE_URL` vers le backend.
+
 ---
 
 ## Licence
