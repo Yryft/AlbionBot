@@ -4,7 +4,7 @@ import type { GuildDTO, TicketTranscriptDTO } from '../lib/api';
 
 type Props = {
   guilds: GuildDTO[];
-  selectedGuildId?: number;
+  selectedGuildId?: string;
   tickets: TicketTranscriptDTO[];
   selectedTicketId?: string;
 };

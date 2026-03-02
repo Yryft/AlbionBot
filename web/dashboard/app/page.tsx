@@ -43,13 +43,13 @@ export default function HomePage() {
   const [state, setState] = useState<LoadState>(initialState);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>('');
-  const [selectedGuildId, setSelectedGuildId] = useState<number | null>(null);
+  const [selectedGuildId, setSelectedGuildId] = useState<string | null>(null);
   const [selectedTicketId, setSelectedTicketId] = useState<string>('');
   const [raidTitle, setRaidTitle] = useState('');
   const [raidTemplate, setRaidTemplate] = useState('');
   const [raidStartAt, setRaidStartAt] = useState('');
 
-  async function loadDashboard(guildId?: number | null) {
+  async function loadDashboard(guildId?: string | null) {
     setBusy(true);
     setError('');
     try {
@@ -121,7 +121,7 @@ export default function HomePage() {
     [state.tickets]
   );
 
-  async function onSelectGuild(guildId: number) {
+  async function onSelectGuild(guildId: string) {
     setBusy(true);
     setError('');
     try {
