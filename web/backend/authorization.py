@@ -67,7 +67,7 @@ class DashboardAuthorizationService:
         is_owner = bool(user_guild.get("owner", False))
         member_role_ids: List[int] = []
         try:
-            member = self.oauth_service.fetch_guild_member(session.access_token, resolved_guild_id)
+            member = self._fetch_member_data(session, resolved_guild_id, user_id)
             member_role_ids = [int(rid) for rid in member.get("roles", [])]
         except HTTPException:
             if not is_owner:
@@ -97,7 +97,7 @@ class DashboardAuthorizationService:
             self._log_decision(False, action, resolved_guild_id, user_id, permission_key, "guild_not_managed")
             raise HTTPException(status_code=403, detail="Guild non gérée par le bot")
 
-        member = self.oauth_service.fetch_guild_member(session.access_token, resolved_guild_id)
+        member = self._fetch_member_data(session, resolved_guild_id, user_id)
         member_role_ids = [int(rid) for rid in member.get("roles", [])]
         permission_bits = int(member.get("permissions", user_guild.get("permissions", "0")) or "0")
         is_admin = bool(permission_bits & DISCORD_PERM_ADMINISTRATOR) or bool(user_guild.get("owner", False))
@@ -123,6 +123,17 @@ class DashboardAuthorizationService:
             user_id=user_id,
             permission_key=permission_key,
         )
+
+    def _fetch_member_data(self, session: SessionData, guild_id: int, user_id: int) -> dict:
+        try:
+            return self.oauth_service.fetch_guild_member(session.access_token, guild_id)
+        except HTTPException as user_token_error:
+            if self.cfg.discord_token:
+                try:
+                    return self.oauth_service.fetch_guild_member_by_user_id(self.cfg.discord_token, guild_id, user_id)
+                except HTTPException:
+                    pass
+            raise user_token_error
 
     @staticmethod
     def _find_user_guild(session: SessionData, guild_id: int) -> Optional[dict]:
