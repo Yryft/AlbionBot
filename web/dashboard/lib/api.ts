@@ -27,6 +27,7 @@ export type DiscordGuildDTO = {
 
 export type MeDTO = {
   user: DiscordUserDTO;
+  csrf_token: string;
   selected_guild_id?: number | null;
   guilds: DiscordGuildDTO[];
 };
@@ -84,6 +85,12 @@ export type RaidDTO = {
 
 const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
+let csrfTokenCache = "";
+
+export function setCsrfToken(token: string): void {
+  csrfTokenCache = token;
+}
+
 function getCookie(name: string): string {
   if (typeof document === 'undefined') {
     return '';
@@ -98,19 +105,31 @@ async function parseJsonSafe<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function buildApiError(res: Response, path: string): Promise<Error> {
+  try {
+    const payload = (await res.json()) as { detail?: unknown };
+    if (typeof payload.detail === "string") {
+      return new Error(payload.detail);
+    }
+  } catch {
+    // ignore parsing issues and fallback to status-based error
+  }
+  return new Error(`API error (${res.status}) on ${path}`);
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(`${baseUrl}${path}`, {
     cache: 'no-store',
     credentials: 'include',
   });
   if (!res.ok) {
-    throw new Error(`API error (${res.status}) on ${path}`);
+    throw await buildApiError(res, path);
   }
   return parseJsonSafe<T>(res);
 }
 
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
-  const csrfToken = getCookie('albion_dash_csrf');
+  const csrfToken = getCookie('albion_dash_csrf') || csrfTokenCache;
   const res = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
     credentials: 'include',
@@ -121,7 +140,7 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) {
-    throw new Error(`API error (${res.status}) on ${path}`);
+    throw await buildApiError(res, path);
   }
   if (res.status === 204) {
     return {} as T;

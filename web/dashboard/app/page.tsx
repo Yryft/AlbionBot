@@ -10,6 +10,7 @@ import {
   apiGet,
   apiGetSafe,
   apiPost,
+  setCsrfToken,
 } from '../lib/api';
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
@@ -57,6 +58,10 @@ export default function HomePage() {
         apiGetSafe<ApiOverviewDTO>('/api/public/overview'),
         apiGetSafe<MeDTO>('/me'),
       ]);
+
+      if (me?.csrf_token) {
+        setCsrfToken(me.csrf_token);
+      }
 
       const activeGuild = guildId ?? me?.selected_guild_id ?? me?.guilds?.[0]?.id ?? null;
       let raids: RaidDTO[] = [];
