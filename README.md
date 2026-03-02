@@ -79,28 +79,50 @@ python -m albionbot
 
 ## Variables d'environnement
 
-### Obligatoire
-- `DISCORD_TOKEN`
+### 1) Bot Discord (`python -m albionbot`)
 
-### Recommandées
-- `GUILD_IDS` (IDs serveur séparés par virgules)
-- `BANK_DATABASE_URL` (PostgreSQL)
-- `DATABASE_URL` (fallback Railway)
+| Variable | Obligatoire | Valeur attendue | Exemple concret |
+|---|---:|---|---|
+| `DISCORD_TOKEN` | ✅ | Token du bot (Discord Developer Portal > Bot) | `<SECRET>` |
+| `GUILD_IDS` | recommandé | IDs Discord (entiers) séparés par virgules | `123456789012345678,987654321098765432` |
+| `DATA_PATH` | recommandé | Chemin du fichier JSON d'état | `/data/state.json` |
+| `BANK_DATABASE_URL` | recommandé* | URL PostgreSQL pour la banque (prioritaire) | `postgresql://user:pass@host:5432/dbname` |
+| `DATABASE_URL` | fallback | URL PostgreSQL fallback si `BANK_DATABASE_URL` absent | `postgresql://user:pass@host:5432/dbname` |
+| `BANK_SQLITE_PATH` | optionnel | Chemin SQLite si tu n'utilises pas PostgreSQL | `/data/bank.sqlite3` |
+| `RAID_REQUIRE_MANAGE_GUILD` | optionnel | `true`/`false` (contrôle permission Discord Manage Guild) | `true` |
+| `RAID_MANAGER_ROLE_ID` | optionnel | ID rôle manager raids | `123456789012345678` |
+| `BANK_REQUIRE_MANAGE_GUILD` | optionnel | `true`/`false` (contrôle permission Discord Manage Guild) | `true` |
+| `BANK_MANAGER_ROLE_ID` | optionnel | ID rôle manager banque | `123456789012345678` |
+| `SUPPORT_ROLE_ID` | optionnel | ID rôle support (compat legacy tickets) | `123456789012345678` |
+| `TICKET_ADMIN_ROLE_ID` | optionnel | ID rôle admin tickets (compat legacy) | `123456789012345678` |
+| `BANK_ALLOW_NEGATIVE` | optionnel | `true`/`false` autorise soldes négatifs | `true` |
+| `SCHED_TICK_SECONDS` | optionnel | Fréquence scheduler (secondes) | `15` |
+| `DEFAULT_PREP_MINUTES` | optionnel | Préparation raid par défaut (minutes) | `10` |
+| `DEFAULT_CLEANUP_MINUTES` | optionnel | Nettoyage raid par défaut (minutes) | `30` |
+| `VOICE_CHECK_AFTER_MINUTES` | optionnel | Délai check vocal auto (minutes) | `5` |
 
-### Optionnelles
-- `DATA_PATH` (défaut: `data/state.json`)
-- `BANK_SQLITE_PATH` (défaut: `data/bank.sqlite3`)
-- `RAID_REQUIRE_MANAGE_GUILD` (défaut: `true`)
-- `RAID_MANAGER_ROLE_ID`
-- `BANK_REQUIRE_MANAGE_GUILD` (défaut: `true`)
-- `BANK_MANAGER_ROLE_ID`
-- `SUPPORT_ROLE_ID` *(compat legacy ticket manager)*
-- `TICKET_ADMIN_ROLE_ID` *(compat legacy ticket manager)*
-- `BANK_ALLOW_NEGATIVE` (défaut: `true`)
-- `SCHED_TICK_SECONDS` (défaut: `15`)
-- `DEFAULT_PREP_MINUTES` (défaut: `10`)
-- `DEFAULT_CLEANUP_MINUTES` (défaut: `30`)
-- `VOICE_CHECK_AFTER_MINUTES` (défaut: `5`)
+\* Si tu veux PostgreSQL, renseigne au moins une de ces deux variables (`BANK_DATABASE_URL` ou `DATABASE_URL`).
+
+### 2) Backend dashboard (`web/backend`)
+
+| Variable | Obligatoire | Valeur attendue | Exemple concret |
+|---|---:|---|---|
+| `DATA_PATH` | ✅ (si JSON partagé) | Même chemin que le bot (si volume partagé) | `/data/state.json` |
+| `BANK_DATABASE_URL` | recommandé | URL PostgreSQL (prioritaire) | `postgresql://user:pass@host:5432/dbname` |
+| `DATABASE_URL` | fallback | URL PostgreSQL fallback | `postgresql://user:pass@host:5432/dbname` |
+| `BANK_SQLITE_PATH` | optionnel | Chemin SQLite | `/data/bank.sqlite3` |
+| `DASHBOARD_CORS_ORIGINS` | ✅ | Liste d'origines frontend séparées par virgules | `https://frontend.up.railway.app` |
+| `DISCORD_OAUTH_CLIENT_ID` | ✅ (OAuth) | Client ID de l'application Discord | `123456789012345678` |
+| `DISCORD_OAUTH_CLIENT_SECRET` | ✅ (OAuth) | Client Secret Discord OAuth2 | `<SECRET>` |
+| `DISCORD_OAUTH_REDIRECT_URI` | ✅ (OAuth) | Callback backend exacte | `https://backend.up.railway.app/auth/discord/callback` |
+| `DASHBOARD_COOKIE_SECURE` | recommandé | `true` en prod HTTPS, `false` en local HTTP | `true` |
+| `DASHBOARD_POST_LOGIN_REDIRECT` | recommandé | URL frontend de retour après login | `https://frontend.up.railway.app/` |
+
+### 3) Frontend dashboard (`web/dashboard`)
+
+| Variable | Obligatoire | Valeur attendue | Exemple concret |
+|---|---:|---|---|
+| `NEXT_PUBLIC_API_BASE_URL` | ✅ | URL publique du backend FastAPI | `https://backend.up.railway.app` |
 
 ---
 
@@ -179,6 +201,45 @@ Voir `web/README.md` pour le détail complet. En résumé:
 - Service frontend Next.js.
 
 Les 3 services doivent avoir des variables cohérentes (URL backend, CORS, OAuth Discord, stockage partagé DB/volume).
+
+### Mini tuto OAuth Discord (dashboard)
+
+> Objectif : permettre le login Discord sur le dashboard via `/auth/discord/login`.
+
+1) **Créer (ou ouvrir) l'application Discord**
+   - Ouvre <https://discord.com/developers/applications>.
+   - Crée une application (ou réutilise celle du bot).
+   - Dans **OAuth2 > General**, copie:
+     - `CLIENT ID` → `DISCORD_OAUTH_CLIENT_ID`
+     - `CLIENT SECRET` → `DISCORD_OAUTH_CLIENT_SECRET`
+
+2) **Déclarer la Redirect URL exacte**
+   - Toujours dans **OAuth2 > General > Redirects**, ajoute :
+     - `https://<ton-backend>/auth/discord/callback`
+   - Exemple Railway:
+     - `https://backend-production-xxxx.up.railway.app/auth/discord/callback`
+   - Cette valeur doit être **strictement la même** que `DISCORD_OAUTH_REDIRECT_URI` côté backend.
+
+3) **Configurer les variables backend**
+   - `DISCORD_OAUTH_CLIENT_ID=<CLIENT_ID>`
+   - `DISCORD_OAUTH_CLIENT_SECRET=<CLIENT_SECRET>`
+   - `DISCORD_OAUTH_REDIRECT_URI=https://<ton-backend>/auth/discord/callback`
+   - `DASHBOARD_POST_LOGIN_REDIRECT=https://<ton-frontend>/`
+   - `DASHBOARD_COOKIE_SECURE=true` (prod HTTPS)
+
+4) **Configurer le frontend**
+   - `NEXT_PUBLIC_API_BASE_URL=https://<ton-backend>`
+   - Le bouton/login frontend doit pointer vers `https://<ton-backend>/auth/discord/login`.
+
+5) **Tester le flux OAuth**
+   - Va sur le frontend, clique “Login Discord”.
+   - Tu dois être redirigé vers Discord, puis revenir sur le frontend avec `?logged_in=1`.
+   - Vérifie aussi l'endpoint `GET /me` (doit retourner l'utilisateur connecté).
+
+6) **Erreurs fréquentes**
+   - `OAuth Discord non configuré` → une variable `DISCORD_OAUTH_*` manque côté backend.
+   - `State OAuth invalide` → cookie/state perdu (souvent domaine/protocole/cookies secure incohérents).
+   - Redirect mismatch Discord → URL de callback non identique entre Discord Developer Portal et `DISCORD_OAUTH_REDIRECT_URI`.
 
 ### Railway — quoi mettre dans chaque variable (copier/coller)
 
