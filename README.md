@@ -122,6 +122,64 @@ Un service web séparé est disponible sous `web/`:
    - `python -m albionbot`
 5. Ajouter les variables d'environnement puis redéployer.
 
+### Guide Railway complet (pas à pas)
+
+Si tu veux une config propre et stable, fais cette version:
+
+1) **Prépare ton bot Discord**
+   - Va sur [Discord Developer Portal](https://discord.com/developers/applications).
+   - Active les intents nécessaires dans **Bot > Privileged Gateway Intents** (au minimum ceux utilisés dans ton serveur; `MESSAGE CONTENT` si tu utilises les lectures de messages en DM/wizard).
+   - Récupère le token et garde-le pour `DISCORD_TOKEN`.
+
+2) **Crée le projet Railway**
+   - `New Project` → `Deploy from GitHub repo` → sélectionne ce dépôt.
+   - Railway crée un service, renomme-le en `albionbot` (optionnel, mais plus clair).
+
+3) **Configure le service bot**
+   - **Build Command**:
+     - `pip install -r requirements.txt && pip install .`
+   - **Start Command**:
+     - `python -m albionbot`
+   - **Variables minimales**:
+     - `DISCORD_TOKEN=<token bot>`
+   - **Variables recommandées**:
+     - `GUILD_IDS=<id1,id2>`
+     - `DATABASE_URL` ou `BANK_DATABASE_URL` (si PostgreSQL)
+     - `DATA_PATH=/data/state.json`
+
+4) **Ajoute un volume (fortement recommandé)**
+   - Sans volume, les fichiers locaux sont éphémères après redéploiement/restart.
+   - Dans Railway: `Service > Volumes` → monte un volume sur `/data`.
+   - Utilise:
+     - `DATA_PATH=/data/state.json`
+     - `BANK_SQLITE_PATH=/data/bank.sqlite3` (si tu restes en SQLite)
+
+5) **(Optionnel) Ajoute PostgreSQL Railway**
+   - `New > Database > PostgreSQL`.
+   - Dans le service bot, mappe la variable `DATABASE_URL` (ou `BANK_DATABASE_URL`) sur l'URL PostgreSQL fournie.
+   - Avantage: persistance plus robuste et partage possible avec le backend web.
+
+6) **Redéploie et vérifie les logs**
+   - Clique `Deploy`.
+   - Vérifie les logs du service:
+     - Le bot doit se connecter sans erreur de token.
+     - Pas d'erreur de permissions Discord côté salon/commande.
+
+7) **Checklist de debug rapide**
+   - `Invalid token` → mauvais `DISCORD_TOKEN`.
+   - Commandes slash absentes → `GUILD_IDS` incorrect ou propagation Discord pas terminée.
+   - Données qui disparaissent → volume absent ou mauvais chemin (`DATA_PATH`/`BANK_SQLITE_PATH`).
+   - Erreur DB → `DATABASE_URL`/`BANK_DATABASE_URL` non défini ou inaccessible.
+
+### Déployer aussi le dashboard web (optionnel)
+
+Voir `web/README.md` pour le détail complet. En résumé:
+- Service bot Discord.
+- Service backend FastAPI.
+- Service frontend Next.js.
+
+Les 3 services doivent avoir des variables cohérentes (URL backend, CORS, OAuth Discord, stockage partagé DB/volume).
+
 ---
 
 ## Licence
