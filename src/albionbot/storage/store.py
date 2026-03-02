@@ -120,7 +120,9 @@ class TicketRecord:
 class TicketMessageSnapshot:
     message_id: int
     author_id: int
-    content: str
+    author_name: str = ""
+    author_avatar_url: str = ""
+    content: str = ""
     embeds: List[Dict] = field(default_factory=list)
     attachments: List[Dict[str, str]] = field(default_factory=list)
     created_at: int = field(default_factory=lambda: int(time.time()))
@@ -375,6 +377,8 @@ class Store:
                 out.append(TicketMessageSnapshot(
                     message_id=int(snap["message_id"]),
                     author_id=int(snap["author_id"]),
+                    author_name=str(snap.get("author_name", "")),
+                    author_avatar_url=str(snap.get("author_avatar_url", "")),
                     content=snap.get("content", ""),
                     embeds=list(snap.get("embeds", [])),
                     attachments=list(snap.get("attachments", [])),

@@ -41,6 +41,8 @@ def test_command_bus_is_idempotent_and_audited():
             start_at=int(time.time()) + 3600,
             prep_minutes=10,
             cleanup_minutes=10,
+            channel_id=1,
+            voice_channel_id=None,
         )
         handler = DummyHandler()
 
@@ -64,6 +66,8 @@ def test_rate_limit_is_enforced():
             start_at=int(time.time()) + 3600,
             prep_minutes=10,
             cleanup_minutes=10,
+            channel_id=1,
+            voice_channel_id=None,
         )
         cmd2 = OpenRaidFromTemplate(
             context=CommandContext(guild_id=1, user_id=10, request_id="req-2"),
@@ -74,6 +78,8 @@ def test_rate_limit_is_enforced():
             start_at=int(time.time()) + 3600,
             prep_minutes=10,
             cleanup_minutes=10,
+            channel_id=1,
+            voice_channel_id=None,
         )
 
         bus.dispatch(cmd1, handler, action="open")
@@ -97,9 +103,31 @@ def test_validation_failure():
             start_at=int(time.time()) + 3600,
             prep_minutes=10,
             cleanup_minutes=10,
+            channel_id=1,
+            voice_channel_id=None,
         )
         try:
             bus.dispatch(cmd, ErrorHandler(), action="open")
             assert False, "expected validation"
         except DomainError as exc:
             assert exc.code == "invalid_guild_id"
+
+
+def test_open_raid_requires_channel_id():
+    cmd = OpenRaidFromTemplate(
+        context=CommandContext(guild_id=1, user_id=10, request_id="req-1"),
+        template_id="tpl",
+        title="Raid",
+        description="",
+        extra_message="",
+        start_at=int(time.time()) + 3600,
+        prep_minutes=10,
+        cleanup_minutes=10,
+        channel_id=0,
+        voice_channel_id=None,
+    )
+    try:
+        cmd.validate()
+        assert False, "expected invalid channel"
+    except DomainError as exc:
+        assert exc.code == "invalid_channel_id"

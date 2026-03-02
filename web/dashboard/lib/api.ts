@@ -35,9 +35,13 @@ export type MeDTO = {
 export type TicketMessageDTO = {
   message_id: string;
   author_id: string;
+  author_name?: string;
+  author_avatar_url?: string;
   content: string;
   created_at: number;
   event_type: 'message' | 'edit' | 'delete' | 'system';
+  embeds?: Record<string, unknown>[];
+  attachments?: Record<string, unknown>[];
 };
 
 export type TicketTranscriptDTO = {
@@ -80,8 +84,34 @@ export type RaidDTO = {
   start_at: number;
   created_by: string;
   created_at: number;
+  channel_id?: string | null;
+  message_id?: string | null;
+  voice_channel_id?: string | null;
   status: 'OPEN' | 'PINGED' | 'CLOSED';
 };
+
+
+
+export type RaidParticipantDTO = {
+  user_id: string;
+  role_key: string;
+  status: 'main' | 'wait';
+  ip?: number | null;
+  joined_at: number;
+};
+
+export type RaidRosterDTO = {
+  raid: RaidDTO;
+  participants: RaidParticipantDTO[];
+  absent_user_ids: string[];
+};
+
+export type BalanceEntryDTO = {
+  user_id: string;
+  balance: number;
+};
+
+export type BankActionType = 'add' | 'remove' | 'add_split' | 'remove_split';
 
 const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
@@ -144,6 +174,23 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   }
   if (res.status === 204) {
     return {} as T;
+  }
+  return parseJsonSafe<T>(res);
+}
+
+export async function apiPut<T>(path: string, body?: unknown): Promise<T> {
+  const csrfToken = getCookie('albion_dash_csrf') || csrfTokenCache;
+  const res = await fetch(`${baseUrl}${path}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw await buildApiError(res, path);
   }
   return parseJsonSafe<T>(res);
 }

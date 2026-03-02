@@ -19,9 +19,13 @@ class GuildDTO(BaseModel):
 class TicketMessageDTO(BaseModel):
     message_id: int
     author_id: int
+    author_name: str = ""
+    author_avatar_url: str = ""
     content: str
     created_at: int
     event_type: Literal["message", "edit", "delete", "system"]
+    embeds: List[dict] = Field(default_factory=list)
+    attachments: List[dict] = Field(default_factory=list)
 
 
 class TicketTranscriptDTO(BaseModel):
@@ -58,6 +62,8 @@ class RaidTemplateDTO(BaseModel):
 class RaidOpenRequestDTO(BaseModel):
     request_id: str
     guild_id: str
+    channel_id: int = Field(gt=0)
+    voice_channel_id: Optional[int] = Field(default=None, gt=0)
     template_name: str
     title: str
     description: str = ""
@@ -76,7 +82,31 @@ class RaidDTO(BaseModel):
     start_at: int
     created_by: int
     created_at: int
+    channel_id: Optional[int] = None
+    message_id: Optional[int] = None
+    voice_channel_id: Optional[int] = None
     status: Literal["OPEN", "PINGED", "CLOSED"]
+
+
+
+
+class RaidParticipantDTO(BaseModel):
+    user_id: int
+    role_key: str
+    status: Literal["main", "wait"]
+    ip: Optional[int] = None
+    joined_at: int
+
+
+class RaidRosterDTO(BaseModel):
+    raid: RaidDTO
+    participants: List[RaidParticipantDTO] = Field(default_factory=list)
+    absent_user_ids: List[int] = Field(default_factory=list)
+
+
+class RaidSignupRequestDTO(BaseModel):
+    role_key: str
+    ip: Optional[int] = None
 
 
 class CompTemplateCreateRequestDTO(BaseModel):
@@ -87,6 +117,45 @@ class CompTemplateCreateRequestDTO(BaseModel):
     content_type: Literal["ava_raid", "pvp", "pve"] = "pvp"
     raid_required_role_ids: List[int] = Field(default_factory=list)
     spec: str = Field(description="Spec wizard multi-lignes: Label;slots;options")
+
+
+class RaidTemplateUpdateRequestDTO(BaseModel):
+    description: str = ""
+    content_type: Literal["ava_raid", "pvp", "pve"] = "pvp"
+    raid_required_role_ids: List[int] = Field(default_factory=list)
+    spec: str = Field(description="Spec wizard multi-lignes: Label;slots;options")
+
+
+class RaidUpdateRequestDTO(BaseModel):
+    title: str
+    description: str = ""
+    extra_message: str = ""
+    start_at: int
+    prep_minutes: int = 10
+    cleanup_minutes: int = 30
+
+
+class BalanceEntryDTO(BaseModel):
+    user_id: int
+    balance: int
+
+
+class BankActionRequestDTO(BaseModel):
+    request_id: str
+    guild_id: str
+    action_type: Literal["add", "remove", "add_split", "remove_split"]
+    amount: int = Field(ge=0)
+    target_user_ids: List[int] = Field(default_factory=list)
+    note: str = ""
+
+
+class BankActionResultDTO(BaseModel):
+    action_id: str
+    guild_id: int
+    action_type: Literal["add", "remove", "add_split", "remove_split"]
+    total_delta: int
+    impacted_users: int
+    note: str = ""
 
 
 class DiscordUserDTO(BaseModel):

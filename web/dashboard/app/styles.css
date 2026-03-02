@@ -3,204 +3,65 @@
   font-family: Inter, system-ui, -apple-system, sans-serif;
 }
 
-* {
-  box-sizing: border-box;
+* { box-sizing: border-box; }
+body { margin: 0; background: #1e1f22; color: #f2f3f5; }
+
+.discord-shell { min-height: 100vh; display: grid; grid-template-columns: 76px 1fr; }
+.guild-rail { background: #111214; border-right: 1px solid #272a31; display: flex; flex-direction: column; gap: 10px; padding: 16px 10px; }
+.guild-btn { border: none; border-radius: 16px; width: 56px; height: 56px; background: #313338; color: #fff; font-weight: 700; cursor: pointer; overflow: hidden; }
+.guild-btn.active, .guild-btn:hover { border-radius: 12px; background: #5865f2; }
+
+.main-panel { padding: 20px; display: grid; gap: 14px; }
+.topbar { display: flex; justify-content: space-between; align-items: center; }
+.topbar h1 { margin: 0; font-size: 24px; }
+.topbar p { margin: 4px 0 0; color: #b5bac1; }
+
+.discord-login, .session-actions button, .form-grid button, .tab {
+  background: #5865f2; border: none; color: #fff; border-radius: 8px; padding: 10px 14px; cursor: pointer; text-decoration: none;
+}
+.tab { background: #313338; }
+.tab.active { background: #5865f2; }
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.session-actions { display: flex; gap: 10px; align-items: center; }
+.status-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.status-grid article, .panel { background: #2b2d31; border: 1px solid #3b3d44; border-radius: 10px; padding: 14px; }
+.status-grid h3 { margin: 0; color: #b5bac1; font-size: 13px; }
+.status-grid strong { font-size: 26px; }
+.workspace-grid { display: grid; gap: 14px; }
+.ticket-columns { display: grid; gap: 12px; grid-template-columns: minmax(220px, 280px) 1fr; }
+ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.row { width: 100%; border: 1px solid #3b3d44; border-radius: 8px; background: #1e1f22; color: #f2f3f5; display: flex; justify-content: space-between; padding: 8px; text-align: left; }
+.row.active, .row:hover { background: #404249; }
+.transcript-viewer { background: #1e1f22; border-radius: 8px; border: 1px solid #3b3d44; padding: 10px; max-height: 560px; overflow: auto; display: grid; gap: 8px; }
+.message-row { background: #2b2d31; border-radius: 8px; padding: 8px; }
+.msg-head { display: flex; align-items: center; gap: 8px; }
+.message-row p { margin: 6px 0; white-space: pre-wrap; word-break: break-word; }
+.form-grid { display: grid; gap: 10px; }
+.form-grid label { display: grid; gap: 6px; font-size: 14px; }
+input, select, textarea { border-radius: 8px; border: 1px solid #3b3d44; background: #1e1f22; color: #fff; padding: 8px; }
+.raid-item { display: flex; flex-direction: column; border: 1px solid #3b3d44; border-radius: 8px; padding: 8px; }
+.split { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+.error-banner { background: #f23f43; border-radius: 8px; padding: 8px; margin: 0; }
+.muted, small { color: #b5bac1; }
+.inline-filters { display: flex; gap: 16px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.check { display: flex !important; align-items: center; gap: 6px; }
+.avatar { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.user-avatar { width: 32px; height: 32px; border-radius: 50%; }
+.msg-avatar { width: 24px; height: 24px; border-radius: 50%; }
+.msg-avatar.placeholder { background: #5865f2; }
+.fade-in { animation: fadeIn .25s ease-in; }
+.pop { transition: transform .15s ease, box-shadow .15s ease; }
+.pop:hover { transform: translateY(-1px) scale(1.02); box-shadow: 0 4px 16px rgba(0,0,0,.25); }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (max-width: 980px) {
+  .split { grid-template-columns: 1fr; }
+  .ticket-columns { grid-template-columns: 1fr; }
 }
 
-body {
-  margin: 0;
-  background: #1e1f22;
-  color: #f2f3f5;
-}
 
-.discord-shell {
-  min-height: 100vh;
-  display: grid;
-  grid-template-columns: 72px 1fr;
-}
-
-.guild-rail {
-  background: #111214;
-  border-right: 1px solid #272a31;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 16px 10px;
-}
-
-.guild-btn {
-  border: none;
-  border-radius: 16px;
-  width: 52px;
-  height: 52px;
-  background: #313338;
-  color: #fff;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.guild-btn.active,
-.guild-btn:hover {
-  border-radius: 12px;
-  background: #5865f2;
-}
-
-.main-panel {
-  padding: 20px;
-  display: grid;
-  gap: 16px;
-}
-
-.topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.topbar h1 {
-  margin: 0;
-  font-size: 24px;
-}
-
-.topbar p {
-  margin: 4px 0 0;
-  color: #b5bac1;
-}
-
-.discord-login,
-.session-actions button,
-.form-grid button {
-  background: #5865f2;
-  border: none;
-  color: #fff;
-  border-radius: 8px;
-  padding: 10px 14px;
-  cursor: pointer;
-  text-decoration: none;
-}
-
-.session-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.status-grid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-}
-
-.status-grid article,
-.panel {
-  background: #2b2d31;
-  border: 1px solid #3b3d44;
-  border-radius: 10px;
-  padding: 14px;
-}
-
-.status-grid h3 {
-  margin: 0;
-  color: #b5bac1;
-  font-size: 13px;
-}
-
-.status-grid strong {
-  font-size: 26px;
-}
-
-.workspace-grid {
-  display: grid;
-  gap: 14px;
-}
-
-.ticket-columns {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: 250px 1fr;
-}
-
-ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 8px;
-}
-
-.row {
-  width: 100%;
-  border: 1px solid #3b3d44;
-  border-radius: 8px;
-  background: #1e1f22;
-  color: #f2f3f5;
-  display: flex;
-  justify-content: space-between;
-  padding: 8px;
-}
-
-.row.active,
-.row:hover {
-  background: #404249;
-}
-
-.transcript-viewer {
-  background: #1e1f22;
-  border-radius: 8px;
-  border: 1px solid #3b3d44;
-  padding: 10px;
-  max-height: 340px;
-  overflow: auto;
-  display: grid;
-  gap: 8px;
-}
-
-.message-row {
-  background: #2b2d31;
-  border-radius: 8px;
-  padding: 8px;
-}
-
-.message-row p {
-  margin: 4px 0;
-}
-
-.form-grid {
-  display: grid;
-  gap: 10px;
-}
-
-.form-grid label {
-  display: grid;
-  gap: 6px;
-  font-size: 14px;
-}
-
-input,
-select {
-  border-radius: 8px;
-  border: 1px solid #3b3d44;
-  background: #1e1f22;
-  color: #fff;
-  padding: 8px;
-}
-
-.raid-item {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid #3b3d44;
-  border-radius: 8px;
-  padding: 8px;
-}
-
-.error-banner {
-  background: #f23f43;
-  border-radius: 8px;
-  padding: 8px;
-  margin: 0;
-}
-
-.muted,
-small {
-  color: #b5bac1;
-}
+.inline-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.roster-panel { margin-top: 12px; }
+.roster-panel h3 { margin-top: 0; }
+.raid-item .row { margin-bottom: 6px; }

@@ -7,10 +7,10 @@ Base URL backend dashboard: `/api`
 - `GuildDTO`: `{ id, name, roles[] }`
 - `RoleDTO`: `{ id, name }`
 - `TicketTranscriptDTO`: métadonnées ticket + `messages[]`
-- `TicketMessageDTO`: `{ message_id, author_id, content, created_at, event_type }`
+- `TicketMessageDTO`: `{ message_id, author_id, author_name?, author_avatar_url?, content, embeds[], attachments[], created_at, event_type }`
 - `RaidTemplateDTO`: template de compo + `roles[]`
 - `RaidRoleDTO`: `{ key, label, slots, ip_required, required_role_ids[] }`
-- `RaidDTO`: raid ouverte avec `status` (`OPEN|PINGED|CLOSED`)
+- `RaidDTO`: raid ouverte avec `status` (`OPEN|PINGED|CLOSED`) + `channel_id/message_id` pour suivi publication Discord
 
 ## Endpoints lecture
 
@@ -19,14 +19,26 @@ Base URL backend dashboard: `/api`
 - `GET /api/guilds/{guild_id}/tickets/{ticket_id}`
 - `GET /api/raid-templates`
 - `GET /api/raids`
+- `GET /api/my/raids`
+- `GET /api/raids/{raid_id}/roster`
+- `GET /api/guilds/{guild_id}/balances`
 - `GET /api/public/overview`
 
 ## Endpoints actions managées
 
 - `POST /api/actions/raids/open`
-  - body: `RaidOpenRequestDTO`
+  - body: `RaidOpenRequestDTO` (`channel_id` requis, `voice_channel_id` optionnel)
 - `POST /api/actions/comp-wizard`
   - body: `CompTemplateCreateRequestDTO`
+- `POST /api/raids/{raid_id}/signup`
+  - body: `RaidSignupRequestDTO`
+- `POST /api/raids/{raid_id}/leave`
+- `PUT /api/raid-templates/{template_name}`
+  - body: `RaidTemplateUpdateRequestDTO`
+- `PUT /api/raids/{raid_id}`
+  - body: `RaidUpdateRequestDTO`
+- `POST /api/actions/bank/apply`
+  - body: `BankActionRequestDTO`
 
 Les endpoints d'action sont pensés pour être protégés derrière une auth manager (JWT/proxy) côté infra.
 

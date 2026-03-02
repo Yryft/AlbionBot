@@ -203,6 +203,8 @@ class TicketModule:
                     TicketMessageSnapshot(
                         message_id=0,
                         author_id=interaction.user.id,
+                        author_name=interaction.user.display_name,
+                        author_avatar_url=str(interaction.user.display_avatar.url),
                         content=f"[CLOSE_REASON] {clean_reason}",
                     ),
                 )
@@ -642,6 +644,8 @@ class TicketModule:
         snapshot = TicketMessageSnapshot(
             message_id=message.id,
             author_id=message.author.id,
+            author_name=getattr(message.author, "display_name", str(message.author)),
+            author_avatar_url=str(getattr(getattr(message.author, "display_avatar", None), "url", "")),
             content=message.content or "",
             embeds=[embed.to_dict() for embed in message.embeds],
             attachments=[{"id": str(a.id), "filename": a.filename, "url": a.url} for a in message.attachments],
@@ -660,6 +664,8 @@ class TicketModule:
         snapshot = TicketMessageSnapshot(
             message_id=after.id,
             author_id=after.author.id,
+            author_name=getattr(after.author, "display_name", str(after.author)),
+            author_avatar_url=str(getattr(getattr(after.author, "display_avatar", None), "url", "")),
             content=f"[EDIT]\nBefore: {before_content}\nAfter: {after_content}",
             embeds=[embed.to_dict() for embed in after.embeds],
             attachments=[{"id": str(a.id), "filename": a.filename, "url": a.url} for a in after.attachments],
@@ -673,6 +679,8 @@ class TicketModule:
         snapshot = TicketMessageSnapshot(
             message_id=message.id,
             author_id=message.author.id if message.author else 0,
+            author_name=getattr(message.author, "display_name", str(message.author)) if message.author else "unknown",
+            author_avatar_url=str(getattr(getattr(message.author, "display_avatar", None), "url", "")) if message.author else "",
             content=f"[DELETE] {message.content or ''}".strip(),
             embeds=[embed.to_dict() for embed in message.embeds],
             attachments=[{"id": str(a.id), "filename": a.filename, "url": a.url} for a in message.attachments],
