@@ -45,6 +45,7 @@ class GuildMemberContext:
     guild_id: int
     user_id: int
     member_role_ids: List[int]
+    is_owner: bool
 
 
 class DashboardAuthorizationService:
@@ -63,13 +64,20 @@ class DashboardAuthorizationService:
             raise HTTPException(status_code=403, detail="Utilisateur non membre de la guild")
         if resolved_guild_id not in self.store.guild_permissions and resolved_guild_id not in self.store.ticket_configs:
             raise HTTPException(status_code=403, detail="Guild non gérée par le bot")
-        member = self.oauth_service.fetch_guild_member(session.access_token, resolved_guild_id)
-        member_role_ids = [int(rid) for rid in member.get("roles", [])]
+        is_owner = bool(user_guild.get("owner", False))
+        member_role_ids: List[int] = []
+        try:
+            member = self.oauth_service.fetch_guild_member(session.access_token, resolved_guild_id)
+            member_role_ids = [int(rid) for rid in member.get("roles", [])]
+        except HTTPException:
+            if not is_owner:
+                raise
         return GuildMemberContext(
             session=session,
             guild_id=resolved_guild_id,
             user_id=user_id,
             member_role_ids=member_role_ids,
+            is_owner=is_owner,
         )
 
     def ensure_action_allowed(self, request: Request, action: str, guild_id: Optional[int] = None) -> AuthorizationContext:

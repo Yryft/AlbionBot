@@ -25,6 +25,7 @@ from .schemas import (
     BalanceEntryDTO,
     BankActionRequestDTO,
     CompTemplateCreateRequestDTO,
+    DiscordDirectoryDTO,
     DiscordGuildDTO,
     DiscordUserDTO,
     MeDTO,
@@ -299,7 +300,7 @@ def create_app() -> FastAPI:
         if authorizer is None:
             raise _oauth_not_configured_error()
         member_ctx = authorizer.ensure_guild_member(request)
-        return service.list_user_raids(member_ctx.member_role_ids)
+        return service.list_user_raids(member_ctx.member_role_ids, include_all=member_ctx.is_owner)
 
     @app.get("/api/raids/{raid_id}/roster", response_model=RaidRosterDTO)
     def get_raid_roster(raid_id: str, request: Request):
@@ -361,11 +362,67 @@ def create_app() -> FastAPI:
         except DomainError as exc:
             raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
 
+
+    @app.get("/api/guilds/{guild_id}/discord-directory", response_model=DiscordDirectoryDTO)
+    def get_discord_directory(guild_id: int, request: Request):
+        if authorizer is None or oauth_service is None:
+            raise _oauth_not_configured_error()
+        authorizer.ensure_guild_member(request, guild_id=guild_id)
+        cfg = authorizer.cfg
+        channels = oauth_service.fetch_guild_channels(cfg.discord_token, guild_id)
+        roles = oauth_service.fetch_guild_roles(cfg.discord_token, guild_id)
+        members = oauth_service.fetch_guild_members(cfg.discord_token, guild_id)
+        return {
+            "channels": [
+                {
+                    "id": str(ch.get("id", "")),
+                    "name": str(ch.get("name") or f"channel-{ch.get('id', '')}"),
+                    "type": int(ch.get("type", 0) or 0),
+                }
+                for ch in channels
+                if ch.get("type") in {0, 2}
+            ],
+            "roles": [
+                {"id": int(role.get("id", 0)), "name": str(role.get("name") or "role")}
+                for role in roles
+                if int(role.get("id", 0)) > 0
+            ],
+            "members": [
+                {
+                    "id": str((m.get("user") or {}).get("id", "")),
+                    "display_name": str(m.get("nick") or (m.get("user") or {}).get("global_name") or (m.get("user") or {}).get("username") or (m.get("user") or {}).get("id") or ""),
+                }
+                for m in members
+                if (m.get("user") or {}).get("id")
+            ],
+        }
+
     @app.get("/api/guilds/{guild_id}/balances", response_model=list[BalanceEntryDTO])
     def list_balances(guild_id: int, request: Request):
         if authorizer is not None:
             authorizer.ensure_action_allowed(request, action="raid_list", guild_id=guild_id)
         return service.list_balances(guild_id)
+
+
+    @app.delete("/api/raids/{raid_id}")
+    def delete_raid(raid_id: str, request: Request):
+        if authorizer is not None:
+            authorizer.ensure_action_allowed(request, action="raid_open")
+        try:
+            service.delete_raid(raid_id)
+        except DomainError as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
+        return {"ok": True}
+
+    @app.delete("/api/guilds/{guild_id}/tickets/{ticket_id}")
+    def delete_ticket_transcript(guild_id: int, ticket_id: str, request: Request):
+        if authorizer is not None:
+            authorizer.ensure_action_allowed(request, action="tickets_read", guild_id=guild_id)
+        try:
+            service.delete_ticket_transcript(guild_id, ticket_id)
+        except DomainError as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
+        return {"ok": True}
 
     @app.post("/api/actions/bank/apply")
     def apply_bank_action(payload: BankActionRequestDTO, request: Request):

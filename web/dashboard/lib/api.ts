@@ -32,6 +32,14 @@ export type MeDTO = {
   guilds: DiscordGuildDTO[];
 };
 
+export type DiscordChannelDTO = { id: string; name: string; type: number };
+export type DiscordMemberDTO = { id: string; display_name: string };
+export type DiscordDirectoryDTO = {
+  channels: DiscordChannelDTO[];
+  roles: RoleDTO[];
+  members: DiscordMemberDTO[];
+};
+
 export type TicketMessageDTO = {
   message_id: string;
   author_id: string;
@@ -201,4 +209,17 @@ export async function apiGetSafe<T>(path: string): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+export async function apiDelete<T>(path: string): Promise<T> {
+  const csrfToken = getCookie('albion_dash_csrf') || csrfTokenCache;
+  const res = await fetch(`${baseUrl}${path}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {},
+  });
+  if (!res.ok) {
+    throw await buildApiError(res, path);
+  }
+  return parseJsonSafe<T>(res);
 }

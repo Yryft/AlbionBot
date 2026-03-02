@@ -27,6 +27,7 @@ Variables utiles backend:
 - `DASHBOARD_COOKIE_SECURE` (`true` en prod)
 - `DASHBOARD_COOKIE_SAMESITE` (`none` en prod cross-domain, `lax` en local)
 - `DASHBOARD_POST_LOGIN_REDIRECT` (URL frontend après login)
+- `DISCORD_TOKEN` (requis pour récupérer members/channels/roles Discord et autocomplétions dashboard)
 
 ### 2) Frontend
 
@@ -79,3 +80,11 @@ Ensuite, dans le portail Discord Developer:
 4. Redémarre l'API backend.
 
 En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` qui pointe vers le backend.
+
+
+## Nouveautés dashboard
+
+- Bouton **Déconnexion** côté interface.
+- Suppression définitive des raids et des logs de tickets.
+- Endpoint `GET /api/guilds/{guild_id}/discord-directory` pour alimenter les autocomplétions (channels text/voice + membres).
+- Affichage des balances avec pseudo Discord quand disponible.

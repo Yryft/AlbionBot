@@ -15,6 +15,9 @@ DISCORD_REVOKE_URL = "https://discord.com/api/oauth2/token/revoke"
 DISCORD_API_ME_URL = "https://discord.com/api/users/@me"
 DISCORD_API_GUILDS_URL = "https://discord.com/api/users/@me/guilds"
 DISCORD_API_GUILD_MEMBER_URL = "https://discord.com/api/users/@me/guilds/{guild_id}/member"
+DISCORD_API_GUILD_CHANNELS_URL = "https://discord.com/api/guilds/{guild_id}/channels"
+DISCORD_API_GUILD_ROLES_URL = "https://discord.com/api/guilds/{guild_id}/roles"
+DISCORD_API_GUILD_MEMBERS_URL = "https://discord.com/api/guilds/{guild_id}/members"
 SESSION_COOKIE = "albion_dash_session"
 CSRF_COOKIE = "albion_dash_csrf"
 STATE_COOKIE = "albion_dash_state"
@@ -182,6 +185,37 @@ class DiscordOAuthService:
             )
         if resp.status_code >= 400:
             raise HTTPException(status_code=403, detail="Impossible de lire les rôles Discord de l'utilisateur")
+        return resp.json()
+
+    def fetch_guild_channels(self, bot_token: str, guild_id: int) -> List[dict]:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(
+                DISCORD_API_GUILD_CHANNELS_URL.format(guild_id=int(guild_id)),
+                headers={"Authorization": f"Bot {bot_token}"},
+            )
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=502, detail="Impossible de lire les channels Discord")
+        return resp.json()
+
+    def fetch_guild_roles(self, bot_token: str, guild_id: int) -> List[dict]:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(
+                DISCORD_API_GUILD_ROLES_URL.format(guild_id=int(guild_id)),
+                headers={"Authorization": f"Bot {bot_token}"},
+            )
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=502, detail="Impossible de lire les rôles Discord")
+        return resp.json()
+
+    def fetch_guild_members(self, bot_token: str, guild_id: int, limit: int = 200) -> List[dict]:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(
+                DISCORD_API_GUILD_MEMBERS_URL.format(guild_id=int(guild_id)),
+                params={"limit": min(max(limit, 1), 1000)},
+                headers={"Authorization": f"Bot {bot_token}"},
+            )
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=502, detail="Impossible de lire les membres Discord")
         return resp.json()
 
 
