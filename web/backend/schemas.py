@@ -56,12 +56,13 @@ class RaidTemplateDTO(BaseModel):
 
 
 class RaidOpenRequestDTO(BaseModel):
+    request_id: str
+    guild_id: int
     template_name: str
     title: str
     description: str = ""
     extra_message: str = ""
     start_at: int
-    created_by: int
     prep_minutes: int = 10
     cleanup_minutes: int = 30
 
@@ -79,9 +80,10 @@ class RaidDTO(BaseModel):
 
 
 class CompTemplateCreateRequestDTO(BaseModel):
+    request_id: str
+    guild_id: int
     name: str
     description: str = ""
-    created_by: int
     content_type: Literal["ava_raid", "pvp", "pve"] = "pvp"
     raid_required_role_ids: List[int] = Field(default_factory=list)
     spec: str = Field(description="Spec wizard multi-lignes: Label;slots;options")

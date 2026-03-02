@@ -21,7 +21,16 @@ from .auth import (
 )
 from .authorization import DashboardAuthorizationService
 from .schemas import CompTemplateCreateRequestDTO, DiscordGuildDTO, DiscordUserDTO, MeDTO, RaidOpenRequestDTO
-from .services import DashboardService
+from .command_bus import (
+    AuditLogger,
+    CommandBus,
+    CommandContext,
+    DomainError,
+    OpenRaidFromTemplate,
+    RateLimiter,
+    StartCompWizardFlow,
+)
+from .services import DashboardService, OpenRaidFromTemplateHandler, StartCompWizardFlowHandler
 
 
 def _build_oauth_service() -> DiscordOAuthService | None:
@@ -52,6 +61,7 @@ def create_app() -> FastAPI:
         bank_sqlite_path=bank_sqlite_path,
     )
     service = DashboardService(store)
+    command_bus = CommandBus(rate_limiter=RateLimiter(), audit_logger=AuditLogger())
     oauth_service = _build_oauth_service()
     authorizer = DashboardAuthorizationService(store, oauth_service) if oauth_service is not None else None
 
@@ -225,23 +235,41 @@ def create_app() -> FastAPI:
     def open_raid(payload: RaidOpenRequestDTO, request: Request):
         if authorizer is None:
             raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
-        auth_ctx = authorizer.ensure_action_allowed(request, action="raid_open")
+        auth_ctx = authorizer.ensure_action_allowed(request, action="raid_open", guild_id=payload.guild_id)
+        command = OpenRaidFromTemplate(
+            context=CommandContext(guild_id=auth_ctx.guild_id, user_id=auth_ctx.user_id, request_id=payload.request_id),
+            template_id=payload.template_name,
+            title=payload.title,
+            description=payload.description,
+            extra_message=payload.extra_message,
+            start_at=payload.start_at,
+            prep_minutes=payload.prep_minutes,
+            cleanup_minutes=payload.cleanup_minutes,
+        )
         try:
-            payload.created_by = auth_ctx.user_id
-            return service.open_raid(payload)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            return command_bus.dispatch(command, OpenRaidFromTemplateHandler(service), action="open_raid_from_template")
+        except DomainError as exc:
+            status_code = 429 if exc.code == "rate_limited" else 400
+            raise HTTPException(status_code=status_code, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
 
     @app.post("/api/actions/comp-wizard")
     def run_comp_wizard(payload: CompTemplateCreateRequestDTO, request: Request):
         if authorizer is None:
             raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
-        auth_ctx = authorizer.ensure_action_allowed(request, action="comp_wizard")
+        auth_ctx = authorizer.ensure_action_allowed(request, action="comp_wizard", guild_id=payload.guild_id)
+        command = StartCompWizardFlow(
+            context=CommandContext(guild_id=auth_ctx.guild_id, user_id=auth_ctx.user_id, request_id=payload.request_id),
+            template_id=payload.name,
+            description=payload.description,
+            content_type=payload.content_type,
+            raid_required_role_ids=payload.raid_required_role_ids,
+            spec=payload.spec,
+        )
         try:
-            payload.created_by = auth_ctx.user_id
-            return service.create_comp_template_from_wizard(payload)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            return command_bus.dispatch(command, StartCompWizardFlowHandler(service), action="start_comp_wizard_flow")
+        except DomainError as exc:
+            status_code = 429 if exc.code == "rate_limited" else 400
+            raise HTTPException(status_code=status_code, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
 
     return app
 
