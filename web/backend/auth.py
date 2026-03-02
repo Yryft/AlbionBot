@@ -15,6 +15,7 @@ DISCORD_REVOKE_URL = "https://discord.com/api/oauth2/token/revoke"
 DISCORD_API_ME_URL = "https://discord.com/api/users/@me"
 DISCORD_API_GUILDS_URL = "https://discord.com/api/users/@me/guilds"
 DISCORD_API_GUILD_MEMBER_URL = "https://discord.com/api/users/@me/guilds/{guild_id}/member"
+DISCORD_API_GUILD_MEMBER_BY_ID_URL = "https://discord.com/api/guilds/{guild_id}/members/{user_id}"
 DISCORD_API_GUILD_CHANNELS_URL = "https://discord.com/api/guilds/{guild_id}/channels"
 DISCORD_API_GUILD_ROLES_URL = "https://discord.com/api/guilds/{guild_id}/roles"
 DISCORD_API_GUILD_MEMBERS_URL = "https://discord.com/api/guilds/{guild_id}/members"
@@ -185,6 +186,16 @@ class DiscordOAuthService:
             )
         if resp.status_code >= 400:
             raise HTTPException(status_code=403, detail="Impossible de lire les rôles Discord de l'utilisateur")
+        return resp.json()
+
+    def fetch_guild_member_by_user_id(self, bot_token: str, guild_id: int, user_id: int) -> dict:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(
+                DISCORD_API_GUILD_MEMBER_BY_ID_URL.format(guild_id=int(guild_id), user_id=int(user_id)),
+                headers={"Authorization": f"Bot {bot_token}"},
+            )
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=502, detail="Impossible de lire les rôles Discord via le bot")
         return resp.json()
 
     def fetch_guild_channels(self, bot_token: str, guild_id: int) -> List[dict]:

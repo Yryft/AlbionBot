@@ -28,6 +28,7 @@ Variables utiles backend:
 - `DASHBOARD_COOKIE_SAMESITE` (`none` en prod cross-domain, `lax` en local)
 - `DASHBOARD_POST_LOGIN_REDIRECT` (URL frontend après login)
 - `DISCORD_TOKEN` (requis pour récupérer members/channels/roles Discord et autocomplétions dashboard)
+  - Sert aussi de **fallback** pour lire les rôles du membre connecté si le scope OAuth `guilds.members.read` échoue côté token utilisateur.
 
 ### 2) Frontend
 
