@@ -1,4 +1,5 @@
 import asyncio
+import io
 import re
 import time
 from typing import Dict, List, Optional, Tuple
@@ -38,13 +39,14 @@ class TicketOpenLauncherView(nextcord.ui.View):
 
 
 class TicketCloseConfirmView(nextcord.ui.View):
-    def __init__(self, module: "TicketModule"):
+    def __init__(self, module: "TicketModule", reason: str = ""):
         super().__init__(timeout=120)
         self.module = module
+        self.reason = reason.strip()
 
     @nextcord.ui.button(label="Confirmer la fermeture", style=nextcord.ButtonStyle.danger)
     async def confirm_close(self, _: nextcord.ui.Button, interaction: nextcord.Interaction):
-        await self.module.close_ticket_channel(interaction)
+        await self.module.close_ticket_channel(interaction, reason=self.reason)
 
     @nextcord.ui.button(label="Annuler", style=nextcord.ButtonStyle.secondary)
     async def cancel_close(self, _: nextcord.ui.Button, interaction: nextcord.Interaction):
@@ -179,7 +181,7 @@ class TicketModule:
         member_role_ids = {r.id for r in interaction.user.roles}
         return bool(role_ids.intersection(member_role_ids)) or can_manage_tickets(self.cfg, interaction.user, self.store)
 
-    async def close_ticket_channel(self, interaction: nextcord.Interaction) -> None:
+    async def close_ticket_channel(self, interaction: nextcord.Interaction, reason: str = "") -> None:
         if not interaction.guild or not interaction.channel:
             return await interaction.response.edit_message(content="Commande serveur uniquement.", view=None)
 
@@ -191,9 +193,22 @@ class TicketModule:
         if ticket is None:
             return await interaction.response.edit_message(content="⛔ Ce salon n'est pas un ticket connu.", view=None)
 
+        clean_reason = self._trim_reason(reason)
+
         async with self.store.lock:
             self.store.ticket_update_status(ticket.ticket_id, status="closed")
+            if clean_reason:
+                self.store.ticket_append_snapshot(
+                    ticket.ticket_id,
+                    TicketMessageSnapshot(
+                        message_id=0,
+                        author_id=interaction.user.id,
+                        content=f"[CLOSE_REASON] {clean_reason}",
+                    ),
+                )
             self.store.save()
+
+        await self._send_ticket_log(interaction.guild, ticket, interaction.user.id, reason=clean_reason)
 
         if isinstance(interaction.channel, nextcord.Thread):
             await interaction.response.edit_message(content="✅ Ticket fermé. Archivage du thread...", view=None)
@@ -201,7 +216,8 @@ class TicketModule:
             return
 
         await interaction.response.edit_message(content="✅ Ticket fermé. Le salon sera supprimé dans 8 secondes.", view=None)
-        await interaction.channel.send("🔒 Ticket fermé.")
+        close_line = f"🔒 Ticket fermé.\nRaison: {clean_reason}" if clean_reason else "🔒 Ticket fermé."
+        await interaction.channel.send(close_line)
         await interaction.channel.edit(name=f"closed-{interaction.channel.name}")
         await asyncio.sleep(8)
         await interaction.channel.delete(reason=f"Ticket fermé par {interaction.user}")
@@ -386,10 +402,39 @@ class TicketModule:
             await self.open_ticket(interaction, type_key)
 
         @bot.slash_command(name="ticket_close", description="Fermer le ticket courant", **guild_kwargs)
-        async def ticket_close(interaction: nextcord.Interaction):
+        async def ticket_close(
+            interaction: nextcord.Interaction,
+            reason: str = nextcord.SlashOption(description="Raison de fermeture (optionnel)", required=False, default=""),
+        ):
             if not await self.can_close_ticket(interaction):
                 return await interaction.response.send_message("⛔ Tu ne peux pas fermer ce ticket.", ephemeral=True)
-            await interaction.response.send_message("Confirme la fermeture.", ephemeral=True, view=TicketCloseConfirmView(self))
+            clean_reason = self._trim_reason(reason)
+            confirm_text = "Confirme la fermeture."
+            if clean_reason:
+                confirm_text += f"\nRaison: {clean_reason}"
+            await interaction.response.send_message(confirm_text, ephemeral=True, view=TicketCloseConfirmView(self, reason=clean_reason))
+
+        @bot.slash_command(name="ticket_log_send", description="(Admin/Manager) Envoyer le log du ticket courant", **guild_kwargs)
+        async def ticket_log_send(interaction: nextcord.Interaction):
+            if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+                return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+            if not can_manage_tickets(cfg, interaction.user, self.store):
+                return await interaction.response.send_message("⛔ Permission insuffisante (admin/manager requis).", ephemeral=True)
+            if not interaction.channel:
+                return await interaction.response.send_message("⛔ Salon introuvable.", ephemeral=True)
+
+            ticket = self.store.ticket_find_by_channel(
+                interaction.guild.id,
+                channel_id=(interaction.channel.id if isinstance(interaction.channel, nextcord.abc.GuildChannel) else None),
+                thread_id=(interaction.channel.id if isinstance(interaction.channel, nextcord.Thread) else None),
+            )
+            if ticket is None:
+                return await interaction.response.send_message("⛔ Ce salon n'est pas un ticket connu.", ephemeral=True)
+
+            logged = await self._send_ticket_log(interaction.guild, ticket, interaction.user.id)
+            if not logged:
+                return await interaction.response.send_message("⛔ Aucun salon de logs ticket configuré (`/ticket_config_logs`).", ephemeral=True)
+            await interaction.response.send_message("✅ Log ticket envoyé.", ephemeral=True)
 
         @bot.slash_command(name="ticket_type_set", description="(Admin/Manager) Créer/mettre à jour un type de ticket", **guild_kwargs)
         async def ticket_type_set(
@@ -564,6 +609,25 @@ class TicketModule:
 
             await interaction.response.send_message(f"✅ Style d'ouverture configuré sur `{style}`.", ephemeral=True)
 
+        @bot.slash_command(name="ticket_config_logs", description="(Admin/Manager) Configurer le salon de logs ticket", **guild_kwargs)
+        async def ticket_config_logs(
+            interaction: nextcord.Interaction,
+            channel: Optional[nextcord.TextChannel] = nextcord.SlashOption(description="Salon de logs (vide pour désactiver)", required=False, default=None),
+        ):
+            if not interaction.guild or not isinstance(interaction.user, nextcord.Member):
+                return await interaction.response.send_message("Commande serveur uniquement.", ephemeral=True)
+            if not can_manage_tickets(cfg, interaction.user, self.store):
+                return await interaction.response.send_message("⛔ Permission insuffisante (admin/manager requis).", ephemeral=True)
+
+            async with self.store.lock:
+                self.store.set_ticket_config(interaction.guild.id, log_channel_id=(channel.id if channel else None))
+                self.store.save()
+
+            if channel:
+                await interaction.response.send_message(f"✅ Logs ticket configurés sur {channel.mention}.", ephemeral=True)
+            else:
+                await interaction.response.send_message("✅ Logs ticket désactivés.", ephemeral=True)
+
     def _find_ticket_by_message(self, message: nextcord.Message) -> Optional[TicketRecord]:
         if not message.guild:
             return None
@@ -621,3 +685,43 @@ class TicketModule:
                 continue
             return self.store.ticket_update_status(record.ticket_id, status=status)  # type: ignore[arg-type]
         return None
+    def _trim_reason(self, reason: str) -> str:
+        return (reason or "").strip()[:500]
+
+    def _build_ticket_transcript(self, ticket: TicketRecord) -> str:
+        snapshots = self.store.ticket_get_transcript(ticket.ticket_id)
+        if not snapshots:
+            return "Aucun message enregistré pour ce ticket."
+
+        lines: List[str] = []
+        for snap in snapshots:
+            stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(int(snap.created_at)))
+            lines.append(f"[{stamp}] user:{snap.author_id} | {snap.content}")
+            if snap.attachments:
+                lines.append("  attachments: " + ", ".join(a.get("url", "") for a in snap.attachments if a.get("url")))
+        return "\n".join(lines)
+
+    async def _send_ticket_log(self, guild: nextcord.Guild, ticket: TicketRecord, closed_by: int, reason: str = "") -> bool:
+        conf = self.store.get_ticket_config(guild.id)
+        log_channel_id = int(conf.get("log_channel_id") or 0)
+        if not log_channel_id:
+            return False
+
+        log_channel = guild.get_channel(log_channel_id)
+        if not isinstance(log_channel, nextcord.TextChannel):
+            return False
+
+        transcript_text = self._build_ticket_transcript(ticket)
+        transcript_file = nextcord.File(
+            fp=io.BytesIO(transcript_text.encode("utf-8")),
+            filename=f"ticket-{ticket.ticket_id}.log",
+            description="Transcript du ticket",
+        )
+        embed = nextcord.Embed(title="🧾 Ticket fermé", color=nextcord.Color.orange())
+        embed.add_field(name="Ticket ID", value=f"`{ticket.ticket_id}`", inline=False)
+        embed.add_field(name="Type", value=f"`{ticket.ticket_type_key}`", inline=True)
+        embed.add_field(name="Auteur", value=f"<@{ticket.owner_user_id}>", inline=True)
+        embed.add_field(name="Fermé par", value=f"<@{closed_by}>", inline=True)
+        embed.add_field(name="Raison", value=reason or "Aucune raison fournie.", inline=False)
+        await log_channel.send(embed=embed, file=transcript_file)
+        return True

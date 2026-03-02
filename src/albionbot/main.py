@@ -46,6 +46,8 @@ def _build_help_lines(member: nextcord.Member, cfg, store: Store) -> List[str]:
         "• `/pay <joueur>` — Paiement rapide via formulaire.",
         "• `/bank_assistant` — Assistant interactif pour les actions banque.",
         "• `/raid_assistant` — Assistant interactif pour les raids.",
+        "• `/ticket_open [type_key]` — Ouvrir un ticket.",
+        "• `/ticket_close [reason]` — Fermer ton ticket (raison optionnelle).",
     ]
 
     if is_raid_manager:
@@ -83,6 +85,8 @@ def _build_help_lines(member: nextcord.Member, cfg, store: Store) -> List[str]:
             "• `/ticket_config_category` — Définir ou retirer la catégorie par défaut.",
             "• `/ticket_config_roles` — Définir les rôles support par défaut.",
             "• `/ticket_config_open_style` — Choisir le style d'ouverture (message/bouton).",
+            "• `/ticket_config_logs` — Définir le salon de logs tickets.",
+            "• `/ticket_log_send` — Envoyer manuellement le log du ticket courant.",
         ]
 
     if is_guild_admin(member):

@@ -38,17 +38,20 @@ Commandes principales :
 - Panneau admin/manager pour publier un message d'ouverture de ticket.
 - Types de tickets flexibles par serveur (recrutement, aide, customs...).
 - Permissions support configurables par type (rôles différents selon le type).
-- Fermeture simple pour l'auteur ou le support, avec confirmation obligatoire.
+- Fermeture simple pour l'auteur ou le support, avec confirmation obligatoire et **raison optionnelle**.
 - Historique technique des messages (création/édition/suppression) pour les tickets connus.
+- Logging des tickets configurable sur un salon dédié (embed + fichier transcript).
 
 Commandes principales :
 - `/ticket_panel_send`
-- `/ticket_open`, `/ticket_close`
+- `/ticket_open`, `/ticket_close [reason]`
 - `/ticket_type_set`, `/ticket_type_remove`
 - `/ticket_config_mode`
 - `/ticket_config_category`
 - `/ticket_config_roles`
 - `/ticket_config_open_style`
+- `/ticket_config_logs`
+- `/ticket_log_send`
 
 ### 4) Permissions bot
 - Configuration par serveur des rôles autorisés par permission logique.

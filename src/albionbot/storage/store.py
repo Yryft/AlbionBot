@@ -97,6 +97,7 @@ class TicketConfig:
     support_role_ids: List[int] = field(default_factory=list)
     naming_format: str = "ticket-{user}"
     open_style: Literal["message", "button"] = "button"
+    log_channel_id: Optional[int] = None
     ticket_types: Dict[str, TicketTypeConfig] = field(default_factory=dict)
 
 
@@ -345,6 +346,7 @@ class Store:
                 support_role_ids=list(map(int, conf.get("support_role_ids", []))),
                 naming_format=conf.get("naming_format", "ticket-{user}"),
                 open_style=open_style if open_style in {"message", "button"} else "button",
+                log_channel_id=(int(conf["log_channel_id"]) if conf.get("log_channel_id") is not None else None),
                 ticket_types=type_map,
             )
 
@@ -479,6 +481,7 @@ class Store:
                     "support_role_ids": list(map(int, conf.support_role_ids)),
                     "naming_format": conf.naming_format,
                     "open_style": conf.open_style,
+                    "log_channel_id": conf.log_channel_id,
                     "ticket_types": {
                         key: {
                             "key": t.key,
@@ -532,6 +535,7 @@ class Store:
                         "category_id": None,
                     }
                 },
+                "log_channel_id": None,
             }
         if isinstance(data, dict):
             return {
@@ -540,6 +544,7 @@ class Store:
                 "support_role_ids": list(map(int, data.get("support_role_ids", []))),
                 "open_style": str(data.get("open_style", "button")),
                 "ticket_types": data.get("ticket_types", {}),
+                "log_channel_id": data.get("log_channel_id"),
             }
         type_map = {
             key: {
@@ -566,6 +571,7 @@ class Store:
             "support_role_ids": list(map(int, data.support_role_ids)),
             "open_style": data.open_style,
             "ticket_types": type_map,
+            "log_channel_id": data.log_channel_id,
         }
 
     def set_ticket_config(self, guild_id: int, **updates: object) -> None:
@@ -595,6 +601,7 @@ class Store:
                 category_id=current.get("category_id"),
                 support_role_ids=list(map(int, current.get("support_role_ids", []))),
                 open_style=str(current.get("open_style", "button")),
+                log_channel_id=(int(current["log_channel_id"]) if current.get("log_channel_id") is not None else None),
                 ticket_types=type_map,
             )
 
@@ -614,6 +621,10 @@ class Store:
         if open_style is not None:
             style_value = str(open_style)
             conf.open_style = style_value if style_value in {"message", "button"} else "button"
+
+        if "log_channel_id" in updates:
+            log_channel_id = updates.get("log_channel_id")
+            conf.log_channel_id = int(log_channel_id) if log_channel_id is not None else None
 
         ticket_types = updates.get("ticket_types")
         if ticket_types is not None and isinstance(ticket_types, dict):
