@@ -208,7 +208,7 @@ Voici une matrice pratique par service.
 | `DASHBOARD_CORS_ORIGINS` | ✅ | URL(s) frontend autorisées, séparées par virgules | `https://frontend.up.railway.app` |
 | `DISCORD_OAUTH_CLIENT_ID` | ✅ (si login Discord) | Client ID OAuth2 Discord | `123456789012345678` |
 | `DISCORD_OAUTH_CLIENT_SECRET` | ✅ (si login Discord) | Secret OAuth2 Discord | `<SECRET>` |
-| `DISCORD_OAUTH_REDIRECT_URI` | ✅ (si login Discord) | Callback backend `/auth/callback` | `https://backend.up.railway.app/auth/callback` |
+| `DISCORD_OAUTH_REDIRECT_URI` | ✅ (si login Discord) | Callback backend `/auth/discord/callback` | `https://backend.up.railway.app/auth/discord/callback` |
 | `DASHBOARD_COOKIE_SECURE` | ✅ en prod | `true` en HTTPS Railway | `true` |
 | `DASHBOARD_POST_LOGIN_REDIRECT` | recommandé | URL frontend après login | `https://frontend.up.railway.app/` |
 
