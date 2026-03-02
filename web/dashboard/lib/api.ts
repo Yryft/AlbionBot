@@ -1,27 +1,31 @@
 export type GuildDTO = { id: number; name: string };
-export type TicketMessageDTO = { message_id: number; author_id: number; content: string; created_at: number; event_type: 'message' | 'edit' | 'delete' | 'system' };
-export type TicketTranscriptDTO = {
-  ticket_id: string;
-  guild_id: number;
-  owner_user_id: number;
-  status: 'open' | 'closed' | 'deleted';
-  ticket_type_key: string;
-  messages: TicketMessageDTO[];
+
+export type ApiOverviewDTO = {
+  ok: boolean;
+  guild_count: number;
+  ticket_count: number;
+  raid_count: number;
+  template_count: number;
 };
 
 const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
+async function parseJsonSafe<T>(res: Response): Promise<T> {
+  return (await res.json()) as T;
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(`${baseUrl}${path}`, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
+  if (!res.ok) {
+    throw new Error(`API error (${res.status}) on ${path}`);
+  }
+  return parseJsonSafe<T>(res);
 }
 
 export async function apiGetSafe<T>(path: string): Promise<T | null> {
   try {
     return await apiGet<T>(path);
-  } catch (error) {
-    console.error(error);
+  } catch {
     return null;
   }
 }

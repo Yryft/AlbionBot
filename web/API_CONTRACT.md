@@ -19,6 +19,7 @@ Base URL backend dashboard: `/api`
 - `GET /api/guilds/{guild_id}/tickets/{ticket_id}`
 - `GET /api/raid-templates`
 - `GET /api/raids`
+- `GET /api/public/overview`
 
 ## Endpoints actions managées
 
@@ -39,3 +40,6 @@ Les endpoints d'action sont pensés pour être protégés derrière une auth man
 - `POST /me/select-guild/{guild_id}`: met à jour la guild active (CSRF requis)
 
 Sécurité: session serveur-side, cookie HttpOnly (`albion_dash_session`), cookie CSRF (`albion_dash_csrf`), `SameSite=Lax`, refresh automatique du token, révocation au logout.
+
+
+> Note: les endpoints de lecture restent accessibles sans OAuth quand celui-ci n'est pas configuré (mode local/dev).
