@@ -202,33 +202,41 @@ def create_app() -> FastAPI:
 
     @app.get("/api/guilds/{guild_id}/tickets")
     def list_ticket_transcripts(guild_id: int, request: Request):
-        if authorizer is None:
-            raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
-        authorizer.ensure_action_allowed(request, action="tickets_list", guild_id=guild_id)
+        if authorizer is not None:
+            authorizer.ensure_action_allowed(request, action="tickets_list", guild_id=guild_id)
         return service.list_ticket_transcripts(guild_id)
 
     @app.get("/api/guilds/{guild_id}/tickets/{ticket_id}")
     def get_ticket_transcript(guild_id: int, ticket_id: str, request: Request):
-        if authorizer is None:
-            raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
-        authorizer.ensure_action_allowed(request, action="tickets_read", guild_id=guild_id)
+        if authorizer is not None:
+            authorizer.ensure_action_allowed(request, action="tickets_read", guild_id=guild_id)
         row = service.get_ticket_transcript(guild_id, ticket_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Ticket introuvable")
         return row
 
+
+    @app.get("/api/public/overview")
+    def public_overview():
+        guilds = service.list_guilds()
+        return {
+            "ok": True,
+            "guild_count": len(guilds),
+            "ticket_count": len(service.store.ticket_records),
+            "raid_count": len(service.store.raids),
+            "template_count": len(service.store.templates),
+        }
+
     @app.get("/api/raids")
     def list_raids(request: Request):
-        if authorizer is None:
-            raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
-        authorizer.ensure_action_allowed(request, action="raid_list")
+        if authorizer is not None:
+            authorizer.ensure_action_allowed(request, action="raid_list")
         return service.list_raids()
 
     @app.get("/api/raid-templates")
     def list_templates(request: Request):
-        if authorizer is None:
-            raise HTTPException(status_code=503, detail="OAuth Discord non configuré")
-        authorizer.ensure_action_allowed(request, action="raid_templates_list")
+        if authorizer is not None:
+            authorizer.ensure_action_allowed(request, action="raid_templates_list")
         return service.list_raid_templates()
 
     @app.post("/api/actions/raids/open")

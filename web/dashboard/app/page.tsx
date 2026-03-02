@@ -1,40 +1,58 @@
-import { DiscordNav } from '../components/DiscordNav';
-import { apiGetSafe, GuildDTO, TicketTranscriptDTO } from '../lib/api';
+import { ApiOverviewDTO, GuildDTO, apiGetSafe } from '../lib/api';
 
-export default async function Home({ searchParams }: { searchParams: { guild?: string; ticket?: string } }) {
-  const guilds = (await apiGetSafe<GuildDTO[]>('/api/guilds')) ?? [];
-  const selectedGuild = Number(searchParams.guild || guilds[0]?.id || 0);
-  const tickets = selectedGuild ? ((await apiGetSafe<TicketTranscriptDTO[]>(`/api/guilds/${selectedGuild}/tickets`)) ?? []) : [];
-  const selectedTicketId = searchParams.ticket || tickets[0]?.ticket_id;
-  const selectedTicket = tickets.find((t) => t.ticket_id === selectedTicketId);
+export default async function HomePage() {
+  const [health, overview, guilds] = await Promise.all([
+    apiGetSafe<{ ok: boolean }>('/health'),
+    apiGetSafe<ApiOverviewDTO>('/api/public/overview'),
+    apiGetSafe<GuildDTO[]>('/api/guilds'),
+  ]);
+
+  const apiOnline = Boolean(health?.ok);
 
   return (
-    <main className="screen">
-      <DiscordNav guilds={guilds} selectedGuildId={selectedGuild} tickets={tickets} selectedTicketId={selectedTicketId} />
-      <section className="transcript">
-        <h2>Transcript</h2>
-        {!guilds.length ? (
-          <p>Le service API est indisponible pour le moment (503).</p>
-        ) : selectedTicket ? (
-          <>
-            <p>
-              Ticket <strong>{selectedTicket.ticket_id}</strong> • statut: <strong>{selectedTicket.status}</strong>
-            </p>
-            <div className="messages">
-              {selectedTicket.messages.map((m) => (
-                <article key={`${m.message_id}-${m.created_at}`} className={`msg ${m.event_type}`}>
-                  <header>
-                    <span>user:{m.author_id}</span>
-                    <span>{new Date(m.created_at * 1000).toLocaleString('fr-FR')}</span>
-                    <span className="badge">{m.event_type}</span>
-                  </header>
-                  <pre>{m.content}</pre>
-                </article>
-              ))}
-            </div>
-          </>
+    <main className="page">
+      <header>
+        <h1>AlbionBot Dashboard</h1>
+        <p>Version web simplifiée basée sur l'API.</p>
+      </header>
+
+      <section className="status-card">
+        <h2>État API</h2>
+        <p className={apiOnline ? 'ok' : 'ko'}>{apiOnline ? 'En ligne' : 'Indisponible'}</p>
+      </section>
+
+      <section className="status-grid">
+        <article>
+          <h3>Guilds</h3>
+          <strong>{overview?.guild_count ?? guilds?.length ?? 0}</strong>
+        </article>
+        <article>
+          <h3>Tickets</h3>
+          <strong>{overview?.ticket_count ?? 0}</strong>
+        </article>
+        <article>
+          <h3>Raids</h3>
+          <strong>{overview?.raid_count ?? 0}</strong>
+        </article>
+        <article>
+          <h3>Templates</h3>
+          <strong>{overview?.template_count ?? 0}</strong>
+        </article>
+      </section>
+
+      <section className="status-card">
+        <h2>Guilds détectées</h2>
+        {!guilds?.length ? (
+          <p>Aucune guild trouvée pour le moment.</p>
         ) : (
-          <p>Aucun transcript disponible.</p>
+          <ul>
+            {guilds.map((guild) => (
+              <li key={guild.id}>
+                <span>{guild.name}</span>
+                <small>ID: {guild.id}</small>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
     </main>
