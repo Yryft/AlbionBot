@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from fastapi import HTTPException, Request
 
@@ -39,11 +39,38 @@ class AuthorizationContext:
     permission_key: str
 
 
+@dataclass
+class GuildMemberContext:
+    session: SessionData
+    guild_id: int
+    user_id: int
+    member_role_ids: List[int]
+
+
 class DashboardAuthorizationService:
     def __init__(self, store: Store, oauth_service: DiscordOAuthService, cfg: Optional[Config] = None):
         self.store = store
         self.oauth_service = oauth_service
         self.cfg = cfg or load_config()
+
+
+    def ensure_guild_member(self, request: Request, guild_id: Optional[int] = None) -> GuildMemberContext:
+        session = require_session(request, self.oauth_service)
+        resolved_guild_id = self._resolve_guild_id(session, guild_id)
+        user_id = int(session.user.get("id", "0") or "0")
+        user_guild = self._find_user_guild(session, resolved_guild_id)
+        if user_guild is None:
+            raise HTTPException(status_code=403, detail="Utilisateur non membre de la guild")
+        if resolved_guild_id not in self.store.guild_permissions and resolved_guild_id not in self.store.ticket_configs:
+            raise HTTPException(status_code=403, detail="Guild non gérée par le bot")
+        member = self.oauth_service.fetch_guild_member(session.access_token, resolved_guild_id)
+        member_role_ids = [int(rid) for rid in member.get("roles", [])]
+        return GuildMemberContext(
+            session=session,
+            guild_id=resolved_guild_id,
+            user_id=user_id,
+            member_role_ids=member_role_ids,
+        )
 
     def ensure_action_allowed(self, request: Request, action: str, guild_id: Optional[int] = None) -> AuthorizationContext:
         session = require_session(request, self.oauth_service)

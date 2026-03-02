@@ -144,6 +144,8 @@ class OpenRaidFromTemplate:
     start_at: int
     prep_minutes: int
     cleanup_minutes: int
+    channel_id: int
+    voice_channel_id: Optional[int] = None
 
     def validate(self) -> None:
         if self.context.guild_id <= 0:
@@ -158,6 +160,10 @@ class OpenRaidFromTemplate:
             raise ValidationError(code="invalid_cleanup_minutes", message="cleanup_minutes invalide")
         if not self.title.strip():
             raise ValidationError(code="invalid_title", message="title requis")
+        if self.channel_id <= 0:
+            raise ValidationError(code="invalid_channel_id", message="channel_id requis")
+        if self.voice_channel_id is not None and self.voice_channel_id <= 0:
+            raise ValidationError(code="invalid_voice_channel_id", message="voice_channel_id invalide")
 
 
 @dataclass(frozen=True)

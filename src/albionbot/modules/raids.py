@@ -353,6 +353,56 @@ class RaidModule:
         except Exception:
             log.exception("Failed to refresh raid message")
 
+    async def publish_raid_if_needed(self, raid_id: str) -> bool:
+        raid = self.store.raids.get(raid_id)
+        if not raid or not raid.channel_id or raid.message_id:
+            return False
+        tpl = self.store.templates.get(raid.template_name)
+        if not tpl:
+            return False
+        try:
+            channel = await self.bot.fetch_channel(raid.channel_id)
+            if not isinstance(channel, (nextcord.TextChannel, nextcord.Thread)):
+                return False
+
+            embed = build_raid_embed(channel.guild, raid, tpl)
+            view = self.build_view(raid, tpl)
+            msg = await channel.send(embed=embed, view=view)
+
+            thread = None
+            try:
+                thread_name = limit_str(f"{raid.title} • {datetime.fromtimestamp(raid.start_at, TZ_PARIS).strftime('%d/%m %H:%M')}", 95)
+                thread = await msg.create_thread(name=thread_name, auto_archive_duration=1440)
+            except Exception:
+                thread = None
+
+            async with self.store.lock:
+                persisted = self.store.raids.get(raid_id)
+                if not persisted or persisted.message_id:
+                    return False
+                persisted.channel_id = msg.channel.id
+                persisted.message_id = msg.id
+                persisted.thread_id = thread.id if thread else None
+                self.store.save()
+
+            try:
+                self.bot.add_view(view, message_id=msg.id)
+            except Exception:
+                pass
+
+            if thread:
+                try:
+                    await thread.send(
+                        f"**{raid.title}**\n"
+                        f"🕒 <t:{raid.start_at}:F>\n"
+                    )
+                except Exception:
+                    pass
+            return True
+        except Exception:
+            log.exception("Failed to publish pending raid raid_id=%s", raid_id)
+            return False
+
     # ---------- Temp role / voice overwrites
     async def _ensure_temp_role(self, guild: nextcord.Guild, raid: RaidEvent) -> Optional[nextcord.Role]:
         if raid.temp_role_id:
@@ -936,6 +986,9 @@ class RaidModule:
         for raid in list(self.store.raids.values()):
             if raid.cleanup_done:
                 continue
+
+            if raid.channel_id and not raid.message_id:
+                await self.publish_raid_if_needed(raid.raid_id)
 
             prep_at = raid.start_at - raid.prep_minutes * 60
             if not raid.prep_done and now >= prep_at:

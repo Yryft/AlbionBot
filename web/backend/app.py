@@ -21,7 +21,19 @@ from .auth import (
     set_session_cookies,
 )
 from .authorization import DashboardAuthorizationService
-from .schemas import CompTemplateCreateRequestDTO, DiscordGuildDTO, DiscordUserDTO, MeDTO, RaidOpenRequestDTO
+from .schemas import (
+    BalanceEntryDTO,
+    BankActionRequestDTO,
+    CompTemplateCreateRequestDTO,
+    DiscordGuildDTO,
+    DiscordUserDTO,
+    MeDTO,
+    RaidOpenRequestDTO,
+    RaidTemplateUpdateRequestDTO,
+    RaidUpdateRequestDTO,
+    RaidRosterDTO,
+    RaidSignupRequestDTO,
+)
 from .command_bus import (
     AuditLogger,
     CommandBus,
@@ -213,7 +225,7 @@ def create_app() -> FastAPI:
             shared_guilds.append(
                 DiscordGuildDTO(
                     id=str(guild_id),
-                    name=bot_guild_map[guild_id].name,
+                    name=str(guild.get("name") or bot_guild_map[guild_id].name),
                     icon=guild.get("icon"),
                     owner=bool(guild.get("owner", False)),
                     permissions=str(guild.get("permissions", "0")),
@@ -281,6 +293,44 @@ def create_app() -> FastAPI:
             "template_count": len(service.store.templates),
         }
 
+
+    @app.get("/api/my/raids")
+    def list_my_raids(request: Request):
+        if authorizer is None:
+            raise _oauth_not_configured_error()
+        member_ctx = authorizer.ensure_guild_member(request)
+        return service.list_user_raids(member_ctx.member_role_ids)
+
+    @app.get("/api/raids/{raid_id}/roster", response_model=RaidRosterDTO)
+    def get_raid_roster(raid_id: str, request: Request):
+        if authorizer is None:
+            raise _oauth_not_configured_error()
+        member_ctx = authorizer.ensure_guild_member(request)
+        try:
+            return service.get_raid_roster(raid_id, member_ctx.member_role_ids)
+        except DomainError as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
+
+    @app.post("/api/raids/{raid_id}/signup", response_model=RaidRosterDTO)
+    def signup_raid(raid_id: str, payload: RaidSignupRequestDTO, request: Request):
+        if authorizer is None:
+            raise _oauth_not_configured_error()
+        member_ctx = authorizer.ensure_guild_member(request)
+        try:
+            return service.signup_raid(raid_id, member_ctx.user_id, member_ctx.member_role_ids, payload.role_key, payload.ip)
+        except DomainError as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
+
+    @app.post("/api/raids/{raid_id}/leave", response_model=RaidRosterDTO)
+    def leave_raid(raid_id: str, request: Request):
+        if authorizer is None:
+            raise _oauth_not_configured_error()
+        member_ctx = authorizer.ensure_guild_member(request)
+        try:
+            return service.leave_raid(raid_id, member_ctx.user_id, member_ctx.member_role_ids)
+        except DomainError as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
+
     @app.get("/api/raids")
     def list_raids(request: Request):
         if authorizer is not None:
@@ -292,6 +342,48 @@ def create_app() -> FastAPI:
         if authorizer is not None:
             authorizer.ensure_action_allowed(request, action="raid_templates_list")
         return service.list_raid_templates()
+
+    @app.put("/api/raid-templates/{template_name}")
+    def update_template(template_name: str, payload: RaidTemplateUpdateRequestDTO, request: Request):
+        if authorizer is not None:
+            authorizer.ensure_action_allowed(request, action="comp_wizard")
+        try:
+            return service.update_raid_template(template_name, payload)
+        except DomainError as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
+
+    @app.put("/api/raids/{raid_id}")
+    def update_raid(raid_id: str, payload: RaidUpdateRequestDTO, request: Request):
+        if authorizer is not None:
+            authorizer.ensure_action_allowed(request, action="raid_open")
+        try:
+            return service.update_raid(raid_id, payload)
+        except DomainError as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
+
+    @app.get("/api/guilds/{guild_id}/balances", response_model=list[BalanceEntryDTO])
+    def list_balances(guild_id: int, request: Request):
+        if authorizer is not None:
+            authorizer.ensure_action_allowed(request, action="raid_list", guild_id=guild_id)
+        return service.list_balances(guild_id)
+
+    @app.post("/api/actions/bank/apply")
+    def apply_bank_action(payload: BankActionRequestDTO, request: Request):
+        if authorizer is None:
+            raise _oauth_not_configured_error()
+        guild_id = int(payload.guild_id)
+        auth_ctx = authorizer.ensure_action_allowed(request, action="raid_open", guild_id=guild_id)
+        try:
+            return service.apply_bank_action(
+                guild_id=guild_id,
+                actor_id=auth_ctx.user_id,
+                action_type=payload.action_type,
+                amount=payload.amount,
+                target_user_ids=payload.target_user_ids,
+                note=payload.note,
+            )
+        except DomainError as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
 
     @app.post("/api/actions/raids/open")
     def open_raid(payload: RaidOpenRequestDTO, request: Request):
@@ -308,6 +400,8 @@ def create_app() -> FastAPI:
             start_at=payload.start_at,
             prep_minutes=payload.prep_minutes,
             cleanup_minutes=payload.cleanup_minutes,
+            channel_id=payload.channel_id,
+            voice_channel_id=payload.voice_channel_id,
         )
         try:
             return command_bus.dispatch(command, OpenRaidFromTemplateHandler(service), action="open_raid_from_template")
