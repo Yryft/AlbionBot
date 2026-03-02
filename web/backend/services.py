@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from albionbot.modules.raids import parse_comp_spec, raid_status
 from albionbot.storage.store import CompTemplate, RaidEvent, Store
@@ -26,6 +26,11 @@ class DashboardService:
         guild_ids.update(record.guild_id for record in self.store.ticket_records.values())
         guild_ids.update(self.store.guild_permissions.keys())
         return [GuildDTO(id=gid, name=f"Guild {gid}") for gid in sorted(guild_ids)]
+
+
+    def get_bot_guild_map(self) -> Dict[int, GuildDTO]:
+        guilds = self.list_guilds()
+        return {g.id: g for g in guilds}
 
     def list_ticket_transcripts(self, guild_id: int) -> List[TicketTranscriptDTO]:
         rows: List[TicketTranscriptDTO] = []
