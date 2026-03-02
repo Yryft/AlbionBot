@@ -104,6 +104,15 @@ python -m albionbot
 
 ---
 
+
+## Dashboard web (FastAPI + Next.js)
+
+Un service web séparé est disponible sous `web/`:
+- Backend API: `web/backend` (transcripts tickets, comps/raids, actions managées).
+- Frontend: `web/dashboard` (navigation type Discord).
+- Contrat API: `web/API_CONTRACT.md`.
+- Déploiement Railway multi-services: `web/README.md`.
+
 ## Déploiement Railway
 1. Push sur GitHub.
 2. Créer un projet Railway depuis le repo.
