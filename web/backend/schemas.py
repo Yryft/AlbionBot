@@ -178,3 +178,20 @@ class MeDTO(BaseModel):
     csrf_token: str
     selected_guild_id: Optional[str] = None
     guilds: List[DiscordGuildDTO] = Field(default_factory=list)
+
+
+class DiscordChannelDTO(BaseModel):
+    id: str
+    name: str
+    type: int
+
+
+class DiscordMemberDTO(BaseModel):
+    id: str
+    display_name: str
+
+
+class DiscordDirectoryDTO(BaseModel):
+    channels: List[DiscordChannelDTO] = Field(default_factory=list)
+    roles: List[RoleDTO] = Field(default_factory=list)
+    members: List[DiscordMemberDTO] = Field(default_factory=list)

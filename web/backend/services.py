@@ -137,13 +137,13 @@ class DashboardService:
     def list_raids(self) -> List[RaidDTO]:
         return [self._to_raid_dto(raid) for raid in sorted(self.store.raids.values(), key=lambda r: r.start_at)]
 
-    def list_user_raids(self, user_role_ids: List[int]) -> List[RaidDTO]:
+    def list_user_raids(self, user_role_ids: List[int], include_all: bool = False) -> List[RaidDTO]:
         visible: List[RaidDTO] = []
         for raid in self.store.raids.values():
             tpl = self.store.templates.get(raid.template_name)
             if tpl is None:
                 continue
-            if tpl.raid_required_role_ids and not set(user_role_ids).intersection(set(tpl.raid_required_role_ids)):
+            if not include_all and tpl.raid_required_role_ids and not set(user_role_ids).intersection(set(tpl.raid_required_role_ids)):
                 continue
             visible.append(self._to_raid_dto(raid))
         return sorted(visible, key=lambda r: r.start_at, reverse=True)
@@ -235,6 +235,21 @@ class DashboardService:
         recompute_promotions(raid, tpl)
         self.store.save()
         return self.get_raid_roster(raid_id, user_role_ids)
+
+    def delete_raid(self, raid_id: str) -> None:
+        raid = self.store.raids.get(raid_id)
+        if raid is None:
+            raise ValidationError(code="raid_not_found", message="Raid introuvable")
+        del self.store.raids[raid_id]
+        self.store.save()
+
+    def delete_ticket_transcript(self, guild_id: int, ticket_id: str) -> None:
+        ticket = self.store.ticket_records.get(ticket_id)
+        if ticket is None or ticket.guild_id != int(guild_id):
+            raise ValidationError(code="ticket_not_found", message="Ticket introuvable")
+        self.store.ticket_records.pop(ticket_id, None)
+        self.store.ticket_messages.pop(ticket_id, None)
+        self.store.save()
 
     def update_raid_template(self, template_name: str, payload: RaidTemplateUpdateRequestDTO) -> RaidTemplateDTO:
         template = self.store.templates.get(template_name)

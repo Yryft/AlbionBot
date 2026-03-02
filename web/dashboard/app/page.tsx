@@ -5,12 +5,14 @@ import {
   ApiOverviewDTO,
   BalanceEntryDTO,
   BankActionType,
+  DiscordDirectoryDTO,
   MeDTO,
   RaidDTO,
   RaidRosterDTO,
   RaidTemplateDTO,
   TicketTranscriptDTO,
   apiGet,
+  apiDelete,
   apiGetSafe,
   apiPost,
   apiPut,
@@ -85,6 +87,7 @@ export default function HomePage() {
   const [bankActionType, setBankActionType] = useState<BankActionType>('add_split');
   const [bankAmount, setBankAmount] = useState('0');
   const [bankTargets, setBankTargets] = useState('');
+  const [discordDirectory, setDiscordDirectory] = useState<DiscordDirectoryDTO | null>(null);
 
   async function loadDashboard(guildId?: string | null) {
     setBusy(true);
@@ -102,16 +105,19 @@ export default function HomePage() {
       let templates: RaidTemplateDTO[] = [];
       let tickets: TicketTranscriptDTO[] = [];
       let balances: BalanceEntryDTO[] = [];
+      let directory: DiscordDirectoryDTO | null = null;
 
       if (activeGuild) {
-        [raids, templates, tickets, balances] = await Promise.all([
+        [raids, templates, tickets, balances, directory] = await Promise.all([
           apiGet<RaidDTO[]>('/api/my/raids'),
           apiGet<RaidTemplateDTO[]>('/api/raid-templates'),
           apiGet<TicketTranscriptDTO[]>(`/api/guilds/${activeGuild}/tickets`),
           apiGet<BalanceEntryDTO[]>(`/api/guilds/${activeGuild}/balances`),
+          apiGet<DiscordDirectoryDTO>(`/api/guilds/${activeGuild}/discord-directory`),
         ]);
       }
 
+      setDiscordDirectory(directory);
       setState({ health: Boolean(health?.ok), overview, me, raids, templates, tickets, balances, selectedTicket: null });
       setSelectedGuildId(activeGuild);
       setSelectedTicketId((prev) => (tickets.some((t) => t.ticket_id === prev) ? prev : ''));
@@ -241,7 +247,27 @@ export default function HomePage() {
     await loadDashboard(selectedGuildId);
   }
 
+  async function onDeleteRaid(raidId: string) {
+    await apiDelete(`/api/raids/${raidId}`);
+    await loadDashboard(selectedGuildId);
+  }
+
+  async function onDeleteTicket(ticketId: string) {
+    if (!selectedGuildId) return;
+    await apiDelete(`/api/guilds/${selectedGuildId}/tickets/${ticketId}`);
+    await loadDashboard(selectedGuildId);
+  }
+
+  async function onLogout() {
+    await apiPost('/auth/logout');
+    setDiscordDirectory(null);
+    setState(initialState);
+  }
+
   const currentUserAvatar = state.me?.user.avatar ? `https://cdn.discordapp.com/avatars/${state.me.user.id}/${state.me.user.avatar}.png?size=64` : '';
+  const memberNameById = useMemo(() => new Map((discordDirectory?.members || []).map((m) => [m.id, m.display_name])), [discordDirectory]);
+  const textChannels = useMemo(() => (discordDirectory?.channels || []).filter((c) => c.type === 0), [discordDirectory]);
+  const voiceChannels = useMemo(() => (discordDirectory?.channels || []).filter((c) => c.type === 2), [discordDirectory]);
 
   return (
     <main className="discord-shell">
@@ -262,6 +288,7 @@ export default function HomePage() {
           <div className="session-actions">
             {currentUserAvatar && <img src={currentUserAvatar} alt="avatar" className="avatar user-avatar" />}
             <span>{state.me?.user.global_name || state.me?.user.username}</span>
+            {state.me && <button type="button" onClick={() => void onLogout()}>Déconnexion</button>}
           </div>
         </header>
 
@@ -291,8 +318,10 @@ export default function HomePage() {
                   <label>Description<input value={raidDescription} onChange={(e) => setRaidDescription(e.target.value)} /></label>
                   <label>Message additionnel<input value={raidExtraMessage} onChange={(e) => setRaidExtraMessage(e.target.value)} /></label>
                   <label>Date / heure<input type="datetime-local" value={raidStartAt} onChange={(e) => setRaidStartAt(e.target.value)} /></label>
-                  <label>Channel text ID (obligatoire)<input value={raidChannelId} onChange={(e) => setRaidChannelId(e.target.value)} placeholder="1234567890" /></label>
-                  <label>Voice channel ID (optionnel)<input value={raidVoiceChannelId} onChange={(e) => setRaidVoiceChannelId(e.target.value)} placeholder="1234567890" /></label>
+                  <label>Channel text ID (obligatoire)<input list="text-channels" value={raidChannelId} onChange={(e) => setRaidChannelId(e.target.value)} placeholder="1234567890" /></label>
+                  <label>Voice channel ID (optionnel)<input list="voice-channels" value={raidVoiceChannelId} onChange={(e) => setRaidVoiceChannelId(e.target.value)} placeholder="1234567890" /></label>
+                  <datalist id="text-channels">{textChannels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</datalist>
+                  <datalist id="voice-channels">{voiceChannels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</datalist>
                   <button type="submit">Ouvrir le raid</button>
                 </form>
                 <label>Raid à modifier<select value={editingRaidId} onChange={(e) => setEditingRaidId(e.target.value)}>{state.raids.map((raid) => <option key={raid.raid_id} value={raid.raid_id}>{raid.title}</option>)}</select></label>
@@ -300,11 +329,11 @@ export default function HomePage() {
               </div>
               <div>
                 <h2>Balances / lootsplit</h2>
-                <ul>{state.balances.slice(0, 12).map((b) => <li key={b.user_id} className="raid-item"><span>{b.user_id}</span><small>{b.balance.toLocaleString('fr-FR')}</small></li>)}</ul>
+                <ul>{state.balances.slice(0, 12).map((b) => <li key={b.user_id} className="raid-item"><span>{memberNameById.get(String(b.user_id)) || b.user_id}</span><small>{b.balance.toLocaleString('fr-FR')}</small></li>)}</ul>
                 <form className="form-grid" onSubmit={onBankAction}>
                   <label>Type<select value={bankActionType} onChange={(e) => setBankActionType(e.target.value as BankActionType)}><option value="add_split">Loot split +</option><option value="remove_split">Loot split -</option><option value="add">Add</option><option value="remove">Remove</option></select></label>
                   <label>Montant<input type="number" min={0} value={bankAmount} onChange={(e) => setBankAmount(e.target.value)} /></label>
-                  <label>User IDs<input value={bankTargets} onChange={(e) => setBankTargets(e.target.value)} /></label>
+                  <label>User IDs<input list="member-ids" value={bankTargets} onChange={(e) => setBankTargets(e.target.value)} /></label><datalist id="member-ids">{(discordDirectory?.members || []).map((m) => <option key={m.id} value={m.id}>{m.display_name}</option>)}</datalist>
                   <button type="submit">Appliquer</button>
                 </form>
               </div>
@@ -339,7 +368,7 @@ export default function HomePage() {
                     <small>{raid.status} · {fmtDate(raid.start_at)}</small>
                   </button>
                   <small>Template: {raid.template_name}</small>
-                  <small>{raid.message_id ? '✅ Publié sur Discord' : '⏳ En attente de publication'}</small>
+                  <small>{raid.message_id ? '✅ Publié sur Discord' : '⏳ En attente de publication'}</small><button type="button" onClick={() => void onDeleteRaid(raid.raid_id)}>Supprimer définitivement</button>
                 </li>
               ))}
             </ul>
@@ -386,7 +415,7 @@ export default function HomePage() {
                     <button type="button" className={selectedTicketId === ticket.ticket_id ? 'row active' : 'row'} onClick={() => setSelectedTicketId(ticket.ticket_id)}>
                       <span>#{ticket.ticket_id}</span>
                       <small>{ticket.status} · {fmtDate(ticket.updated_at)}</small>
-                    </button>
+                    </button><button type="button" onClick={() => void onDeleteTicket(ticket.ticket_id)}>Supprimer log</button>
                   </li>
                 ))}
               </ul>

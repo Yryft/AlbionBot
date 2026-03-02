@@ -115,6 +115,7 @@ python -m albionbot
 | `DISCORD_OAUTH_CLIENT_ID` | ✅ (OAuth) | Client ID de l'application Discord | `123456789012345678` |
 | `DISCORD_OAUTH_CLIENT_SECRET` | ✅ (OAuth) | Client Secret Discord OAuth2 | `<SECRET>` |
 | `DISCORD_OAUTH_REDIRECT_URI` | ✅ (OAuth) | Callback backend exacte | `https://backend.up.railway.app/auth/discord/callback` |
+| `DISCORD_TOKEN` | ✅ | Token bot utilisé pour lire channels/membres/rôles Discord (autocomplétions dashboard) | `<SECRET>` |
 | `DASHBOARD_COOKIE_SECURE` | recommandé | `true` en prod HTTPS, `false` en local HTTP | `true` |
 | `DASHBOARD_POST_LOGIN_REDIRECT` | recommandé | URL frontend de retour après login | `https://frontend.up.railway.app/` |
 
