@@ -4,8 +4,9 @@ import asyncio
 import time
 from types import MethodType
 
-from albionbot.storage.store import CompRole, CompTemplate, RaidCommand, RaidEvent, Store
+import albionbot.modules.raids as raids_module
 from albionbot.modules.raids import RaidModule
+from albionbot.storage.store import CompRole, CompTemplate, RaidCommand, RaidEvent, Store
 from web.backend.command_bus import CommandContext, OpenRaidFromTemplate
 from web.backend.services import DashboardService, OpenRaidFromTemplateHandler
 
@@ -99,3 +100,72 @@ def test_queue_retry_backoff_and_idempotence(tmp_path):
     # delivered command should not be retried
     asyncio.run(module._consume_raid_command_queue())
     assert calls["n"] == 2
+
+
+def test_publish_queue_adds_ava_raid_leader_signup(tmp_path, monkeypatch):
+    store = Store(path=str(tmp_path / "state.json"), bank_database_url="", bank_sqlite_path=str(tmp_path / "bank.sqlite3"))
+    store.templates["ava"] = CompTemplate(
+        name="ava",
+        description="template",
+        created_by=1,
+        content_type="ava_raid",
+        roles=[CompRole(key="raid_leader", label="Raid Leader", slots=1)],
+    )
+    raid = RaidEvent(
+        raid_id="raid-ava",
+        template_name="ava",
+        title="AVA",
+        description="",
+        extra_message="",
+        start_at=int(time.time()) + 3600,
+        created_by=42,
+        channel_id=123,
+    )
+    store.raids[raid.raid_id] = raid
+
+    class FakeThread:
+        id = 456
+
+        async def send(self, *_args, **_kwargs):
+            return None
+
+    class FakeMessage:
+        id = 789
+
+        def __init__(self, channel_id: int):
+            self.channel = type("Chan", (), {"id": channel_id})()
+
+        async def create_thread(self, **_kwargs):
+            return FakeThread()
+
+    class FakeTextChannel:
+        def __init__(self):
+            self.guild = object()
+            self.id = 123
+
+        async def send(self, **_kwargs):
+            return FakeMessage(self.id)
+
+    monkeypatch.setattr(raids_module.nextcord, "TextChannel", FakeTextChannel)
+    monkeypatch.setattr(raids_module.nextcord, "Thread", FakeThread)
+
+    class FakeBot:
+        async def fetch_channel(self, _channel_id: int):
+            return FakeTextChannel()
+
+        def add_view(self, *_args, **_kwargs):
+            return None
+
+    module = RaidModule.__new__(RaidModule)
+    module.store = store
+    module.bot = FakeBot()
+    module.build_view = lambda *_args, **_kwargs: object()
+
+    async def _run():
+        ok, err = await module.publish_raid_if_needed("raid-ava")
+        assert ok is True
+        assert err == ""
+
+    asyncio.run(_run())
+    assert raid.signups[42].role_key == "raid_leader"
+    assert raid.signups[42].status == "main"
