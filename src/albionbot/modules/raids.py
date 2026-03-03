@@ -242,13 +242,49 @@ class RaidModule:
         self._started = False
         self._loot_sessions: Dict[str, dict] = {}
         self._loot_scout_limits: Dict[int, Tuple[int, int]] = {}
+        self._known_published_messages: Dict[str, Tuple[int, int]] = {}
         self._register_commands()
 
     def start(self):
         if not self._started:
+            self._known_published_messages = {
+                raid.raid_id: (int(raid.channel_id), int(raid.message_id))
+                for raid in self.store.raids.values()
+                if raid.channel_id and raid.message_id
+            }
             self.scheduler_loop.change_interval(seconds=self.cfg.sched_tick_seconds)
             self.scheduler_loop.start()
             self._started = True
+
+    async def reconcile_external_updates(self) -> None:
+        current_published = {
+            raid.raid_id: (int(raid.channel_id), int(raid.message_id))
+            for raid in self.store.raids.values()
+            if raid.channel_id and raid.message_id
+        }
+
+        removed = set(self._known_published_messages.keys()) - set(current_published.keys())
+        for raid_id in removed:
+            channel_id, message_id = self._known_published_messages[raid_id]
+            try:
+                channel = await self.bot.fetch_channel(channel_id)
+                if isinstance(channel, (nextcord.TextChannel, nextcord.Thread)):
+                    msg = await channel.fetch_message(message_id)
+                    await msg.delete()
+            except Exception:
+                pass
+
+        for raid in list(self.store.raids.values()):
+            if raid.channel_id and not raid.message_id:
+                await self.publish_raid_if_needed(raid.raid_id)
+            elif raid.channel_id and raid.message_id:
+                await self.refresh_raid_message(raid.raid_id)
+
+        self._known_published_messages = {
+            raid.raid_id: (int(raid.channel_id), int(raid.message_id))
+            for raid in self.store.raids.values()
+            if raid.channel_id and raid.message_id
+        }
 
     # ---------- Autocomplete
     def _autocomplete_template_names(self, user_input: str) -> List[str]:
