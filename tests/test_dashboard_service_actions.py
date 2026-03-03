@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from web.backend.command_bus import CommandContext, StartCompWizardFlow
 from albionbot.storage.store import CompRole, CompTemplate, RaidEvent, Store, TicketMessageSnapshot, TicketRecord
 import time
 from web.backend.schemas import RaidTemplateUpdateRequestDTO, RaidUpdateRequestDTO
-from web.backend.services import DashboardService
+from web.backend.services import DashboardService, StartCompWizardFlowHandler
 
 
 def _build_store(tmp_path):
@@ -34,8 +35,8 @@ def test_update_template_and_raid(tmp_path):
         "zvz",
         RaidTemplateUpdateRequestDTO(description="new", content_type="pvp", raid_required_role_ids=[], spec="Tank;2\nDps;8"),
     )
-    assert updated_tpl.name == "zvz"
-    assert len(updated_tpl.roles) == 2
+    assert updated_tpl.template.name == "zvz"
+    assert len(updated_tpl.template.roles) == 2
 
     updated_raid = service.update_raid(
         "r1",
@@ -110,3 +111,48 @@ def test_user_raid_visibility_and_signup_flow(tmp_path):
     assert len(roster.participants) == 1
     assert roster.participants[0].user_id == "11"
     assert roster.participants[0].status == "main"
+
+
+def test_dashboard_create_ava_template_normalizes_reserved_roles(tmp_path):
+    service = DashboardService(_build_store(tmp_path))
+    handler = StartCompWizardFlowHandler(service)
+    command = StartCompWizardFlow(
+        context=CommandContext(guild_id=10, user_id=42, request_id="req-1"),
+        template_id="ava",
+        description="ava template",
+        content_type="ava_raid",
+        raid_required_role_ids=[77],
+        spec="Raid Leader;9;ip=true;req=999\nDPS;5;ip\nScout;2;req=123456789012345678\nScout;3;req=234567890123456789",
+    )
+
+    result = handler.handle(command)
+
+    assert [role.key for role in result.template.roles] == ["raid_leader", "dps", "scout"]
+    assert result.template.roles[0].slots == 1
+    assert result.template.roles[0].ip_required is False
+    assert result.template.roles[0].required_role_ids == []
+    assert result.template.roles[-1].slots == 1
+    assert result.template.roles[-1].ip_required is False
+    assert result.template.roles[-1].required_role_ids == ["123456789012345678"]
+
+
+def test_dashboard_edit_ava_template_normalizes_reserved_roles(tmp_path):
+    service = DashboardService(_build_store(tmp_path))
+
+    updated_tpl = service.update_raid_template(
+        "zvz",
+        RaidTemplateUpdateRequestDTO(
+            description="ava",
+            content_type="ava_raid",
+            raid_required_role_ids=[],
+            spec="Raid Leader;2;ip=true\nTank;2\nScout;4;req=111111111111111111,222222222222222222\nScout;5;req=333333333333333333",
+        ),
+    )
+
+    assert [role.key for role in updated_tpl.template.roles] == ["raid_leader", "tank", "scout"]
+    assert updated_tpl.template.roles[0].slots == 1
+    assert updated_tpl.template.roles[0].ip_required is False
+    assert updated_tpl.template.roles[0].required_role_ids == []
+    assert updated_tpl.template.roles[-1].slots == 1
+    assert updated_tpl.template.roles[-1].ip_required is False
+    assert updated_tpl.template.roles[-1].required_role_ids == ["111111111111111111", "222222222222222222"]

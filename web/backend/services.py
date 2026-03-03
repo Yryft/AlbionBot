@@ -5,7 +5,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from albionbot.modules.raids import MAX_IP, MIN_IP, count_main_for_role, parse_comp_spec, raid_status, recompute_promotions, role_map
+from albionbot.modules.raids import AVA_RAID, MAX_IP, MIN_IP, count_main_for_role, parse_comp_spec, raid_status, recompute_promotions, role_map
 from albionbot.modules.bank import (
     UNDO_WINDOW_SECONDS,
     _now,
@@ -15,7 +15,7 @@ from albionbot.modules.bank import (
     find_last_action_for_actor,
     make_action_id,
 )
-from albionbot.storage.store import CompTemplate, RaidCommand, RaidEvent, Signup, Store
+from albionbot.storage.store import CompRole, CompTemplate, RaidCommand, RaidEvent, Signup, Store
 from albionbot.storage.store import BankAction
 
 from .command_bus import (
@@ -97,6 +97,9 @@ class StartCompWizardFlowHandler(CommandHandler[TemplateMutationResultDTO]):
                 message="; ".join(errors),
                 details={"warnings": warnings, "errors": errors},
             )
+
+        if command.content_type == AVA_RAID:
+            roles = self.service.normalize_ava_roles(roles)
 
         template = CompTemplate(
             name=command.template_id,
@@ -297,6 +300,8 @@ class DashboardService:
         template.description = payload.description
         template.content_type = payload.content_type
         template.raid_required_role_ids = payload.raid_required_role_ids
+        if payload.content_type == AVA_RAID:
+            roles = self.normalize_ava_roles(roles)
         template.roles = roles
         self.store.save()
         dto = next(tpl for tpl in self.list_raid_templates() if tpl.name == template_name)
@@ -308,6 +313,31 @@ class DashboardService:
             raise ValidationError(code="template_not_found", message="Template introuvable")
         self.store.templates.pop(template.name, None)
         self.store.save()
+
+    @staticmethod
+    def _is_ava_reserved_role(role: CompRole) -> bool:
+        normalized_key = role.key.strip().lower()
+        normalized_label = role.label.strip().lower().replace(" ", "_")
+        return (
+            normalized_key in {"raid_leader", "scout"}
+            or normalized_key.startswith("raid_leader_")
+            or normalized_key.startswith("scout_")
+            or normalized_label in {"raid_leader", "scout"}
+        )
+
+    def normalize_ava_roles(self, roles: List[CompRole]) -> List[CompRole]:
+        scout_required_role_ids: List[int] = []
+        for role in roles:
+            if self._is_ava_reserved_role(role) and role.key.strip().lower().startswith("scout"):
+                scout_required_role_ids = list(role.required_role_ids)
+                break
+
+        filtered_roles = [role for role in roles if not self._is_ava_reserved_role(role)]
+        forced_roles = [
+            CompRole(key="raid_leader", label="Raid Leader", slots=1, ip_required=False, required_role_ids=[]),
+            CompRole(key="scout", label="Scout", slots=1, ip_required=False, required_role_ids=scout_required_role_ids),
+        ]
+        return [forced_roles[0]] + filtered_roles + [forced_roles[1]]
 
     def update_raid(self, raid_id: str, payload: RaidUpdateRequestDTO) -> RaidDTO:
         raid = self.store.raids.get(raid_id)

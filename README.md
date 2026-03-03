@@ -328,3 +328,4 @@ Support;2;roles=234567890123456789,345678901234567890
 
 - Erreurs bloquantes (spec vide, slots invalides, ligne mal formée) retournées par le backend dashboard avec détail.
 - Warnings non bloquants (options inconnues ignorées) retournés dans la réponse de création/édition (`spec_warnings`).
+- Normalisation automatique dashboard pour `content_type=ava_raid` (création/édition): les variantes/doublons de `raid_leader` et `scout` sont supprimés puis remplacés par la structure canonique bot (`raid_leader` forcé: `slots=1`, `ip_required=false`, `required_role_ids=[]`; `scout` forcé: `slots=1`, `ip_required=false`, `required_role_ids` repris depuis la première entrée scout fournie).
