@@ -93,7 +93,8 @@ export default function HomePage() {
 
   const [bankActionType, setBankActionType] = useState<BankActionType>('add_split');
   const [bankAmount, setBankAmount] = useState('0');
-  const [bankTargets, setBankTargets] = useState('');
+  const [bankTargetIds, setBankTargetIds] = useState<string[]>([]);
+  const [bankTargetsManual, setBankTargetsManual] = useState('');
   const [selectedBalanceUserId, setSelectedBalanceUserId] = useState('');
   const [quickAmount, setQuickAmount] = useState('0');
   const [lookupUserId, setLookupUserId] = useState('');
@@ -104,6 +105,8 @@ export default function HomePage() {
   const [bankHistory, setBankHistory] = useState<BankActionHistoryEntryDTO[]>([]);
 
   const [discordDirectory, setDiscordDirectory] = useState<DiscordDirectoryDTO | null>(null);
+  const [manualRaidChannelId, setManualRaidChannelId] = useState('');
+  const [manualRaidVoiceChannelId, setManualRaidVoiceChannelId] = useState('');
 
 
   async function loadDashboard(guildId?: string | null) {
@@ -221,6 +224,8 @@ export default function HomePage() {
   const memberNameById = useMemo(() => new Map((discordDirectory?.members || []).map((m) => [m.id, m.display_name])), [discordDirectory]);
   const textChannels = useMemo(() => (discordDirectory?.channels || []).filter((c) => c.type === 0), [discordDirectory]);
   const voiceChannels = useMemo(() => (discordDirectory?.channels || []).filter((c) => c.type === 2), [discordDirectory]);
+  const memberIds = useMemo(() => new Set((discordDirectory?.members || []).map((m) => m.id)), [discordDirectory]);
+  const channelIds = useMemo(() => new Set((discordDirectory?.channels || []).map((c) => c.id)), [discordDirectory]);
 
   function publishStatusLabel(raid: RaidDTO): string {
     if (raid.publish_status === 'delivered') return '✅ Publié sur Discord';
@@ -233,10 +238,21 @@ export default function HomePage() {
 
   async function onOpenRaid(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedGuildId || !raidTemplate || !raidStartAt || !raidTitle || !raidChannelId) return;
+    if (!selectedGuildId || !raidTemplate || !raidStartAt || !raidTitle) return;
+    const effectiveRaidChannelId = manualRaidChannelId.trim() || raidChannelId;
+    const effectiveRaidVoiceChannelId = manualRaidVoiceChannelId.trim() || raidVoiceChannelId;
+    if (!effectiveRaidChannelId) return;
+    if (!channelIds.has(effectiveRaidChannelId)) {
+      setError(`ID de salon textuel invalide (absent du répertoire local): ${effectiveRaidChannelId}`);
+      return;
+    }
+    if (effectiveRaidVoiceChannelId && !channelIds.has(effectiveRaidVoiceChannelId)) {
+      setError(`ID de salon vocal invalide (absent du répertoire local): ${effectiveRaidVoiceChannelId}`);
+      return;
+    }
     await apiPost('/api/actions/raids/open', {
-      request_id: crypto.randomUUID(), guild_id: selectedGuildId, channel_id: raidChannelId,
-      voice_channel_id: raidVoiceChannelId || null,
+      request_id: crypto.randomUUID(), guild_id: selectedGuildId, channel_id: effectiveRaidChannelId,
+      voice_channel_id: effectiveRaidVoiceChannelId || null,
       template_name: raidTemplate, title: raidTitle, description: raidDescription, extra_message: raidExtraMessage,
       start_at: Math.floor(new Date(raidStartAt).getTime() / 1000), prep_minutes: 10, cleanup_minutes: 30,
     });
@@ -339,7 +355,13 @@ export default function HomePage() {
   async function onBankAction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedGuildId) return;
-    const target_user_ids = bankTargets.split(/[\s,]+/).map((id) => id.trim()).filter((id) => /^([1-9]\d*)$/.test(id));
+    const manualTargets = bankTargetsManual.split(/[\s,]+/).map((id) => id.trim()).filter((id) => /^([1-9]\d*)$/.test(id));
+    const target_user_ids = Array.from(new Set([...bankTargetIds, ...manualTargets]));
+    const unknownTargets = target_user_ids.filter((id) => !memberIds.has(id));
+    if (unknownTargets.length) {
+      setError(`IDs utilisateur inconnus dans le répertoire local: ${unknownTargets.join(', ')}`);
+      return;
+    }
     await apiPost('/api/actions/bank/apply', {
       request_id: crypto.randomUUID(), guild_id: selectedGuildId, action_type: bankActionType,
       amount: Number(bankAmount), target_user_ids, note: 'dashboard',
@@ -364,6 +386,10 @@ export default function HomePage() {
   async function onLookupBalance(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedGuildId || !lookupUserId) return;
+    if (!memberIds.has(lookupUserId)) {
+      setError(`ID utilisateur invalide (absent du répertoire local): ${lookupUserId}`);
+      return;
+    }
     const balance = await apiGet<BankBalanceDTO>(`/api/guilds/${selectedGuildId}/balances/${lookupUserId}`);
     setLookupBalance(balance);
   }
@@ -485,10 +511,27 @@ export default function HomePage() {
                   <label>Description<input value={raidDescription} onChange={(e) => setRaidDescription(e.target.value)} /></label>
                   <label>Message additionnel<input value={raidExtraMessage} onChange={(e) => setRaidExtraMessage(e.target.value)} /></label>
                   <label>Date / heure<input type="datetime-local" value={raidStartAt} onChange={(e) => setRaidStartAt(e.target.value)} /></label>
-                  <label>Channel text ID<input list="text-channels" value={raidChannelId} onChange={(e) => setRaidChannelId(e.target.value)} /></label>
-                  <label>Voice channel ID<input list="voice-channels" value={raidVoiceChannelId} onChange={(e) => setRaidVoiceChannelId(e.target.value)} /></label>
-                  <datalist id="text-channels">{textChannels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</datalist>
-                  <datalist id="voice-channels">{voiceChannels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</datalist>
+                  <label>Salon texte
+                    <select value={raidChannelId} onChange={(e) => setRaidChannelId(e.target.value)}>
+                      <option value="">Sélectionner un salon texte</option>
+                      {textChannels.map((c) => <option key={c.id} value={c.id}>#{c.name} ({c.id})</option>)}
+                    </select>
+                  </label>
+                  <label>Salon vocal
+                    <select value={raidVoiceChannelId} onChange={(e) => setRaidVoiceChannelId(e.target.value)}>
+                      <option value="">Aucun</option>
+                      {voiceChannels.map((c) => <option key={c.id} value={c.id}>#{c.name} ({c.id})</option>)}
+                    </select>
+                  </label>
+                  <details>
+                    <summary>Mode ID manuel (dépannage)</summary>
+                    <label>ID salon texte manuel
+                      <input value={manualRaidChannelId} onChange={(e) => setManualRaidChannelId(e.target.value)} />
+                    </label>
+                    <label>ID salon vocal manuel
+                      <input value={manualRaidVoiceChannelId} onChange={(e) => setManualRaidVoiceChannelId(e.target.value)} />
+                    </label>
+                  </details>
                   <button type="submit">Ouvrir le raid</button>
                 </form>
                 <label>Raid à modifier<select value={editingRaidId} onChange={(e) => setEditingRaidId(e.target.value)}>{state.raids.map((raid) => <option key={raid.raid_id} value={raid.raid_id}>{raid.title}</option>)}</select></label>
@@ -550,7 +593,7 @@ Support;2;ip=false;roles=234567890123456789,345678901234567890`}</pre>
                 <div className="form-grid">
                   <label>Membre
                     <select value={selectedBalanceUserId} onChange={(e) => setSelectedBalanceUserId(e.target.value)}>
-                      {(discordDirectory?.members || []).map((m) => <option key={m.id} value={m.id}>{m.display_name}</option>)}
+                      {(discordDirectory?.members || []).map((m) => <option key={m.id} value={m.id}>{m.display_name} ({m.id})</option>)}
                     </select>
                   </label>
                   <label>Montant
@@ -564,8 +607,17 @@ Support;2;ip=false;roles=234567890123456789,345678901234567890`}</pre>
                 <form className="form-grid" onSubmit={onBankAction}>
                   <label>Type<select value={bankActionType} onChange={(e) => setBankActionType(e.target.value as BankActionType)}><option value="add_split">/bank_add_split</option><option value="remove_split">/bank_remove_split</option><option value="add">/bank_add</option><option value="remove">/bank_remove</option></select></label>
                   <label>Montant<input type="number" min={0} value={bankAmount} onChange={(e) => setBankAmount(e.target.value)} /></label>
-                  <label>User IDs<input list="member-ids" value={bankTargets} onChange={(e) => setBankTargets(e.target.value)} /></label>
-                  <datalist id="member-ids">{(discordDirectory?.members || []).map((m) => <option key={m.id} value={m.id}>{m.display_name}</option>)}</datalist>
+                  <label>Utilisateurs cibles
+                    <select multiple size={6} value={bankTargetIds} onChange={(e) => setBankTargetIds(Array.from(e.target.selectedOptions, (option) => option.value))}>
+                      {(discordDirectory?.members || []).map((m) => <option key={m.id} value={m.id}>{m.display_name} ({m.id})</option>)}
+                    </select>
+                  </label>
+                  <details>
+                    <summary>Mode ID manuel (dépannage)</summary>
+                    <label>User IDs manuels
+                      <input value={bankTargetsManual} onChange={(e) => setBankTargetsManual(e.target.value)} placeholder="id1,id2,id3" />
+                    </label>
+                  </details>
                   <button type="submit">Appliquer action manager</button>
                 </form>
               </div>
@@ -575,13 +627,14 @@ Support;2;ip=false;roles=234567890123456789,345678901234567890`}</pre>
                   <label>User ID
                     <input list="member-ids" value={lookupUserId} onChange={(e) => setLookupUserId(e.target.value)} />
                   </label>
+                  <datalist id="member-ids">{(discordDirectory?.members || []).map((m) => <option key={m.id} value={m.id} label={`${m.display_name} (${m.id})`} />)}</datalist>
                   <button type="submit">/bal</button>
                 </form>
                 {lookupBalance && <p>Balance: <strong>{lookupBalance.balance.toLocaleString('fr-FR')}</strong></p>}
                 <form className="form-grid" onSubmit={onPay}>
                   <label>Destinataire
                     <select value={payTargetUserId} onChange={(e) => setPayTargetUserId(e.target.value)}>
-                      {(discordDirectory?.members || []).map((m) => <option key={m.id} value={m.id}>{m.display_name}</option>)}
+                      {(discordDirectory?.members || []).map((m) => <option key={m.id} value={m.id}>{m.display_name} ({m.id})</option>)}
                     </select>
                   </label>
                   <label>Montant<input type="number" min={1} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} /></label>
