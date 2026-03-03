@@ -65,12 +65,16 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
   - permission requise: `raid_open` / `raid_manager`
 - `POST /api/actions/comp-wizard`
   - body: `CompTemplateCreateRequestDTO` (`raid_required_role_ids[]` en `string`)
+  - réponse: `TemplateMutationResultDTO` (`template`, `spec_warnings[]`, `spec_errors[]`)
   - permission requise: `comp_wizard` / `raid_manager`
 - `POST /api/raids/{raid_id}/signup`
   - body: `RaidSignupRequestDTO`
 - `POST /api/raids/{raid_id}/leave`
 - `PUT /api/raid-templates/{template_name}`
   - body: `RaidTemplateUpdateRequestDTO`
+  - réponse: `TemplateMutationResultDTO` (`template`, `spec_warnings[]`, `spec_errors[]`)
+- `DELETE /api/raid-templates/{template_name}`
+  - permission requise: `comp_wizard` / `raid_manager`
 - `PUT /api/raids/{raid_id}`
   - body: `RaidUpdateRequestDTO`
 - `POST /api/raids/{raid_id}/state`
@@ -107,3 +111,26 @@ Sécurité: session serveur-side, cookie HttpOnly (`albion_dash_session`), cooki
 
 
 > Note: les endpoints de lecture restent accessibles sans OAuth quand celui-ci n'est pas configuré (mode local/dev).
+
+## Spec template compatible `parse_comp_spec`
+
+Format attendu par ligne: `Label;slots;options...`
+
+Options supportées:
+- `key=<slug>`
+- `ip=true|false` (alias: `ip`, `ip=1`, `ip_required=true`, `ip=0`, `noip`)
+- `req=<roleId1,roleId2>` (alias: `require=`, `roles=`)
+- liste brute d'IDs de rôles Discord (`123,456`)
+
+Exemple valide:
+
+```text
+Tank;2;key=tank
+Healer;2;ip=true
+DPS Melee;4;req=123456789012345678
+Support;2;roles=234567890123456789,345678901234567890
+```
+
+Comportement validation:
+- erreurs bloquantes (ex: `slots` invalide, ligne mal formée, spec vide) => HTTP 400 avec `detail.details.errors[]`.
+- warnings non bloquants (ex: option inconnue ignorée) => succès HTTP 200 avec `spec_warnings[]` dans la réponse.

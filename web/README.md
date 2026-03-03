@@ -102,8 +102,10 @@ En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` q
 - Actions raids alignées bot: ouverture, édition, fermeture explicite et gestion roster.
 - Endpoint `GET /api/guilds/{guild_id}/discord-directory` pour alimenter les autocomplétions (channels text/voice + membres).
 - Affichage des balances avec pseudo Discord quand disponible.
-- **Preview temps réel** pour le raid opener et les templates avant publication.
-- **Builder personnalisable** (menus + cases à cocher) pour réordonner/activer/supprimer des sections de message.
+- Formulaire template aligné API bot: `content_type`, `raid_required_role_ids`, `spec` complète (`Label;slots;options`).
+- Retour explicite des validations de spec (`spec_warnings`, erreurs détaillées) côté dashboard.
+- Cycle de vie template complet côté API/dashboard: création, édition et suppression (permissions manager conservées).
+- UI dashboard simplifiée: suppression des éléments de builder décoratifs non reliés au modèle bot.
 - **Onglet Banque** aligné sur les commandes bot officielles (`/bank_add`, `/bank_remove`, `/bank_add_split`, `/bank_remove_split`, `/bank_undo`, `/pay`, `/bal`).
 - Cache de permissions/roles membre côté backend dashboard pour éviter de re-fetch Discord à chaque commande.
 - Suivi UI de publication raid basé sur `publish_status` (`pending|delivered|failed`) + affichage de `publish_error` en cas d'échec.
@@ -117,3 +119,22 @@ En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` q
 - Endpoints `POST /api/actions/bank/undo` (manager) et `POST /api/actions/bank/pay` (membre de guilde) pour couvrir les commandes `/bank_undo` et `/pay`.
 - Validation des actions manager banque alignée sur `BANK_ALLOW_NEGATIVE` (équivalent dashboard de `cfg.bank_allow_negative`).
 - Outbox persistante pour `POST /api/actions/raids/open`: création d'une commande `pending`, consommation côté bot Discord, retry/backoff et exposition du statut (`publish_status`) pour l'UI.
+
+
+## Spec template (parse_comp_spec)
+
+Format: une ligne par rôle, `Label;slots;options`.
+
+Exemples valides:
+
+```text
+Tank;2;key=tank
+Healer;2;ip=true
+DPS Melee;4;req=123456789012345678
+Support;2;roles=234567890123456789,345678901234567890
+```
+
+Options reconnues: `key=`, `ip=true|false`, `req=` / `require=` / `roles=`.
+
+Erreurs bloquantes (spec vide, slots invalides, lignes invalides) sont remontées en `detail.details.errors[]`.
+Warnings non bloquants (option inconnue) remontent en `spec_warnings[]` sur les endpoints de création/édition template.

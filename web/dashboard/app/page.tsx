@@ -1,6 +1,6 @@
 'use client';
 
-import { Dispatch, FormEvent, SetStateAction, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   ApiOverviewDTO,
   BalanceEntryDTO,
@@ -13,6 +13,8 @@ import {
   RaidRosterDTO,
   RaidTemplateDTO,
   TicketTranscriptDTO,
+  ApiError,
+  TemplateMutationResultDTO,
   apiDelete,
   apiGet,
   apiGetSafe,
@@ -25,10 +27,6 @@ const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
 type TabKey = 'active' | 'raids' | 'balances' | 'tickets';
 type RaidSort = 'start_desc' | 'start_asc' | 'status';
-type BuilderBlockType = 'header' | 'timing' | 'description' | 'extra' | 'roster' | 'rules';
-type BuilderBlock = { id: string; type: BuilderBlockType; enabled: boolean };
-type TemplateRoleDraft = { id: string; label: string; slots: string; enabled: boolean };
-
 type LoadState = {
   health: boolean;
   overview: ApiOverviewDTO | null;
@@ -52,15 +50,6 @@ const initialState: LoadState = {
 };
 
 const statusOrder: Record<string, number> = { OPEN: 0, PINGED: 1, CLOSED: 2 };
-const blockOptions: { type: BuilderBlockType; label: string }[] = [
-  { type: 'header', label: 'En-tête' },
-  { type: 'timing', label: 'Date & channels' },
-  { type: 'description', label: 'Description' },
-  { type: 'extra', label: 'Message additionnel' },
-  { type: 'roster', label: 'Compo / rôles' },
-  { type: 'rules', label: 'Règles' },
-];
-
 function fmtDate(ts: number): string {
   return new Date(ts * 1000).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
 }
@@ -68,10 +57,6 @@ function fmtDate(ts: number): string {
 function guildIconUrl(guild: { id: string; icon?: string | null }): string {
   if (!guild.icon) return '';
   return `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png?size=64`;
-}
-
-function freshBlock(type: BuilderBlockType): BuilderBlock {
-  return { id: crypto.randomUUID(), type, enabled: true };
 }
 
 export default function HomePage() {
@@ -100,6 +85,9 @@ export default function HomePage() {
   const [templateName, setTemplateName] = useState('');
   const [templateDescription, setTemplateDescription] = useState('');
   const [templateSpec, setTemplateSpec] = useState('Tank;2\nHealer;2\nDPS;8');
+  const [templateContentType, setTemplateContentType] = useState<'ava_raid' | 'pvp' | 'pve'>('pvp');
+  const [templateRequiredRoleIds, setTemplateRequiredRoleIds] = useState('');
+  const [templateFeedback, setTemplateFeedback] = useState('');
   const [editingTemplate, setEditingTemplate] = useState('');
   const [editingRaidId, setEditingRaidId] = useState('');
 
@@ -116,13 +104,6 @@ export default function HomePage() {
   const [bankHistory, setBankHistory] = useState<BankActionHistoryEntryDTO[]>([]);
 
   const [discordDirectory, setDiscordDirectory] = useState<DiscordDirectoryDTO | null>(null);
-  const [raidBlocks, setRaidBlocks] = useState<BuilderBlock[]>([freshBlock('header'), freshBlock('timing'), freshBlock('description'), freshBlock('extra'), freshBlock('roster')]);
-  const [templateBlocks, setTemplateBlocks] = useState<BuilderBlock[]>([freshBlock('header'), freshBlock('description'), freshBlock('roster'), freshBlock('rules')]);
-  const [templateRoleDrafts, setTemplateRoleDrafts] = useState<TemplateRoleDraft[]>([
-    { id: crypto.randomUUID(), label: 'Tank', slots: '2', enabled: true },
-    { id: crypto.randomUUID(), label: 'Healer', slots: '2', enabled: true },
-    { id: crypto.randomUUID(), label: 'DPS', slots: '8', enabled: true },
-  ]);
 
 
   async function loadDashboard(guildId?: string | null) {
@@ -159,6 +140,7 @@ export default function HomePage() {
       setState({ health: Boolean(health?.ok), overview, me, raids, templates, tickets, balances, selectedTicket: null });
       setBankHistory(history);
       setSelectedGuildId(activeGuild);
+      setTemplateFeedback('');
       setSelectedTicketId((prev) => (tickets.some((t) => t.ticket_id === prev) ? prev : ''));
       setRaidTemplate((prev) => prev || templates[0]?.name || '');
       setEditingTemplate((prev) => prev || templates[0]?.name || '');
@@ -169,7 +151,14 @@ export default function HomePage() {
       setPayTargetUserId((prev) => prev || balances[0]?.user_id || '');
       if (!raidChannelId && raids[0]?.channel_id) setRaidChannelId(raids[0].channel_id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur de chargement');
+      if (err instanceof ApiError) {
+        const warnings = (err.details?.warnings as string[] | undefined) || [];
+        const errors = (err.details?.errors as string[] | undefined) || [];
+        const detailText = [...errors, ...warnings].join(' | ');
+        setError(detailText ? `${err.message} — ${detailText}` : err.message);
+      } else {
+        setError(err instanceof Error ? err.message : 'Erreur de chargement');
+      }
     } finally {
       setBusy(false);
     }
@@ -200,16 +189,19 @@ export default function HomePage() {
       .catch((err) => setError(err instanceof Error ? err.message : 'Chargement roster impossible'));
   }, [selectedRaidId]);
 
-  useEffect(() => {
-    const spec = templateRoleDrafts
-      .filter((r) => r.enabled && r.label.trim())
-      .map((r) => `${r.label.trim()};${Math.max(0, Number(r.slots) || 0)}`)
-      .join('\n');
-    setTemplateSpec(spec);
-  }, [templateRoleDrafts]);
 
 
   const canUseDashboard = Boolean(state.me?.guilds?.length);
+
+  useEffect(() => {
+    const template = state.templates.find((tpl) => tpl.name === editingTemplate);
+    if (!template) return;
+    setTemplateDescription(template.description);
+    setTemplateContentType(template.content_type);
+    setTemplateRequiredRoleIds(template.raid_required_role_ids.join(','));
+    setTemplateSpec(formatSpecFromTemplate(template));
+  }, [editingTemplate, state.templates]);
+
 
   const visibleRaids = useMemo(() => {
     let raids = [...state.raids];
@@ -230,39 +222,12 @@ export default function HomePage() {
   const textChannels = useMemo(() => (discordDirectory?.channels || []).filter((c) => c.type === 0), [discordDirectory]);
   const voiceChannels = useMemo(() => (discordDirectory?.channels || []).filter((c) => c.type === 2), [discordDirectory]);
 
-  function blockLine(type: BuilderBlockType, mode: 'raid' | 'template'): string {
-    if (type === 'header') return `🎯 ${mode === 'raid' ? raidTitle || 'Titre du raid' : templateName || 'Nom du template'}`;
-    if (type === 'timing') return `🕒 ${raidStartAt ? new Date(raidStartAt).toLocaleString('fr-FR') : 'Date à définir'} · #${raidChannelId || 'channel'}`;
-    if (type === 'description') return `📝 ${mode === 'raid' ? (raidDescription || 'Description...') : (templateDescription || 'Description template...')}`;
-    if (type === 'extra') return `➕ ${raidExtraMessage || 'Message additionnel...'}`;
-    if (type === 'roster') return `👥 ${templateRoleDrafts.filter((r) => r.enabled).map((r) => `${r.label || 'Rôle'} (${Number(r.slots) || 0})`).join(' • ') || 'Aucun rôle actif'}`;
-    return '📌 Règles et prérequis de participation.';
-  }
-
-  const raidPreview = useMemo(() => raidBlocks.filter((b) => b.enabled).map((b) => blockLine(b.type, 'raid')).join('\n'), [raidBlocks, raidTitle, raidStartAt, raidChannelId, raidDescription, raidExtraMessage, templateRoleDrafts]);
-  const templatePreview = useMemo(() => templateBlocks.filter((b) => b.enabled).map((b) => blockLine(b.type, 'template')).join('\n'), [templateBlocks, templateName, templateDescription, templateRoleDrafts]);
-
   function publishStatusLabel(raid: RaidDTO): string {
     if (raid.publish_status === 'delivered') return '✅ Publié sur Discord';
     if (raid.publish_status === 'failed') return '❌ Échec de publication';
     return '⏳ En attente de publication';
   }
 
-
-  function patchBlock(setter: Dispatch<SetStateAction<BuilderBlock[]>>, id: string, patch: Partial<BuilderBlock>) {
-    setter((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
-  }
-
-  function moveBlock(setter: Dispatch<SetStateAction<BuilderBlock[]>>, id: string, direction: -1 | 1) {
-    setter((prev) => {
-      const index = prev.findIndex((b) => b.id === id);
-      const target = index + direction;
-      if (index < 0 || target < 0 || target >= prev.length) return prev;
-      const copy = [...prev];
-      [copy[index], copy[target]] = [copy[target], copy[index]];
-      return copy;
-    });
-  }
 
   async function onSelectGuild(guildId: string) { await apiPost(`/me/select-guild/${guildId}`); await loadDashboard(guildId); }
 
@@ -287,23 +252,88 @@ export default function HomePage() {
     await loadDashboard(selectedGuildId);
   }
 
+  function parseRoleIds(raw: string): string[] {
+    return raw
+      .split(/[\s,]+/)
+      .map((value) => value.trim())
+      .filter((value) => /^([1-9]\d*)$/.test(value));
+  }
+
+  function formatSpecFromTemplate(template: RaidTemplateDTO): string {
+    return template.roles
+      .map((role) => {
+        const options: string[] = [];
+        options.push(`key=${role.key}`);
+        if (role.ip_required) options.push('ip=true');
+        if (role.required_role_ids.length) options.push(`req=${role.required_role_ids.join(',')}`);
+        return [role.label, String(role.slots), ...options].join(';');
+      })
+      .join('\n');
+  }
+
+  function readTemplateWarnings(result: TemplateMutationResultDTO): string {
+    return result.spec_warnings.length ? `Warnings spec: ${result.spec_warnings.join(' | ')}` : '';
+  }
+
   async function onCreateTemplate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedGuildId || !templateName) return;
-    await apiPost('/api/actions/comp-wizard', {
-      request_id: crypto.randomUUID(), guild_id: selectedGuildId, name: templateName,
-      description: templateDescription, content_type: 'pvp', spec: templateSpec, raid_required_role_ids: [],
-    });
-    setTemplateName('');
-    await loadDashboard(selectedGuildId);
+    try {
+      const result = await apiPost<TemplateMutationResultDTO>('/api/actions/comp-wizard', {
+        request_id: crypto.randomUUID(), guild_id: selectedGuildId, name: templateName,
+        description: templateDescription,
+        content_type: templateContentType,
+        spec: templateSpec,
+        raid_required_role_ids: parseRoleIds(templateRequiredRoleIds),
+      });
+      setTemplateFeedback(readTemplateWarnings(result) || 'Template créé.');
+      setTemplateName('');
+      await loadDashboard(selectedGuildId);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        const warnings = (err.details?.warnings as string[] | undefined) || [];
+        const errors = (err.details?.errors as string[] | undefined) || [];
+        const details = [...errors, ...warnings].join(' | ');
+        setTemplateFeedback(details ? `${err.message} — ${details}` : err.message);
+        return;
+      }
+      setTemplateFeedback(err instanceof Error ? err.message : 'Erreur template');
+    }
   }
 
   async function onUpdateTemplate() {
     if (!editingTemplate) return;
-    await apiPut(`/api/raid-templates/${editingTemplate}`, {
-      description: templateDescription, content_type: 'pvp', spec: templateSpec, raid_required_role_ids: [],
-    });
-    await loadDashboard(selectedGuildId);
+    try {
+      const result = await apiPut<TemplateMutationResultDTO>(`/api/raid-templates/${editingTemplate}`, {
+        description: templateDescription,
+        content_type: templateContentType,
+        spec: templateSpec,
+        raid_required_role_ids: parseRoleIds(templateRequiredRoleIds),
+      });
+      setTemplateFeedback(readTemplateWarnings(result) || 'Template mis à jour.');
+      await loadDashboard(selectedGuildId);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        const warnings = (err.details?.warnings as string[] | undefined) || [];
+        const errors = (err.details?.errors as string[] | undefined) || [];
+        const details = [...errors, ...warnings].join(' | ');
+        setTemplateFeedback(details ? `${err.message} — ${details}` : err.message);
+        return;
+      }
+      setTemplateFeedback(err instanceof Error ? err.message : 'Erreur template');
+    }
+  }
+
+
+  async function onDeleteTemplate() {
+    if (!editingTemplate) return;
+    try {
+      await apiDelete(`/api/raid-templates/${editingTemplate}`);
+      setTemplateFeedback('Template supprimé.');
+      await loadDashboard(selectedGuildId);
+    } catch (err) {
+      setTemplateFeedback(err instanceof Error ? err.message : 'Suppression impossible');
+    }
   }
 
   async function onBankAction(event: FormEvent<HTMLFormElement>) {
@@ -464,22 +494,6 @@ export default function HomePage() {
                 <label>Raid à modifier<select value={editingRaidId} onChange={(e) => setEditingRaidId(e.target.value)}>{state.raids.map((raid) => <option key={raid.raid_id} value={raid.raid_id}>{raid.title}</option>)}</select></label>
                 <button type="button" onClick={() => void onUpdateRaid()}>Modifier le raid</button>
               </div>
-              <div>
-                <h3>Builder de message (ordre/custom)</h3>
-                {raidBlocks.map((block, index) => (
-                  <div key={block.id} className="builder-row">
-                    <input type="checkbox" checked={block.enabled} onChange={(e) => patchBlock(setRaidBlocks, block.id, { enabled: e.target.checked })} />
-                    <select value={block.type} onChange={(e) => patchBlock(setRaidBlocks, block.id, { type: e.target.value as BuilderBlockType })}>
-                      {blockOptions.map((opt) => <option key={opt.type} value={opt.type}>{opt.label}</option>)}
-                    </select>
-                    <button type="button" onClick={() => moveBlock(setRaidBlocks, block.id, -1)} disabled={index === 0}>↑</button>
-                    <button type="button" onClick={() => moveBlock(setRaidBlocks, block.id, 1)} disabled={index === raidBlocks.length - 1}>↓</button>
-                    <button type="button" onClick={() => setRaidBlocks((prev) => prev.filter((b) => b.id !== block.id))}>✕</button>
-                  </div>
-                ))}
-                <button type="button" onClick={() => setRaidBlocks((prev) => [...prev, freshBlock('description')])}>+ Ajouter une partie</button>
-                <pre className="preview-box">{raidPreview || 'Preview raid vide'}</pre>
-              </div>
             </section>
 
             <section className="panel split">
@@ -488,47 +502,31 @@ export default function HomePage() {
                 <form onSubmit={onCreateTemplate} className="form-grid">
                   <label>Nom<input value={templateName} onChange={(e) => setTemplateName(e.target.value)} /></label>
                   <label>Description<input value={templateDescription} onChange={(e) => setTemplateDescription(e.target.value)} /></label>
-                  <label>Spec (auto)<textarea rows={6} value={templateSpec} onChange={(e) => setTemplateSpec(e.target.value)} /></label>
+                  <label>Content type
+                    <select value={templateContentType} onChange={(e) => setTemplateContentType(e.target.value as 'ava_raid' | 'pvp' | 'pve')}>
+                      <option value="pvp">pvp</option>
+                      <option value="pve">pve</option>
+                      <option value="ava_raid">ava_raid</option>
+                    </select>
+                  </label>
+                  <label>Roles requis raid (IDs, séparés par virgule/espace)<input value={templateRequiredRoleIds} onChange={(e) => setTemplateRequiredRoleIds(e.target.value)} /></label>
+                  <label>Spec<textarea rows={8} value={templateSpec} onChange={(e) => setTemplateSpec(e.target.value)} /></label>
                   <button type="submit">Créer template</button>
                 </form>
                 <label>Template à modifier<select value={editingTemplate} onChange={(e) => setEditingTemplate(e.target.value)}>{state.templates.map((tpl) => <option key={tpl.name} value={tpl.name}>{tpl.name}</option>)}</select></label>
-                <button type="button" onClick={() => void onUpdateTemplate()}>Modifier template</button>
+                <div className="inline-actions">
+                  <button type="button" onClick={() => void onUpdateTemplate()}>Modifier template</button>
+                  <button type="button" onClick={() => void onDeleteTemplate()}>Supprimer template</button>
+                </div>
+                {templateFeedback ? <p>{templateFeedback}</p> : null}
               </div>
               <div>
-                <h3>Template builder avancé</h3>
-                {templateRoleDrafts.map((role, index) => (
-                  <div key={role.id} className="builder-row">
-                    <input type="checkbox" checked={role.enabled} onChange={(e) => setTemplateRoleDrafts((prev) => prev.map((r) => (r.id === role.id ? { ...r, enabled: e.target.checked } : r)))} />
-                    <input value={role.label} onChange={(e) => setTemplateRoleDrafts((prev) => prev.map((r) => (r.id === role.id ? { ...r, label: e.target.value } : r)))} placeholder="Rôle" />
-                    <input type="number" min={0} value={role.slots} onChange={(e) => setTemplateRoleDrafts((prev) => prev.map((r) => (r.id === role.id ? { ...r, slots: e.target.value } : r)))} placeholder="Slots" />
-                    <button type="button" onClick={() => setTemplateRoleDrafts((prev) => prev.filter((r) => r.id !== role.id))} disabled={templateRoleDrafts.length < 2}>✕</button>
-                    <button type="button" onClick={() => setTemplateRoleDrafts((prev) => {
-                      if (index === 0) return prev;
-                      const copy = [...prev];
-                      [copy[index], copy[index - 1]] = [copy[index - 1], copy[index]];
-                      return copy;
-                    })}>↑</button>
-                    <button type="button" onClick={() => setTemplateRoleDrafts((prev) => {
-                      if (index === prev.length - 1) return prev;
-                      const copy = [...prev];
-                      [copy[index], copy[index + 1]] = [copy[index + 1], copy[index]];
-                      return copy;
-                    })}>↓</button>
-                  </div>
-                ))}
-                <button type="button" onClick={() => setTemplateRoleDrafts((prev) => [...prev, { id: crypto.randomUUID(), label: 'Nouveau rôle', slots: '1', enabled: true }])}>+ Ajouter un rôle</button>
-                <h4>Ordre des sections du template</h4>
-                {templateBlocks.map((block, index) => (
-                  <div key={block.id} className="builder-row">
-                    <input type="checkbox" checked={block.enabled} onChange={(e) => patchBlock(setTemplateBlocks, block.id, { enabled: e.target.checked })} />
-                    <select value={block.type} onChange={(e) => patchBlock(setTemplateBlocks, block.id, { type: e.target.value as BuilderBlockType })}>
-                      {blockOptions.map((opt) => <option key={opt.type} value={opt.type}>{opt.label}</option>)}
-                    </select>
-                    <button type="button" onClick={() => moveBlock(setTemplateBlocks, block.id, -1)} disabled={index === 0}>↑</button>
-                    <button type="button" onClick={() => moveBlock(setTemplateBlocks, block.id, 1)} disabled={index === templateBlocks.length - 1}>↓</button>
-                  </div>
-                ))}
-                <pre className="preview-box">{templatePreview || 'Preview template vide'}</pre>
+                <h3>Format spec complet</h3>
+                <p>Chaque ligne: <code>Label;slots;options</code>. Options supportées: <code>key=...</code>, <code>ip=true|false</code>, <code>req=roleId1,roleId2</code>.</p>
+                <pre className="preview-box">{`Tank;2;key=tank
+Healer;2;ip=true
+DPS Melee;4;req=123456789012345678
+Support;2;ip=false;roles=234567890123456789,345678901234567890`}</pre>
               </div>
             </section>
           </div>

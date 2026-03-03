@@ -35,6 +35,7 @@ from .schemas import (
     MeDTO,
     RaidOpenRequestDTO,
     RaidTemplateUpdateRequestDTO,
+    TemplateMutationResultDTO,
     RaidUpdateRequestDTO,
     RaidRosterDTO,
     RaidSignupRequestDTO,
@@ -367,7 +368,7 @@ def create_app() -> FastAPI:
             authorizer.ensure_action_allowed(request, action="raid_templates_list")
         return service.list_raid_templates()
 
-    @app.put("/api/raid-templates/{template_name}")
+    @app.put("/api/raid-templates/{template_name}", response_model=TemplateMutationResultDTO)
     def update_template(template_name: str, payload: RaidTemplateUpdateRequestDTO, request: Request):
         ensure_csrf_for_mutation(request)
         if authorizer is not None:
@@ -378,6 +379,18 @@ def create_app() -> FastAPI:
             return service.update_raid_template(template_name, payload)
         except DomainError as exc:
             raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
+
+
+    @app.delete("/api/raid-templates/{template_name}")
+    def delete_template(template_name: str, request: Request):
+        ensure_csrf_for_mutation(request)
+        if authorizer is not None:
+            authorizer.ensure_action_allowed(request, action="comp_wizard")
+        try:
+            service.delete_raid_template(template_name)
+        except DomainError as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
+        return {"ok": True}
 
     @app.put("/api/raids/{raid_id}")
     def update_raid(raid_id: str, payload: RaidUpdateRequestDTO, request: Request):
@@ -565,7 +578,7 @@ def create_app() -> FastAPI:
             status_code = 429 if exc.code == "rate_limited" else 400
             raise HTTPException(status_code=status_code, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
 
-    @app.post("/api/actions/comp-wizard")
+    @app.post("/api/actions/comp-wizard", response_model=TemplateMutationResultDTO)
     def run_comp_wizard(payload: CompTemplateCreateRequestDTO, request: Request):
         ensure_csrf_for_mutation(request)
         if authorizer is None:
