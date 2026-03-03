@@ -34,6 +34,7 @@ from .schemas import (
     GuildDTO,
     RaidDTO,
     RaidTemplateDTO,
+    TemplateMutationResultDTO,
     RaidUpdateRequestDTO,
     RaidTemplateUpdateRequestDTO,
     RaidRosterDTO,
@@ -85,13 +86,17 @@ class OpenRaidFromTemplateHandler(CommandHandler[RaidDTO]):
 
 
 @dataclass
-class StartCompWizardFlowHandler(CommandHandler[RaidTemplateDTO]):
+class StartCompWizardFlowHandler(CommandHandler[TemplateMutationResultDTO]):
     service: "DashboardService"
 
-    def handle(self, command: StartCompWizardFlow) -> RaidTemplateDTO:
-        roles, warnings = parse_comp_spec(command.spec)
-        if warnings and not roles:
-            raise ValidationError(code="invalid_spec", message="; ".join(warnings), details={"warnings": warnings})
+    def handle(self, command: StartCompWizardFlow) -> TemplateMutationResultDTO:
+        roles, warnings, errors = self.service.parse_template_spec(command.spec)
+        if errors:
+            raise ValidationError(
+                code="invalid_spec",
+                message="; ".join(errors),
+                details={"warnings": warnings, "errors": errors},
+            )
 
         template = CompTemplate(
             name=command.template_id,
@@ -103,7 +108,8 @@ class StartCompWizardFlowHandler(CommandHandler[RaidTemplateDTO]):
         )
         self.service.store.templates[command.template_id] = template
         self.service.store.save()
-        return next(tpl for tpl in self.service.list_raid_templates() if tpl.name == command.template_id)
+        dto = next(tpl for tpl in self.service.list_raid_templates() if tpl.name == command.template_id)
+        return TemplateMutationResultDTO(template=dto, spec_warnings=warnings, spec_errors=[])
 
 
 class DashboardService:
@@ -277,19 +283,31 @@ class DashboardService:
         self.store.ticket_messages.pop(ticket_id, None)
         self.store.save()
 
-    def update_raid_template(self, template_name: str, payload: RaidTemplateUpdateRequestDTO) -> RaidTemplateDTO:
+    def update_raid_template(self, template_name: str, payload: RaidTemplateUpdateRequestDTO) -> TemplateMutationResultDTO:
         template = self.store.templates.get(template_name)
         if template is None:
             raise ValidationError(code="template_not_found", message="Template introuvable")
-        roles, warnings = parse_comp_spec(payload.spec)
-        if warnings and not roles:
-            raise ValidationError(code="invalid_spec", message="; ".join(warnings), details={"warnings": warnings})
+        roles, warnings, errors = self.parse_template_spec(payload.spec)
+        if errors:
+            raise ValidationError(
+                code="invalid_spec",
+                message="; ".join(errors),
+                details={"warnings": warnings, "errors": errors},
+            )
         template.description = payload.description
         template.content_type = payload.content_type
         template.raid_required_role_ids = payload.raid_required_role_ids
         template.roles = roles
         self.store.save()
-        return next(tpl for tpl in self.list_raid_templates() if tpl.name == template_name)
+        dto = next(tpl for tpl in self.list_raid_templates() if tpl.name == template_name)
+        return TemplateMutationResultDTO(template=dto, spec_warnings=warnings, spec_errors=[])
+
+    def delete_raid_template(self, template_name: str) -> None:
+        template = self.store.templates.get(template_name)
+        if template is None:
+            raise ValidationError(code="template_not_found", message="Template introuvable")
+        self.store.templates.pop(template.name, None)
+        self.store.save()
 
     def update_raid(self, raid_id: str, payload: RaidUpdateRequestDTO) -> RaidDTO:
         raid = self.store.raids.get(raid_id)
@@ -483,3 +501,16 @@ class DashboardService:
             publish_status=publish_status,
             publish_error=publish_error,
         )
+    @staticmethod
+    def parse_template_spec(spec: str) -> tuple[list, list[str], list[str]]:
+        roles, raw_warnings = parse_comp_spec(spec)
+        errors: list[str] = []
+        warnings: list[str] = []
+        for message in raw_warnings:
+            if message.startswith("Ligne") and ("format invalide" in message or "slots invalide" in message):
+                errors.append(message)
+            elif message in {"Spec vide.", "Aucun rôle valide."}:
+                errors.append(message)
+            else:
+                warnings.append(message)
+        return roles, warnings, errors

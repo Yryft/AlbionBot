@@ -1,5 +1,23 @@
 export type RoleDTO = { id: string; name: string };
 
+export type ApiErrorPayload = {
+  code?: string;
+  message?: string;
+  details?: Record<string, unknown>;
+};
+
+export class ApiError extends Error {
+  code?: string;
+  details?: Record<string, unknown>;
+
+  constructor(message: string, payload?: ApiErrorPayload) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = payload?.code;
+    this.details = payload?.details;
+  }
+}
+
 export type GuildDTO = { id: string; name: string; roles?: RoleDTO[] };
 
 export type ApiOverviewDTO = {
@@ -71,6 +89,12 @@ export type RaidRoleDTO = {
   slots: number;
   ip_required: boolean;
   required_role_ids: string[];
+};
+
+export type TemplateMutationResultDTO = {
+  template: RaidTemplateDTO;
+  spec_warnings: string[];
+  spec_errors: string[];
 };
 
 export type RaidTemplateDTO = {
@@ -165,16 +189,21 @@ async function parseJsonSafe<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-async function buildApiError(res: Response, path: string): Promise<Error> {
+async function buildApiError(res: Response, path: string): Promise<ApiError> {
   try {
     const payload = (await res.json()) as { detail?: unknown };
-    if (typeof payload.detail === "string") {
-      return new Error(payload.detail);
+    if (typeof payload.detail === 'string') {
+      return new ApiError(payload.detail);
+    }
+    if (payload.detail && typeof payload.detail === 'object') {
+      const detail = payload.detail as ApiErrorPayload;
+      const message = detail.message || `API error (${res.status}) on ${path}`;
+      return new ApiError(message, detail);
     }
   } catch {
     // ignore parsing issues and fallback to status-based error
   }
-  return new Error(`API error (${res.status}) on ${path}`);
+  return new ApiError(`API error (${res.status}) on ${path}`);
 }
 
 export async function apiGet<T>(path: string): Promise<T> {

@@ -17,7 +17,7 @@ Bot Discord basé sur **Nextcord** pour la gestion de guilde Albion Online.
 - Ouverture de raid depuis template avec UI interactive.
 - Gestion des inscriptions/absents/waitlist.
 - Outils manager raid : édition, fermeture, listing, split loot.
-- Dashboard web: aperçu temps réel raid/template, builder de sections (ordre + activation), onglet Banque aligné commandes bot (`/bank_add`, `/bank_remove`, `/bank_add_split`, `/bank_remove_split`, `/bank_undo`, `/pay`, `/bal`).
+- Dashboard web: onglet Banque aligné commandes bot (`/bank_add`, `/bank_remove`, `/bank_add_split`, `/bank_remove_split`, `/bank_undo`, `/pay`, `/bal`) et gestion templates alignée sur le modèle bot (`content_type`, `raid_required_role_ids`, spec complète).
 - Backend dashboard: cache temporaire des permissions/roles membres Discord (moins d’appels API sur commandes répétées), suivi robuste de publication raid via `publish_status`/`publish_error`, leaderboard balances + actions manager, transfert `/pay`, consultation ciblée `/bal`, historique d'actions et undo.
 - Convention API dashboard: tous les IDs Discord (`guild_id`, `user_id`, `message_id`, `role_id`, `channel_id`) sont exposés en **string** côté HTTP/JSON, avec conversion explicite en interne backend.
 - Sécurité dashboard: toutes les routes backend mutantes (`POST`/`PUT`/`DELETE`) exigent un header `X-CSRF-Token` valide avant les contrôles métier.
@@ -310,3 +310,20 @@ Voici une matrice pratique par service.
 
 ## Licence
 MIT (`LICENSE`)
+
+
+### Spec template compatible parse_comp_spec
+
+Format attendu: `Label;slots;options`.
+
+Exemple:
+
+```text
+Tank;2;key=tank
+Healer;2;ip=true
+DPS Melee;4;req=123456789012345678
+Support;2;roles=234567890123456789,345678901234567890
+```
+
+- Erreurs bloquantes (spec vide, slots invalides, ligne mal formée) retournées par le backend dashboard avec détail.
+- Warnings non bloquants (options inconnues ignorées) retournés dans la réponse de création/édition (`spec_warnings`).

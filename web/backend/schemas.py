@@ -59,6 +59,12 @@ class RaidTemplateDTO(BaseModel):
     roles: List[RaidRoleDTO] = Field(default_factory=list)
 
 
+class TemplateMutationResultDTO(BaseModel):
+    template: RaidTemplateDTO
+    spec_warnings: List[str] = Field(default_factory=list)
+    spec_errors: List[str] = Field(default_factory=list)
+
+
 class RaidOpenRequestDTO(BaseModel):
     request_id: str
     guild_id: str
