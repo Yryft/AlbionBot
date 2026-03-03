@@ -43,6 +43,7 @@ input, select, textarea { border-radius: 8px; border: 1px solid #3b3d44; backgro
 .raid-item { display: flex; flex-direction: column; border: 1px solid #3b3d44; border-radius: 8px; padding: 8px; }
 .split { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
 .error-banner { background: #f23f43; border-radius: 8px; padding: 8px; margin: 0; }
+.info-banner { background: #1f2a44; border: 1px solid #405f9b; color: #dbe6ff; border-radius: 8px; padding: 8px 10px; margin: 0; }
 .muted, small { color: #b5bac1; }
 .inline-filters { display: flex; gap: 16px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
 .check { display: flex !important; align-items: center; gap: 6px; }

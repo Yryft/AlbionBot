@@ -404,6 +404,9 @@ export default function HomePage() {
         </header>
 
         {error && <p className="error-banner">{error}</p>}
+        <p className="info-banner">
+          Les actions du dashboard pilotent le bot Discord: chaque changement demandé ici est synchronisé et exécuté côté bot.
+        </p>
 
         <div className="tabs">
           <button type="button" className={activeTab === 'active' ? 'tab active' : 'tab'} onClick={() => setActiveTab('active')}>Dashboard</button>
