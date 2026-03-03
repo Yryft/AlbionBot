@@ -107,6 +107,7 @@ export default function HomePage() {
   const [discordDirectory, setDiscordDirectory] = useState<DiscordDirectoryDTO | null>(null);
   const [manualRaidChannelId, setManualRaidChannelId] = useState('');
   const [manualRaidVoiceChannelId, setManualRaidVoiceChannelId] = useState('');
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
 
   async function loadDashboard(guildId?: string | null) {
@@ -196,6 +197,30 @@ export default function HomePage() {
 
   const canUseDashboard = Boolean(state.me?.guilds?.length);
 
+  function setFieldError(key: string, message: string) {
+    setFormErrors((prev) => ({ ...prev, [key]: message }));
+  }
+
+  function clearFieldError(key: string) {
+    setFormErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
+  function readPositiveAmount(value: string): number | null {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) return null;
+    return parsed;
+  }
+
+  function isValidFutureDate(value: string): boolean {
+    const ts = new Date(value).getTime();
+    return Number.isFinite(ts) && ts > Date.now();
+  }
+
   useEffect(() => {
     const template = state.templates.find((tpl) => tpl.name === editingTemplate);
     if (!template) return;
@@ -238,16 +263,26 @@ export default function HomePage() {
 
   async function onOpenRaid(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedGuildId || !raidTemplate || !raidStartAt || !raidTitle) return;
+    const nextErrors: Record<string, string> = {};
+    if (!selectedGuildId) nextErrors.openRaidGuild = 'Sélectionne un serveur avant de créer un raid.';
+    if (!raidTemplate) nextErrors.openRaidTemplate = 'Le template est requis.';
+    if (!raidTitle.trim()) nextErrors.openRaidTitle = 'Le titre est requis.';
+    if (!raidStartAt) {
+      nextErrors.openRaidStartAt = 'La date du raid est requise.';
+    } else if (!isValidFutureDate(raidStartAt)) {
+      nextErrors.openRaidStartAt = 'Date invalide ou passée. Choisis une date future.';
+    }
     const effectiveRaidChannelId = manualRaidChannelId.trim() || raidChannelId;
     const effectiveRaidVoiceChannelId = manualRaidVoiceChannelId.trim() || raidVoiceChannelId;
-    if (!effectiveRaidChannelId) return;
+    if (!effectiveRaidChannelId) nextErrors.openRaidChannel = 'Le salon texte est requis.';
     if (!channelIds.has(effectiveRaidChannelId)) {
-      setError(`ID de salon textuel invalide (absent du répertoire local): ${effectiveRaidChannelId}`);
-      return;
+      nextErrors.openRaidChannel = `ID de salon textuel invalide (absent du répertoire local): ${effectiveRaidChannelId}`;
     }
     if (effectiveRaidVoiceChannelId && !channelIds.has(effectiveRaidVoiceChannelId)) {
-      setError(`ID de salon vocal invalide (absent du répertoire local): ${effectiveRaidVoiceChannelId}`);
+      nextErrors.openRaidVoiceChannel = `ID de salon vocal invalide (absent du répertoire local): ${effectiveRaidVoiceChannelId}`;
+    }
+    if (Object.keys(nextErrors).length) {
+      setFormErrors((prev) => ({ ...prev, ...nextErrors }));
       return;
     }
     await apiPost('/api/actions/raids/open', {
@@ -260,7 +295,18 @@ export default function HomePage() {
   }
 
   async function onUpdateRaid() {
-    if (!editingRaidId || !raidTitle || !raidStartAt) return;
+    const nextErrors: Record<string, string> = {};
+    if (!editingRaidId) nextErrors.updateRaidId = 'Sélectionne un raid à modifier.';
+    if (!raidTitle.trim()) nextErrors.updateRaidTitle = 'Le titre est requis pour modifier un raid.';
+    if (!raidStartAt) {
+      nextErrors.updateRaidStartAt = 'La date du raid est requise.';
+    } else if (!isValidFutureDate(raidStartAt)) {
+      nextErrors.updateRaidStartAt = 'Date invalide ou passée. Choisis une date future.';
+    }
+    if (Object.keys(nextErrors).length) {
+      setFormErrors((prev) => ({ ...prev, ...nextErrors }));
+      return;
+    }
     await apiPut(`/api/raids/${editingRaidId}`, {
       title: raidTitle, description: raidDescription, extra_message: raidExtraMessage,
       start_at: Math.floor(new Date(raidStartAt).getTime() / 1000), prep_minutes: 10, cleanup_minutes: 30,
@@ -354,29 +400,48 @@ export default function HomePage() {
 
   async function onBankAction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedGuildId) return;
+    const nextErrors: Record<string, string> = {};
+    if (!selectedGuildId) nextErrors.bankGuild = 'Sélectionne un serveur pour utiliser la banque.';
+    const amount = readPositiveAmount(bankAmount);
+    if (!amount) nextErrors.bankAmount = 'Le montant doit être strictement supérieur à 0.';
     const manualTargets = bankTargetsManual.split(/[\s,]+/).map((id) => id.trim()).filter((id) => /^([1-9]\d*)$/.test(id));
     const target_user_ids = Array.from(new Set([...bankTargetIds, ...manualTargets]));
+    if (!target_user_ids.length) nextErrors.bankTargets = 'Sélectionne au moins un utilisateur cible.';
     const unknownTargets = target_user_ids.filter((id) => !memberIds.has(id));
     if (unknownTargets.length) {
-      setError(`IDs utilisateur inconnus dans le répertoire local: ${unknownTargets.join(', ')}`);
+      nextErrors.bankTargets = `IDs utilisateur inconnus dans le répertoire local: ${unknownTargets.join(', ')}`;
+    }
+    if (Object.keys(nextErrors).length) {
+      setFormErrors((prev) => ({ ...prev, ...nextErrors }));
       return;
     }
     await apiPost('/api/actions/bank/apply', {
       request_id: crypto.randomUUID(), guild_id: selectedGuildId, action_type: bankActionType,
-      amount: Number(bankAmount), target_user_ids, note: 'dashboard',
+      amount, target_user_ids, note: 'dashboard',
     });
     await loadDashboard(selectedGuildId);
   }
 
 
   async function onQuickBalanceAction(action: 'add' | 'remove') {
-    if (!selectedGuildId || !selectedBalanceUserId) return;
+    const amount = readPositiveAmount(quickAmount);
+    if (!selectedGuildId) {
+      setFieldError('quickBalanceGuild', 'Sélectionne un serveur pour utiliser la banque.');
+      return;
+    }
+    if (!selectedBalanceUserId) {
+      setFieldError('quickBalanceUser', 'Sélectionne un membre cible.');
+      return;
+    }
+    if (!amount) {
+      setFieldError('quickBalanceAmount', 'Le montant doit être strictement supérieur à 0.');
+      return;
+    }
     await apiPost('/api/actions/bank/apply', {
       request_id: crypto.randomUUID(),
       guild_id: selectedGuildId,
       action_type: action,
-      amount: Number(quickAmount),
+      amount,
       target_user_ids: [selectedBalanceUserId],
       note: 'dashboard-quick',
     });
@@ -385,9 +450,14 @@ export default function HomePage() {
 
   async function onLookupBalance(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedGuildId || !lookupUserId) return;
+    const nextErrors: Record<string, string> = {};
+    if (!selectedGuildId) nextErrors.lookupGuild = 'Sélectionne un serveur pour consulter une balance.';
+    if (!lookupUserId) nextErrors.lookupUserId = 'Un user ID est requis.';
     if (!memberIds.has(lookupUserId)) {
-      setError(`ID utilisateur invalide (absent du répertoire local): ${lookupUserId}`);
+      nextErrors.lookupUserId = `ID utilisateur invalide (absent du répertoire local): ${lookupUserId}`;
+    }
+    if (Object.keys(nextErrors).length) {
+      setFormErrors((prev) => ({ ...prev, ...nextErrors }));
       return;
     }
     const balance = await apiGet<BankBalanceDTO>(`/api/guilds/${selectedGuildId}/balances/${lookupUserId}`);
@@ -396,11 +466,19 @@ export default function HomePage() {
 
   async function onPay(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedGuildId || !payTargetUserId) return;
+    const nextErrors: Record<string, string> = {};
+    if (!selectedGuildId) nextErrors.payGuild = 'Sélectionne un serveur pour effectuer un transfert.';
+    if (!payTargetUserId) nextErrors.payTarget = 'Le destinataire est requis.';
+    const amount = readPositiveAmount(payAmount);
+    if (!amount) nextErrors.payAmount = 'Le montant doit être strictement supérieur à 0.';
+    if (Object.keys(nextErrors).length) {
+      setFormErrors((prev) => ({ ...prev, ...nextErrors }));
+      return;
+    }
     await apiPost('/api/actions/bank/pay', {
       guild_id: selectedGuildId,
       to_user_id: payTargetUserId,
-      amount: Number(payAmount),
+      amount,
       note: payNote,
     });
     setPayNote('');
@@ -415,7 +493,16 @@ export default function HomePage() {
 
   async function onSignupRaid(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedRaidId || !signupRoleKey) return;
+    const nextErrors: Record<string, string> = {};
+    if (!selectedRaidId) nextErrors.signupRaid = 'Sélectionne un raid avant de t’inscrire.';
+    if (!signupRoleKey) nextErrors.signupRole = 'Le rôle est requis.';
+    if (signupIp && (!/^\d+$/.test(signupIp) || Number(signupIp) <= 0)) {
+      nextErrors.signupIp = 'IP invalide: saisir un entier strictement positif.';
+    }
+    if (Object.keys(nextErrors).length) {
+      setFormErrors((prev) => ({ ...prev, ...nextErrors }));
+      return;
+    }
     const payload: Record<string, unknown> = { role_key: signupRoleKey };
     if (signupIp) payload.ip = Number(signupIp);
     const roster = await apiPost<RaidRosterDTO>(`/api/raids/${selectedRaidId}/signup`, payload);
@@ -457,6 +544,13 @@ export default function HomePage() {
   }
 
   const currentUserAvatar = state.me?.user.avatar ? `https://cdn.discordapp.com/avatars/${state.me.user.id}/${state.me.user.avatar}.png?size=64` : '';
+  const canOpenRaid = Boolean(selectedGuildId && raidTemplate && raidTitle.trim() && raidStartAt && (manualRaidChannelId.trim() || raidChannelId));
+  const canUpdateRaid = Boolean(editingRaidId && raidTitle.trim() && raidStartAt);
+  const canApplyBankAction = Boolean(selectedGuildId && readPositiveAmount(bankAmount) && (bankTargetIds.length || bankTargetsManual.trim()));
+  const canQuickAction = Boolean(selectedGuildId && selectedBalanceUserId && readPositiveAmount(quickAmount));
+  const canLookupBalance = Boolean(selectedGuildId && lookupUserId.trim());
+  const canPay = Boolean(selectedGuildId && payTargetUserId && readPositiveAmount(payAmount));
+  const canSignupRaid = Boolean(selectedRaidId && signupRoleKey && (!signupIp || (/^\d+$/.test(signupIp) && Number(signupIp) > 0)));
 
   return (
     <main className="discord-shell">
@@ -506,36 +600,43 @@ export default function HomePage() {
               <div>
                 <h2>Raid opener</h2>
                 <form onSubmit={onOpenRaid} className="form-grid">
-                  <label>Template<select value={raidTemplate} onChange={(e) => setRaidTemplate(e.target.value)}>{state.templates.map((tpl) => <option key={tpl.name} value={tpl.name}>{tpl.name}</option>)}</select></label>
-                  <label>Titre<input value={raidTitle} onChange={(e) => setRaidTitle(e.target.value)} /></label>
+                  <label>Template<select value={raidTemplate} onChange={(e) => { setRaidTemplate(e.target.value); clearFieldError('openRaidTemplate'); }} required>{state.templates.map((tpl) => <option key={tpl.name} value={tpl.name}>{tpl.name}</option>)}</select></label>
+                  {formErrors.openRaidTemplate && <small className="error-banner">{formErrors.openRaidTemplate}</small>}
+                  <label>Titre<input value={raidTitle} onChange={(e) => { setRaidTitle(e.target.value); clearFieldError('openRaidTitle'); }} required /></label>
+                  {formErrors.openRaidTitle && <small className="error-banner">{formErrors.openRaidTitle}</small>}
                   <label>Description<input value={raidDescription} onChange={(e) => setRaidDescription(e.target.value)} /></label>
                   <label>Message additionnel<input value={raidExtraMessage} onChange={(e) => setRaidExtraMessage(e.target.value)} /></label>
-                  <label>Date / heure<input type="datetime-local" value={raidStartAt} onChange={(e) => setRaidStartAt(e.target.value)} /></label>
+                  <label>Date / heure<input type="datetime-local" value={raidStartAt} onChange={(e) => { setRaidStartAt(e.target.value); clearFieldError('openRaidStartAt'); }} required /></label>
+                  {formErrors.openRaidStartAt && <small className="error-banner">{formErrors.openRaidStartAt}</small>}
                   <label>Salon texte
-                    <select value={raidChannelId} onChange={(e) => setRaidChannelId(e.target.value)}>
+                    <select value={raidChannelId} onChange={(e) => { setRaidChannelId(e.target.value); clearFieldError('openRaidChannel'); }} required>
                       <option value="">Sélectionner un salon texte</option>
                       {textChannels.map((c) => <option key={c.id} value={c.id}>#{c.name} ({c.id})</option>)}
                     </select>
                   </label>
+                  {formErrors.openRaidChannel && <small className="error-banner">{formErrors.openRaidChannel}</small>}
                   <label>Salon vocal
-                    <select value={raidVoiceChannelId} onChange={(e) => setRaidVoiceChannelId(e.target.value)}>
+                    <select value={raidVoiceChannelId} onChange={(e) => { setRaidVoiceChannelId(e.target.value); clearFieldError('openRaidVoiceChannel'); }}>
                       <option value="">Aucun</option>
                       {voiceChannels.map((c) => <option key={c.id} value={c.id}>#{c.name} ({c.id})</option>)}
                     </select>
                   </label>
+                  {formErrors.openRaidVoiceChannel && <small className="error-banner">{formErrors.openRaidVoiceChannel}</small>}
                   <details>
                     <summary>Mode ID manuel (dépannage)</summary>
                     <label>ID salon texte manuel
-                      <input value={manualRaidChannelId} onChange={(e) => setManualRaidChannelId(e.target.value)} />
+                      <input value={manualRaidChannelId} onChange={(e) => { setManualRaidChannelId(e.target.value); clearFieldError('openRaidChannel'); }} inputMode="numeric" />
                     </label>
                     <label>ID salon vocal manuel
-                      <input value={manualRaidVoiceChannelId} onChange={(e) => setManualRaidVoiceChannelId(e.target.value)} />
+                      <input value={manualRaidVoiceChannelId} onChange={(e) => { setManualRaidVoiceChannelId(e.target.value); clearFieldError('openRaidVoiceChannel'); }} inputMode="numeric" />
                     </label>
                   </details>
-                  <button type="submit">Ouvrir le raid</button>
+                  <button type="submit" disabled={!canOpenRaid}>Ouvrir le raid</button>
                 </form>
                 <label>Raid à modifier<select value={editingRaidId} onChange={(e) => setEditingRaidId(e.target.value)}>{state.raids.map((raid) => <option key={raid.raid_id} value={raid.raid_id}>{raid.title}</option>)}</select></label>
-                <button type="button" onClick={() => void onUpdateRaid()}>Modifier le raid</button>
+                {formErrors.updateRaidTitle && <small className="error-banner">{formErrors.updateRaidTitle}</small>}
+                {formErrors.updateRaidStartAt && <small className="error-banner">{formErrors.updateRaidStartAt}</small>}
+                <button type="button" onClick={() => void onUpdateRaid()} disabled={!canUpdateRaid}>Modifier le raid</button>
               </div>
             </section>
 
@@ -597,49 +698,55 @@ Support;2;ip=false;roles=234567890123456789,345678901234567890`}</pre>
                     </select>
                   </label>
                   <label>Montant
-                    <input type="number" min={0} value={quickAmount} onChange={(e) => setQuickAmount(e.target.value)} />
+                    <input type="number" min={1} step="1" inputMode="numeric" required value={quickAmount} onChange={(e) => { setQuickAmount(e.target.value); clearFieldError('quickBalanceAmount'); }} />
                   </label>
+                  {formErrors.quickBalanceAmount && <small className="error-banner">{formErrors.quickBalanceAmount}</small>}
                   <div className="inline-actions">
-                    <button type="button" onClick={() => void onQuickBalanceAction('add')}>/bank_add</button>
-                    <button type="button" onClick={() => void onQuickBalanceAction('remove')}>/bank_remove</button>
+                    <button type="button" onClick={() => void onQuickBalanceAction('add')} disabled={!canQuickAction}>/bank_add</button>
+                    <button type="button" onClick={() => void onQuickBalanceAction('remove')} disabled={!canQuickAction}>/bank_remove</button>
                   </div>
                 </div>
                 <form className="form-grid" onSubmit={onBankAction}>
                   <label>Type<select value={bankActionType} onChange={(e) => setBankActionType(e.target.value as BankActionType)}><option value="add_split">/bank_add_split</option><option value="remove_split">/bank_remove_split</option><option value="add">/bank_add</option><option value="remove">/bank_remove</option></select></label>
-                  <label>Montant<input type="number" min={0} value={bankAmount} onChange={(e) => setBankAmount(e.target.value)} /></label>
+                  <label>Montant<input type="number" min={1} step="1" inputMode="numeric" required value={bankAmount} onChange={(e) => { setBankAmount(e.target.value); clearFieldError('bankAmount'); }} /></label>
+                  {formErrors.bankAmount && <small className="error-banner">{formErrors.bankAmount}</small>}
                   <label>Utilisateurs cibles
-                    <select multiple size={6} value={bankTargetIds} onChange={(e) => setBankTargetIds(Array.from(e.target.selectedOptions, (option) => option.value))}>
+                    <select multiple size={6} value={bankTargetIds} onChange={(e) => { setBankTargetIds(Array.from(e.target.selectedOptions, (option) => option.value)); clearFieldError('bankTargets'); }} required>
                       {(discordDirectory?.members || []).map((m) => <option key={m.id} value={m.id}>{m.display_name} ({m.id})</option>)}
                     </select>
                   </label>
+                  {formErrors.bankTargets && <small className="error-banner">{formErrors.bankTargets}</small>}
                   <details>
                     <summary>Mode ID manuel (dépannage)</summary>
                     <label>User IDs manuels
-                      <input value={bankTargetsManual} onChange={(e) => setBankTargetsManual(e.target.value)} placeholder="id1,id2,id3" />
+                      <input value={bankTargetsManual} onChange={(e) => { setBankTargetsManual(e.target.value); clearFieldError('bankTargets'); }} placeholder="id1,id2,id3" inputMode="numeric" />
                     </label>
                   </details>
-                  <button type="submit">Appliquer action manager</button>
+                  <button type="submit" disabled={!canApplyBankAction}>Appliquer action manager</button>
                 </form>
               </div>
               <div>
                 <h3>Consultation ciblée & transfert</h3>
                 <form className="form-grid" onSubmit={onLookupBalance}>
                   <label>User ID
-                    <input list="member-ids" value={lookupUserId} onChange={(e) => setLookupUserId(e.target.value)} />
+                    <input list="member-ids" value={lookupUserId} onChange={(e) => { setLookupUserId(e.target.value); clearFieldError('lookupUserId'); }} inputMode="numeric" required />
                   </label>
+                  {formErrors.lookupUserId && <small className="error-banner">{formErrors.lookupUserId}</small>}
                   <datalist id="member-ids">{(discordDirectory?.members || []).map((m) => <option key={m.id} value={m.id} label={`${m.display_name} (${m.id})`} />)}</datalist>
-                  <button type="submit">/bal</button>
+                  <button type="submit" disabled={!canLookupBalance}>/bal</button>
                 </form>
                 {lookupBalance && <p>Balance: <strong>{lookupBalance.balance.toLocaleString('fr-FR')}</strong></p>}
                 <form className="form-grid" onSubmit={onPay}>
                   <label>Destinataire
-                    <select value={payTargetUserId} onChange={(e) => setPayTargetUserId(e.target.value)}>
+                    <select value={payTargetUserId} onChange={(e) => { setPayTargetUserId(e.target.value); clearFieldError('payTarget'); }} required>
                       {(discordDirectory?.members || []).map((m) => <option key={m.id} value={m.id}>{m.display_name} ({m.id})</option>)}
                     </select>
                   </label>
-                  <label>Montant<input type="number" min={1} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} /></label>
+                  {formErrors.payTarget && <small className="error-banner">{formErrors.payTarget}</small>}
+                  <label>Montant<input type="number" min={1} step="1" inputMode="numeric" required value={payAmount} onChange={(e) => { setPayAmount(e.target.value); clearFieldError('payAmount'); }} /></label>
+                  {formErrors.payAmount && <small className="error-banner">{formErrors.payAmount}</small>}
                   <label>Note<input value={payNote} onChange={(e) => setPayNote(e.target.value)} /></label>
-                  <button type="submit">/pay</button>
+                  <button type="submit" disabled={!canPay}>/pay</button>
                 </form>
                 <h4>Historique actions manager</h4>
                 <ul>{bankHistory.map((action) => (
@@ -685,17 +792,19 @@ Support;2;ip=false;roles=234567890123456789,345678901234567890`}</pre>
                 <h3>Inscriptions en ligne</h3>
                 <form className="form-grid" onSubmit={onSignupRaid}>
                   <label>Rôle
-                    <select value={signupRoleKey} onChange={(e) => setSignupRoleKey(e.target.value)}>
+                    <select value={signupRoleKey} onChange={(e) => { setSignupRoleKey(e.target.value); clearFieldError('signupRole'); }} required>
                       {(state.templates.find((t) => t.name === selectedRoster.raid.template_name)?.roles || []).map((r) => (
                         <option key={r.key} value={r.key}>{r.label} ({r.slots})</option>
                       ))}
                     </select>
                   </label>
+                  {formErrors.signupRole && <small className="error-banner">{formErrors.signupRole}</small>}
                   <label>IP (si requis)
-                    <input value={signupIp} onChange={(e) => setSignupIp(e.target.value)} placeholder="1200" />
+                    <input type="number" min={1} step="1" inputMode="numeric" value={signupIp} onChange={(e) => { setSignupIp(e.target.value); clearFieldError('signupIp'); }} placeholder="1200" />
                   </label>
+                  {formErrors.signupIp && <small className="error-banner">{formErrors.signupIp}</small>}
                   <div className="inline-actions">
-                    <button type="submit">M'inscrire / Modifier</button>
+                    <button type="submit" disabled={!canSignupRaid}>M'inscrire / Modifier</button>
                     <button type="button" onClick={() => void onLeaveRaid()}>Quitter le raid</button>
                   </div>
                 </form>
