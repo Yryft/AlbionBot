@@ -280,7 +280,7 @@ class DashboardService:
 
     def list_balances(self, guild_id: int) -> List[BalanceEntryDTO]:
         rows, _ = self.store.bank_get_leaderboard(guild_id, limit=500, offset=0)
-        return [BalanceEntryDTO(user_id=user_id, balance=balance) for user_id, balance in rows]
+        return [BalanceEntryDTO(user_id=user_id, balance=balance, rank=index + 1) for index, (user_id, balance) in enumerate(rows)]
 
     def apply_bank_action(self, guild_id: int, actor_id: int, action_type: str, amount: int, target_user_ids: List[int], note: str) -> BankActionResultDTO:
         if not target_user_ids:

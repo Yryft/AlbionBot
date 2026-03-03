@@ -138,6 +138,7 @@ class RaidUpdateRequestDTO(BaseModel):
 class BalanceEntryDTO(BaseModel):
     user_id: int
     balance: int
+    rank: int = 0
 
 
 class BankActionRequestDTO(BaseModel):

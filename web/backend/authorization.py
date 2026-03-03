@@ -9,6 +9,7 @@ from fastapi import HTTPException, Request
 from albionbot.config import Config, load_config
 from albionbot.storage.store import Store
 from albionbot.utils.permissions import (
+    PERM_BANK_MANAGER,
     PERM_RAID_MANAGER,
     PERM_TICKET_MANAGER,
     has_logical_permission,
@@ -25,10 +26,12 @@ PERMISSION_BY_ACTION: Dict[str, str] = {
     "raid_templates_list": PERM_RAID_MANAGER,
     "raid_open": PERM_RAID_MANAGER,
     "comp_wizard": PERM_RAID_MANAGER,
+    "bank_manage": PERM_BANK_MANAGER,
 }
 
 DISCORD_PERM_ADMINISTRATOR = 0x00000008
 DISCORD_PERM_MANAGE_GUILD = 0x00000020
+MEMBER_CACHE_TTL_SECONDS = 15 * 60
 
 
 @dataclass
@@ -67,7 +70,7 @@ class DashboardAuthorizationService:
         is_owner = bool(user_guild.get("owner", False))
         member_role_ids: List[int] = []
         try:
-            member = self._fetch_member_data(session, resolved_guild_id, user_id)
+            member = self._fetch_member_data_cached(session, resolved_guild_id, user_id)
             member_role_ids = [int(rid) for rid in member.get("roles", [])]
         except HTTPException:
             if not is_owner:
@@ -97,7 +100,7 @@ class DashboardAuthorizationService:
             self._log_decision(False, action, resolved_guild_id, user_id, permission_key, "guild_not_managed")
             raise HTTPException(status_code=403, detail="Guild non gérée par le bot")
 
-        member = self._fetch_member_data(session, resolved_guild_id, user_id)
+        member = self._fetch_member_data_cached(session, resolved_guild_id, user_id)
         member_role_ids = [int(rid) for rid in member.get("roles", [])]
         permission_bits = int(member.get("permissions", user_guild.get("permissions", "0")) or "0")
         is_admin = bool(permission_bits & DISCORD_PERM_ADMINISTRATOR) or bool(user_guild.get("owner", False))
@@ -123,6 +126,22 @@ class DashboardAuthorizationService:
             user_id=user_id,
             permission_key=permission_key,
         )
+
+
+    def _fetch_member_data_cached(self, session: SessionData, guild_id: int, user_id: int) -> dict:
+        import time
+
+        now = int(time.time())
+        cache_entry = session.cached_member_contexts.get(int(guild_id))
+        if cache_entry and int(cache_entry.get("expires_at", 0)) > now:
+            return dict(cache_entry.get("member", {}))
+
+        member = self._fetch_member_data(session, guild_id, user_id)
+        session.cached_member_contexts[int(guild_id)] = {
+            "member": dict(member),
+            "expires_at": now + MEMBER_CACHE_TTL_SECONDS,
+        }
+        return member
 
     def _fetch_member_data(self, session: SessionData, guild_id: int, user_id: int) -> dict:
         try:

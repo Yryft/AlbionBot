@@ -3,7 +3,7 @@ from __future__ import annotations
 import secrets
 import time
 import urllib.parse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 import httpx
@@ -44,6 +44,7 @@ class SessionData:
     user: dict
     guilds: List[dict]
     selected_guild_id: Optional[int] = None
+    cached_member_contexts: Dict[int, dict] = field(default_factory=dict)
 
 
 class SessionManager:
@@ -117,6 +118,7 @@ class DiscordOAuthService:
         session.token_expires_at = now + int(refreshed.get("expires_in", 3600))
         session.user = self.fetch_user(session.access_token)
         session.guilds = self.fetch_user_guilds(session.access_token)
+        session.cached_member_contexts.clear()
         return session
 
     def ensure_valid_session(self, session: SessionData) -> SessionData:

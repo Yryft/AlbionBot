@@ -117,6 +117,7 @@ export type RaidRosterDTO = {
 export type BalanceEntryDTO = {
   user_id: string;
   balance: number;
+  rank?: number;
 };
 
 export type BankActionType = 'add' | 'remove' | 'add_split' | 'remove_split';

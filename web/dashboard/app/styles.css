@@ -65,3 +65,8 @@ input, select, textarea { border-radius: 8px; border: 1px solid #3b3d44; backgro
 .roster-panel { margin-top: 12px; }
 .roster-panel h3 { margin-top: 0; }
 .raid-item .row { margin-bottom: 6px; }
+
+.builder-row { display: grid; grid-template-columns: auto minmax(120px,1fr) minmax(70px,120px) auto auto auto; gap: 6px; align-items: center; margin-bottom: 6px; }
+.preview-box { background: #1e1f22; border: 1px solid #3b3d44; border-radius: 8px; padding: 10px; white-space: pre-wrap; }
+.panel h4 { margin-bottom: 8px; }
+button:disabled { opacity: .55; cursor: not-allowed; }
