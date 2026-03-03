@@ -396,6 +396,17 @@ class RaidModule:
         tpl = self.store.templates.get(raid.template_name)
         if not tpl:
             return False, ""
+
+        if getattr(tpl, "content_type", "pvp") == AVA_RAID:
+            if any(r.key == "raid_leader" for r in tpl.roles):
+                raid.signups[raid.created_by] = Signup(
+                    user_id=raid.created_by,
+                    role_key="raid_leader",
+                    status="main",
+                    ip=None,
+                    joined_at=_now(),
+                )
+
         try:
             channel = await self.bot.fetch_channel(int(raid.channel_id))
             if not isinstance(channel, (nextcord.TextChannel, nextcord.Thread)):
