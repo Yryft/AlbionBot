@@ -851,6 +851,12 @@ class Store:
                     a.undone_at = int(undone_at)
                     return
 
+    def bank_list_actions(self, guild_id: int, limit: int = 25) -> List[BankAction]:
+        if self.bank_db is not None:
+            return self.bank_db.list_actions(guild_id, limit)
+        actions = self.bank_actions.get(guild_id, [])
+        return sorted(actions, key=lambda a: a.created_at, reverse=True)[: max(1, int(limit))]
+
     # Ticket helpers
     def ticket_get_config(self, guild_id: int) -> Optional[TicketConfig]:
         return self.ticket_configs.get(int(guild_id))

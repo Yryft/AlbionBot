@@ -124,6 +124,25 @@ export type BalanceEntryDTO = {
 
 export type BankActionType = 'add' | 'remove' | 'add_split' | 'remove_split';
 
+export type BankBalanceDTO = {
+  guild_id: string;
+  user_id: string;
+  balance: number;
+};
+
+export type BankActionHistoryEntryDTO = {
+  action_id: string;
+  guild_id: string;
+  actor_id: string;
+  created_at: number;
+  action_type: BankActionType;
+  total_delta: number;
+  impacted_users: number;
+  note: string;
+  undone: boolean;
+  undone_at?: number | null;
+};
+
 const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
 let csrfTokenCache = "";

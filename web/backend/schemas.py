@@ -164,6 +164,51 @@ class BankActionResultDTO(BaseModel):
     note: str = ""
 
 
+class BankUndoRequestDTO(BaseModel):
+    guild_id: str
+
+
+class BankUndoResultDTO(BaseModel):
+    action_id: str
+    guild_id: str
+    action_type: Literal["add", "remove", "add_split", "remove_split"]
+    undone_at: int
+
+
+class BankTransferRequestDTO(BaseModel):
+    guild_id: str
+    to_user_id: str
+    amount: int = Field(gt=0)
+    note: str = ""
+
+
+class BankTransferResultDTO(BaseModel):
+    guild_id: str
+    from_user_id: str
+    to_user_id: str
+    amount: int
+    note: str = ""
+
+
+class BankBalanceDTO(BaseModel):
+    guild_id: str
+    user_id: str
+    balance: int
+
+
+class BankActionHistoryEntryDTO(BaseModel):
+    action_id: str
+    guild_id: str
+    actor_id: str
+    created_at: int
+    action_type: Literal["add", "remove", "add_split", "remove_split"]
+    total_delta: int
+    impacted_users: int
+    note: str = ""
+    undone: bool = False
+    undone_at: Optional[int] = None
+
+
 class DiscordUserDTO(BaseModel):
     id: str
     username: str

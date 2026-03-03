@@ -4,7 +4,9 @@ import { Dispatch, FormEvent, SetStateAction, useEffect, useMemo, useState } fro
 import {
   ApiOverviewDTO,
   BalanceEntryDTO,
+  BankActionHistoryEntryDTO,
   BankActionType,
+  BankBalanceDTO,
   DiscordDirectoryDTO,
   MeDTO,
   RaidDTO,
@@ -106,6 +108,12 @@ export default function HomePage() {
   const [bankTargets, setBankTargets] = useState('');
   const [selectedBalanceUserId, setSelectedBalanceUserId] = useState('');
   const [quickAmount, setQuickAmount] = useState('0');
+  const [lookupUserId, setLookupUserId] = useState('');
+  const [lookupBalance, setLookupBalance] = useState<BankBalanceDTO | null>(null);
+  const [payTargetUserId, setPayTargetUserId] = useState('');
+  const [payAmount, setPayAmount] = useState('0');
+  const [payNote, setPayNote] = useState('');
+  const [bankHistory, setBankHistory] = useState<BankActionHistoryEntryDTO[]>([]);
 
   const [discordDirectory, setDiscordDirectory] = useState<DiscordDirectoryDTO | null>(null);
   const [raidBlocks, setRaidBlocks] = useState<BuilderBlock[]>([freshBlock('header'), freshBlock('timing'), freshBlock('description'), freshBlock('extra'), freshBlock('roster')]);
@@ -116,11 +124,6 @@ export default function HomePage() {
     { id: crypto.randomUUID(), label: 'DPS', slots: '8', enabled: true },
   ]);
 
-  const [lootRaidId, setLootRaidId] = useState('');
-  const [lootTotal, setLootTotal] = useState('0');
-  const [lootDeduction, setLootDeduction] = useState('0');
-  const [lootIncludeLeader, setLootIncludeLeader] = useState(true);
-  const [lootRecipients, setLootRecipients] = useState<string[]>([]);
 
   async function loadDashboard(guildId?: string | null) {
     setBusy(true);
@@ -139,27 +142,31 @@ export default function HomePage() {
       let tickets: TicketTranscriptDTO[] = [];
       let balances: BalanceEntryDTO[] = [];
       let directory: DiscordDirectoryDTO | null = null;
+      let history: BankActionHistoryEntryDTO[] = [];
 
       if (activeGuild) {
-        [raids, templates, tickets, balances, directory] = await Promise.all([
+        [raids, templates, tickets, balances, directory, history] = await Promise.all([
           apiGet<RaidDTO[]>('/api/my/raids'),
           apiGet<RaidTemplateDTO[]>('/api/raid-templates'),
           apiGet<TicketTranscriptDTO[]>(`/api/guilds/${activeGuild}/tickets`),
           apiGet<BalanceEntryDTO[]>(`/api/guilds/${activeGuild}/balances`),
           apiGet<DiscordDirectoryDTO>(`/api/guilds/${activeGuild}/discord-directory`),
+          apiGet<BankActionHistoryEntryDTO[]>(`/api/guilds/${activeGuild}/bank/actions?limit=25`),
         ]);
       }
 
       setDiscordDirectory(directory);
       setState({ health: Boolean(health?.ok), overview, me, raids, templates, tickets, balances, selectedTicket: null });
+      setBankHistory(history);
       setSelectedGuildId(activeGuild);
       setSelectedTicketId((prev) => (tickets.some((t) => t.ticket_id === prev) ? prev : ''));
       setRaidTemplate((prev) => prev || templates[0]?.name || '');
       setEditingTemplate((prev) => prev || templates[0]?.name || '');
       setEditingRaidId((prev) => prev || raids[0]?.raid_id || '');
       setSelectedRaidId((prev) => prev || raids[0]?.raid_id || '');
-      setLootRaidId((prev) => prev || raids[0]?.raid_id || '');
       setSelectedBalanceUserId((prev) => prev || balances[0]?.user_id || '');
+      setLookupUserId((prev) => prev || balances[0]?.user_id || me?.user.id || '');
+      setPayTargetUserId((prev) => prev || balances[0]?.user_id || '');
       if (!raidChannelId && raids[0]?.channel_id) setRaidChannelId(raids[0].channel_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur de chargement');
@@ -201,15 +208,6 @@ export default function HomePage() {
     setTemplateSpec(spec);
   }, [templateRoleDrafts]);
 
-  useEffect(() => {
-    if (!lootRaidId) return;
-    void apiGet<RaidRosterDTO>(`/api/raids/${lootRaidId}/roster`)
-      .then((roster) => {
-        const ids = roster.participants.map((p) => p.user_id);
-        setLootRecipients(lootIncludeLeader ? ids : ids.filter((id) => id !== roster.raid.created_by));
-      })
-      .catch(() => setLootRecipients([]));
-  }, [lootRaidId, lootIncludeLeader]);
 
   const canUseDashboard = Boolean(state.me?.guilds?.length);
 
@@ -250,14 +248,6 @@ export default function HomePage() {
     return '⏳ En attente de publication';
   }
 
-  const lootStats = useMemo(() => {
-    const total = Number(lootTotal) || 0;
-    const deduction = Number(lootDeduction) || 0;
-    const net = Math.max(0, total - deduction);
-    const count = lootRecipients.length;
-    const perPlayer = count > 0 ? Math.floor(net / count) : 0;
-    return { net, count, perPlayer };
-  }, [lootTotal, lootDeduction, lootRecipients]);
 
   function patchBlock(setter: Dispatch<SetStateAction<BuilderBlock[]>>, id: string, patch: Partial<BuilderBlock>) {
     setter((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
@@ -341,12 +331,29 @@ export default function HomePage() {
     await loadDashboard(selectedGuildId);
   }
 
-  async function applyLootSplit() {
-    if (!selectedGuildId || lootStats.perPlayer <= 0 || !lootRecipients.length) return;
-    await apiPost('/api/actions/bank/apply', {
-      request_id: crypto.randomUUID(), guild_id: selectedGuildId, action_type: 'add_split',
-      amount: lootStats.perPlayer, target_user_ids: lootRecipients.filter((id) => /^([1-9]\d*)$/.test(id)), note: `lootsplit raid ${lootRaidId}`,
+  async function onLookupBalance(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedGuildId || !lookupUserId) return;
+    const balance = await apiGet<BankBalanceDTO>(`/api/guilds/${selectedGuildId}/balances/${lookupUserId}`);
+    setLookupBalance(balance);
+  }
+
+  async function onPay(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedGuildId || !payTargetUserId) return;
+    await apiPost('/api/actions/bank/pay', {
+      guild_id: selectedGuildId,
+      to_user_id: payTargetUserId,
+      amount: Number(payAmount),
+      note: payNote,
     });
+    setPayNote('');
+    await loadDashboard(selectedGuildId);
+  }
+
+  async function onUndoBankAction() {
+    if (!selectedGuildId) return;
+    await apiPost('/api/actions/bank/undo', { guild_id: selectedGuildId });
     await loadDashboard(selectedGuildId);
   }
 
@@ -529,16 +536,19 @@ export default function HomePage() {
 
         {canUseDashboard && activeTab === 'balances' && (
           <section className="panel fade-in">
-            <h2>Balances / Lootsplit</h2>
+            <h2>Banque</h2>
             <div className="split">
               <div>
-                <h3>Leaderboard (comme Discord)</h3>
+                <h3>Leaderboard</h3>
                 <ul>{state.balances.slice(0, 30).map((b, index) => (
                   <li key={b.user_id} className="raid-item">
                     <span>#{b.rank || index + 1} · {memberNameById.get(b.user_id) || b.user_id}</span>
                     <small>{b.balance.toLocaleString('fr-FR')}</small>
                   </li>
                 ))}</ul>
+                <div className="inline-actions">
+                  <button type="button" onClick={() => void onUndoBankAction()}>/bank_undo</button>
+                </div>
                 <div className="form-grid">
                   <label>Membre
                     <select value={selectedBalanceUserId} onChange={(e) => setSelectedBalanceUserId(e.target.value)}>
@@ -554,25 +564,39 @@ export default function HomePage() {
                   </div>
                 </div>
                 <form className="form-grid" onSubmit={onBankAction}>
-                  <label>Type<select value={bankActionType} onChange={(e) => setBankActionType(e.target.value as BankActionType)}><option value="add_split">Loot split +</option><option value="remove_split">Loot split -</option><option value="add">Add</option><option value="remove">Remove</option></select></label>
+                  <label>Type<select value={bankActionType} onChange={(e) => setBankActionType(e.target.value as BankActionType)}><option value="add_split">/bank_add_split</option><option value="remove_split">/bank_remove_split</option><option value="add">/bank_add</option><option value="remove">/bank_remove</option></select></label>
                   <label>Montant<input type="number" min={0} value={bankAmount} onChange={(e) => setBankAmount(e.target.value)} /></label>
                   <label>User IDs<input list="member-ids" value={bankTargets} onChange={(e) => setBankTargets(e.target.value)} /></label>
                   <datalist id="member-ids">{(discordDirectory?.members || []).map((m) => <option key={m.id} value={m.id}>{m.display_name}</option>)}</datalist>
-                  <button type="submit">Appliquer</button>
+                  <button type="submit">Appliquer action manager</button>
                 </form>
               </div>
               <div>
-                <h3>Lootsplit raid (prévisualisation temps réel)</h3>
-                <label>Raid<select value={lootRaidId} onChange={(e) => setLootRaidId(e.target.value)}>{state.raids.map((raid) => <option key={raid.raid_id} value={raid.raid_id}>{raid.title}</option>)}</select></label>
-                <label>Total loot<input type="number" min={0} value={lootTotal} onChange={(e) => setLootTotal(e.target.value)} /></label>
-                <label>Déductions (taxe / frais)<input type="number" min={0} value={lootDeduction} onChange={(e) => setLootDeduction(e.target.value)} /></label>
-                <label className="check"><input type="checkbox" checked={lootIncludeLeader} onChange={(e) => setLootIncludeLeader(e.target.checked)} />Inclure le raid leader</label>
-                <div className="preview-box">
-                  <p>Participants pris en compte: <strong>{lootStats.count}</strong></p>
-                  <p>Net: <strong>{lootStats.net.toLocaleString('fr-FR')}</strong></p>
-                  <p>Montant par joueur: <strong>{lootStats.perPlayer.toLocaleString('fr-FR')}</strong></p>
-                </div>
-                <button type="button" onClick={() => void applyLootSplit()} disabled={lootStats.perPlayer <= 0 || lootStats.count === 0}>Appliquer lootsplit raid</button>
+                <h3>Consultation ciblée & transfert</h3>
+                <form className="form-grid" onSubmit={onLookupBalance}>
+                  <label>User ID
+                    <input list="member-ids" value={lookupUserId} onChange={(e) => setLookupUserId(e.target.value)} />
+                  </label>
+                  <button type="submit">/bal</button>
+                </form>
+                {lookupBalance && <p>Balance: <strong>{lookupBalance.balance.toLocaleString('fr-FR')}</strong></p>}
+                <form className="form-grid" onSubmit={onPay}>
+                  <label>Destinataire
+                    <select value={payTargetUserId} onChange={(e) => setPayTargetUserId(e.target.value)}>
+                      {(discordDirectory?.members || []).map((m) => <option key={m.id} value={m.id}>{m.display_name}</option>)}
+                    </select>
+                  </label>
+                  <label>Montant<input type="number" min={1} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} /></label>
+                  <label>Note<input value={payNote} onChange={(e) => setPayNote(e.target.value)} /></label>
+                  <button type="submit">/pay</button>
+                </form>
+                <h4>Historique actions manager</h4>
+                <ul>{bankHistory.map((action) => (
+                  <li key={action.action_id} className="raid-item">
+                    <span>{action.action_type} · {fmtDate(action.created_at)}</span>
+                    <small>Δ {action.total_delta.toLocaleString('fr-FR')} · {action.impacted_users} cible(s){action.undone ? ' · undo' : ''}</small>
+                  </li>
+                ))}</ul>
               </div>
             </div>
           </section>

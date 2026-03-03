@@ -23,7 +23,11 @@ from .auth import (
 from .authorization import DashboardAuthorizationService
 from .schemas import (
     BalanceEntryDTO,
+    BankActionHistoryEntryDTO,
     BankActionRequestDTO,
+    BankBalanceDTO,
+    BankTransferRequestDTO,
+    BankUndoRequestDTO,
     CompTemplateCreateRequestDTO,
     DiscordDirectoryDTO,
     DiscordGuildDTO,
@@ -119,6 +123,13 @@ def _resolve_cookie_samesite() -> str:
     return "none"
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 def create_app() -> FastAPI:
     data_path = os.getenv("DATA_PATH", "data/state.json").strip()
     bank_database_url = os.getenv("BANK_DATABASE_URL", "").strip() or os.getenv("DATABASE_URL", "").strip()
@@ -129,7 +140,7 @@ def create_app() -> FastAPI:
         bank_database_url=bank_database_url,
         bank_sqlite_path=bank_sqlite_path,
     )
-    service = DashboardService(store)
+    service = DashboardService(store, bank_allow_negative=_env_bool("BANK_ALLOW_NEGATIVE", True))
     command_bus = CommandBus(rate_limiter=RateLimiter(), audit_logger=AuditLogger())
     oauth_service = _build_oauth_service()
     authorizer = DashboardAuthorizationService(store, oauth_service) if oauth_service is not None else None
@@ -433,6 +444,25 @@ def create_app() -> FastAPI:
             authorizer.ensure_action_allowed(request, action="bank_manage", guild_id=resolved_guild_id)
         return service.list_balances(resolved_guild_id)
 
+    @app.get("/api/guilds/{guild_id}/balances/{user_id}", response_model=BankBalanceDTO)
+    def get_user_balance(guild_id: str, user_id: str, request: Request):
+        resolved_guild_id = parse_discord_id(guild_id, "guild_id")
+        resolved_user_id = parse_discord_id(user_id, "user_id")
+        if authorizer is None:
+            raise _oauth_not_configured_error()
+        member_ctx = authorizer.ensure_guild_member(request, guild_id=resolved_guild_id)
+        if member_ctx.user_id != resolved_user_id:
+            authorizer.ensure_action_allowed(request, action="bank_manage", guild_id=resolved_guild_id)
+        return service.get_balance(resolved_guild_id, resolved_user_id)
+
+    @app.get("/api/guilds/{guild_id}/bank/actions", response_model=list[BankActionHistoryEntryDTO])
+    def list_bank_actions(guild_id: str, request: Request, limit: int = 25):
+        resolved_guild_id = parse_discord_id(guild_id, "guild_id")
+        if authorizer is None:
+            raise _oauth_not_configured_error()
+        authorizer.ensure_action_allowed(request, action="bank_manage", guild_id=resolved_guild_id)
+        return service.list_bank_action_history(resolved_guild_id, limit=max(1, min(limit, 100)))
+
 
     @app.delete("/api/raids/{raid_id}")
     def delete_raid(raid_id: str, request: Request):
@@ -472,6 +502,37 @@ def create_app() -> FastAPI:
                 action_type=payload.action_type,
                 amount=payload.amount,
                 target_user_ids=target_user_ids,
+                note=payload.note,
+            )
+        except DomainError as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
+
+    @app.post("/api/actions/bank/undo")
+    def undo_bank_action(payload: BankUndoRequestDTO, request: Request):
+        ensure_csrf_for_mutation(request)
+        if authorizer is None:
+            raise _oauth_not_configured_error()
+        guild_id = parse_discord_id(payload.guild_id, "guild_id")
+        auth_ctx = authorizer.ensure_action_allowed(request, action="bank_manage", guild_id=guild_id)
+        try:
+            return service.undo_last_bank_action(guild_id=guild_id, actor_id=auth_ctx.user_id)
+        except DomainError as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
+
+    @app.post("/api/actions/bank/pay")
+    def pay_bank(payload: BankTransferRequestDTO, request: Request):
+        ensure_csrf_for_mutation(request)
+        if authorizer is None:
+            raise _oauth_not_configured_error()
+        guild_id = parse_discord_id(payload.guild_id, "guild_id")
+        to_user_id = parse_discord_id(payload.to_user_id, "to_user_id")
+        member_ctx = authorizer.ensure_guild_member(request, guild_id=guild_id)
+        try:
+            return service.transfer_balance(
+                guild_id=guild_id,
+                from_user_id=member_ctx.user_id,
+                to_user_id=to_user_id,
+                amount=payload.amount,
                 note=payload.note,
             )
         except DomainError as exc:

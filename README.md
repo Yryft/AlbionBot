@@ -17,11 +17,12 @@ Bot Discord basé sur **Nextcord** pour la gestion de guilde Albion Online.
 - Ouverture de raid depuis template avec UI interactive.
 - Gestion des inscriptions/absents/waitlist.
 - Outils manager raid : édition, fermeture, listing, split loot.
-- Dashboard web: aperçu temps réel raid/template, builder de sections (ordre + activation), onglet dédié balances/lootsplit avec simulateur de split raid.
-- Backend dashboard: cache temporaire des permissions/roles membres Discord (moins d’appels API sur commandes répétées), suivi robuste de publication raid via `publish_status`/`publish_error`, leaderboard balances + actions add/remove depuis le dashboard.
+- Dashboard web: aperçu temps réel raid/template, builder de sections (ordre + activation), onglet Banque aligné commandes bot (`/bank_add`, `/bank_remove`, `/bank_add_split`, `/bank_remove_split`, `/bank_undo`, `/pay`, `/bal`).
+- Backend dashboard: cache temporaire des permissions/roles membres Discord (moins d’appels API sur commandes répétées), suivi robuste de publication raid via `publish_status`/`publish_error`, leaderboard balances + actions manager, transfert `/pay`, consultation ciblée `/bal`, historique d'actions et undo.
 - Convention API dashboard: tous les IDs Discord (`guild_id`, `user_id`, `message_id`, `role_id`, `channel_id`) sont exposés en **string** côté HTTP/JSON, avec conversion explicite en interne backend.
 - Sécurité dashboard: toutes les routes backend mutantes (`POST`/`PUT`/`DELETE`) exigent un header `X-CSRF-Token` valide avant les contrôles métier.
-- Permission dashboard: `POST /api/actions/bank/apply` exige la clé métier `bank_manage` (permission logique `bank_manager`).
+- Permission dashboard: `POST /api/actions/bank/apply` et `POST /api/actions/bank/undo` exigent la clé métier `bank_manage` (permission logique `bank_manager`), alors que `POST /api/actions/bank/pay` est disponible à tout membre de guilde.
+- Règle de solde négatif dashboard alignée bot: validations manager banque basées sur `BANK_ALLOW_NEGATIVE` (équivalent de `cfg.bank_allow_negative`).
 - Tickets: correction de la sauvegarde/lecture de transcript pour conserver le vrai contenu message (fallback `system_content` + compatibilité ancien format de snapshots).
 
 Commandes principales :

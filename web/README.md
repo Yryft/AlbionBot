@@ -104,12 +104,16 @@ En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` q
 - Affichage des balances avec pseudo Discord quand disponible.
 - **Preview temps réel** pour le raid opener et les templates avant publication.
 - **Builder personnalisable** (menus + cases à cocher) pour réordonner/activer/supprimer des sections de message.
-- **Onglet séparé Balances & Lootsplit** avec un simulateur de split de raid puis application directe en banque (`add_split`).
+- **Onglet Banque** aligné sur les commandes bot officielles (`/bank_add`, `/bank_remove`, `/bank_add_split`, `/bank_remove_split`, `/bank_undo`, `/pay`, `/bal`).
 - Cache de permissions/roles membre côté backend dashboard pour éviter de re-fetch Discord à chaque commande.
 - Suivi UI de publication raid basé sur `publish_status` (`pending|delivered|failed`) + affichage de `publish_error` en cas d'échec.
 - Leaderboard balances aligné avec Discord + actions rapides `/bank_add` et `/bank_remove` depuis le dashboard.
+- Consultation ciblée d'une balance (`GET /api/guilds/{guild_id}/balances/{user_id}`) avec règles de permissions alignées bot (self vs manager).
+- Historique d'actions banque manager (`GET /api/guilds/{guild_id}/bank/actions`) dans l'onglet Banque.
 - Correction transcript tickets: conservation du contenu réel des messages (y compris fallback `system_content`) et lecture des anciens snapshots legacy.
 - Endpoint `POST /api/actions/raids/open` protégé par la permission logique **raid_manager** (et non **bank_manager**).
 - Endpoint `POST /api/raids/{raid_id}/state` (`action=close`) pour refléter explicitement `/raid_close` côté bot.
 - Endpoint `POST /api/actions/bank/apply` protégé par la permission logique **bank_manager** (clé métier `bank_manage`).
+- Endpoints `POST /api/actions/bank/undo` (manager) et `POST /api/actions/bank/pay` (membre de guilde) pour couvrir les commandes `/bank_undo` et `/pay`.
+- Validation des actions manager banque alignée sur `BANK_ALLOW_NEGATIVE` (équivalent dashboard de `cfg.bank_allow_negative`).
 - Outbox persistante pour `POST /api/actions/raids/open`: création d'une commande `pending`, consommation côté bot Discord, retry/backoff et exposition du statut (`publish_status`) pour l'UI.
