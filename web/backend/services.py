@@ -291,6 +291,14 @@ class DashboardService:
         self.store.save()
         return self._to_raid_dto(raid)
 
+    def close_raid(self, raid_id: str) -> RaidDTO:
+        raid = self.store.raids.get(raid_id)
+        if raid is None:
+            raise ValidationError(code="raid_not_found", message="Raid introuvable")
+        raid.ping_done = True
+        self.store.save()
+        return self._to_raid_dto(raid)
+
     def list_balances(self, guild_id: int) -> List[BalanceEntryDTO]:
         rows, _ = self.store.bank_get_leaderboard(guild_id, limit=500, offset=0)
         return [BalanceEntryDTO(user_id=str(user_id), balance=balance, rank=index + 1) for index, (user_id, balance) in enumerate(rows)]

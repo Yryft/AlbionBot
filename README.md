@@ -138,9 +138,10 @@ python -m albionbot
 
 Un service web séparé est disponible sous `web/`:
 - Backend API: `web/backend` (transcripts tickets, comps/raids, actions managées).
-- Synchronisation automatique bot ⇄ dashboard: le bot recharge l'état partagé toutes les 5 secondes et répercute les actions dashboard vers Discord (publication/mise à jour/suppression des messages raids, données banque/tickets rechargées côté bot).
+- Synchronisation automatique bot ⇄ dashboard: le bot recharge l'état partagé toutes les 5 secondes et répercute les actions dashboard vers Discord (publication/mise à jour/fermeture des raids et rafraîchissement des messages, données banque/tickets rechargées côté bot).
 - Publication des raids dashboard via outbox/queue persistante: chaque ouverture crée une commande `pending`, traitée ensuite par le bot avec retry/backoff et statut exposé à l'API (`publish_status`, `publish_error`).
 - Le dashboard agit comme une interface de contrôle du bot: les actions de gestion sont réalisées via les flux du bot Discord (et non comme un back-office séparé de Discord).
+- Périmètre raids dashboard aligné sur les commandes bot de référence: ouverture (`raid_open`), édition (`raid_edit`), fermeture explicite (`raid_close`) et gestion roster (inscription/retrait).
 - Frontend: `web/dashboard` (navigation type Discord).
 - Contrat API: `web/API_CONTRACT.md`.
 - Déploiement Railway multi-services: `web/README.md`.

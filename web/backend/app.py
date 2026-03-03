@@ -34,6 +34,7 @@ from .schemas import (
     RaidUpdateRequestDTO,
     RaidRosterDTO,
     RaidSignupRequestDTO,
+    RaidStateUpdateRequestDTO,
 )
 from .command_bus import (
     AuditLogger,
@@ -377,6 +378,18 @@ def create_app() -> FastAPI:
         except DomainError as exc:
             raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
 
+
+    @app.post("/api/raids/{raid_id}/state")
+    def update_raid_state(raid_id: str, payload: RaidStateUpdateRequestDTO, request: Request):
+        ensure_csrf_for_mutation(request)
+        if authorizer is not None:
+            authorizer.ensure_action_allowed(request, action="raid_open")
+        if payload.action != "close":
+            raise HTTPException(status_code=422, detail="Action de statut non supportée")
+        try:
+            return service.close_raid(raid_id)
+        except DomainError as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
 
     @app.get("/api/guilds/{guild_id}/discord-directory", response_model=DiscordDirectoryDTO)
     def get_discord_directory(guild_id: str, request: Request):
