@@ -136,6 +136,10 @@ class RaidUpdateRequestDTO(BaseModel):
     cleanup_minutes: int = 30
 
 
+class RaidStateUpdateRequestDTO(BaseModel):
+    action: Literal["close"]
+
+
 class BalanceEntryDTO(BaseModel):
     user_id: str
     balance: int

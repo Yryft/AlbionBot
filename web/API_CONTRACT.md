@@ -26,6 +26,17 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
   - `publish_status`: `pending|delivered|failed` (source de vérité UI pour l'état de publication)
   - `publish_error`: dernier message d'erreur côté publication Discord (affiché dans l'UI si non vide)
 
+## Matrice de référence raids (bot ↔ backend ↔ dashboard)
+
+| Commande bot | Endpoint backend dashboard | Écran dashboard |
+| --- | --- | --- |
+| `/raid_open` | `POST /api/actions/raids/open` | `Dashboard` → bloc **Raid opener** |
+| `/raid_edit` | `PUT /api/raids/{raid_id}` | `Dashboard` → bloc **Raid opener** (édition) + bouton **Éditer** dans `Tous les raids` |
+| `/raid_close` | `POST /api/raids/{raid_id}/state` avec `{ "action": "close" }` | `Tous les raids` → bouton **Fermer raid** |
+| `/raid_assistant` (close/edit) | `PUT /api/raids/{raid_id}` + `POST /api/raids/{raid_id}/state` | `Tous les raids` (actions **Éditer** / **Fermer raid**) |
+| Boutons roster raid (`join/leave/absent`) | `GET /api/raids/{raid_id}/roster`, `POST /api/raids/{raid_id}/signup`, `POST /api/raids/{raid_id}/leave` | `Tous les raids` → panneau **Inscriptions en ligne** (**Gérer roster**) |
+| `/loot_split`, `/loot_scout_limits` | _Non exposé dans le backend raids_ (le dashboard utilise seulement `POST /api/actions/bank/apply` pour lootsplit comptable) | `Balances & Lootsplit` |
+
 ## Endpoints lecture
 
 - `GET /api/guilds`
@@ -57,6 +68,8 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
   - body: `RaidTemplateUpdateRequestDTO`
 - `PUT /api/raids/{raid_id}`
   - body: `RaidUpdateRequestDTO`
+- `POST /api/raids/{raid_id}/state`
+  - body: `RaidStateUpdateRequestDTO` (`action: close`)
 - `POST /api/actions/bank/apply`
   - body: `BankActionRequestDTO` (`target_user_ids[]` en `string`)
   - permission requise: `bank_manage` / `bank_manager`

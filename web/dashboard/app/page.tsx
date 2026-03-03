@@ -367,9 +367,18 @@ export default function HomePage() {
     await loadDashboard(selectedGuildId);
   }
 
-  async function onDeleteRaid(raidId: string) {
-    await apiDelete(`/api/raids/${raidId}`);
+  async function onCloseRaid(raidId: string) {
+    await apiPost(`/api/raids/${raidId}/state`, { action: 'close' });
     await loadDashboard(selectedGuildId);
+  }
+
+  function onPrepareRaidEdit(raid: RaidDTO) {
+    setEditingRaidId(raid.raid_id);
+    setRaidTitle(raid.title);
+    setRaidDescription(raid.description);
+    setRaidExtraMessage(raid.extra_message);
+    setRaidStartAt(new Date(raid.start_at * 1000).toISOString().slice(0, 16));
+    setActiveTab('active');
   }
 
   async function onDeleteTicket(ticketId: string) {
@@ -588,7 +597,11 @@ export default function HomePage() {
                   {raid.publish_status === 'failed' && (
                     <small>⚠️ La publication Discord a échoué{raid.publish_error ? `: ${raid.publish_error}` : '.'}</small>
                   )}
-                  <button type="button" onClick={() => void onDeleteRaid(raid.raid_id)}>Supprimer définitivement</button>
+                  <div className="inline-actions">
+                    <button type="button" onClick={() => onPrepareRaidEdit(raid)}>Éditer</button>
+                    <button type="button" onClick={() => setSelectedRaidId(raid.raid_id)}>Gérer roster</button>
+                    <button type="button" onClick={() => void onCloseRaid(raid.raid_id)} disabled={raid.status === 'CLOSED'}>Fermer raid</button>
+                  </div>
                 </li>
               ))}
             </ul>
