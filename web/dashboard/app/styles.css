@@ -1,6 +1,13 @@
 :root {
   color-scheme: dark;
   font-family: Inter, system-ui, -apple-system, sans-serif;
+  --control-height: 40px;
+  --control-radius: 10px;
+  --control-padding-x: 14px;
+  --control-gap: 8px;
+  --control-font-weight: 600;
+  --control-line-height: 1.2;
+  --control-icon-size: 18px;
 }
 
 * { box-sizing: border-box; }
@@ -8,7 +15,23 @@ body { margin: 0; background: #1e1f22; color: #f2f3f5; }
 
 .discord-shell { min-height: 100vh; display: grid; grid-template-columns: 76px 1fr; }
 .guild-rail { background: #111214; border-right: 1px solid #272a31; display: flex; flex-direction: column; gap: 10px; padding: 16px 10px; }
-.guild-btn { border: none; border-radius: 16px; width: 56px; height: 56px; background: #313338; color: #fff; font-weight: 700; cursor: pointer; overflow: hidden; }
+.guild-btn {
+  border: none;
+  border-radius: 16px;
+  width: 56px;
+  min-height: var(--control-height);
+  height: 56px;
+  background: #313338;
+  color: #fff;
+  font-weight: 700;
+  line-height: var(--control-line-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--control-gap);
+  cursor: pointer;
+  overflow: hidden;
+}
 .guild-btn.active, .guild-btn:hover { border-radius: 12px; background: #5865f2; }
 
 .main-panel { padding: 20px; display: grid; gap: 14px; }
@@ -16,10 +39,53 @@ body { margin: 0; background: #1e1f22; color: #f2f3f5; }
 .topbar h1 { margin: 0; font-size: 24px; }
 .topbar p { margin: 4px 0 0; color: #b5bac1; }
 
-.discord-login, .session-actions button, .form-grid button, .tab {
-  background: #5865f2; border: none; color: #fff; border-radius: 8px; padding: 10px 14px; cursor: pointer; text-decoration: none;
+.discord-login,
+.session-actions button,
+.form-grid button,
+.tab,
+.row {
+  min-height: var(--control-height);
+  border-radius: var(--control-radius);
+  padding-inline: var(--control-padding-x);
+  line-height: var(--control-line-height);
+  font-weight: var(--control-font-weight);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--control-gap);
+  text-decoration: none;
+  cursor: pointer;
 }
-.tab { background: #313338; }
+
+.discord-login,
+.session-actions button,
+.form-grid button,
+.guild-btn {
+  border: none;
+}
+
+.control-primary,
+.discord-login,
+.form-grid button[type="submit"] {
+  background: #5865f2;
+  color: #fff;
+}
+
+.control-secondary,
+.tab,
+.session-actions button,
+.form-grid button {
+  background: #313338;
+  color: #fff;
+}
+
+.control-danger,
+.session-actions .danger,
+.form-grid .danger {
+  background: #f23f43;
+  color: #fff;
+}
+
 .tab.active { background: #5865f2; }
 .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -31,7 +97,15 @@ body { margin: 0; background: #1e1f22; color: #f2f3f5; }
 .workspace-grid { display: grid; gap: 14px; }
 .ticket-columns { display: grid; gap: 12px; grid-template-columns: minmax(220px, 280px) 1fr; }
 ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
-.row { width: 100%; border: 1px solid #3b3d44; border-radius: 8px; background: #1e1f22; color: #f2f3f5; display: flex; justify-content: space-between; padding: 8px; text-align: left; }
+.row {
+  width: 100%;
+  display: flex;
+  border: 1px solid #3b3d44;
+  background: #1e1f22;
+  color: #f2f3f5;
+  justify-content: space-between;
+  text-align: left;
+}
 .row.active, .row:hover { background: #404249; }
 .transcript-viewer { background: #1e1f22; border-radius: 8px; border: 1px solid #3b3d44; padding: 10px; max-height: 560px; overflow: auto; display: grid; gap: 8px; }
 .message-row { background: #2b2d31; border-radius: 8px; padding: 8px; }
@@ -62,7 +136,16 @@ input, select, textarea { border-radius: 8px; border: 1px solid #3b3d44; backgro
 }
 
 
-.inline-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.inline-actions {
+  display: flex;
+  gap: var(--control-gap);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.inline-actions > * {
+  flex: 0 0 auto;
+}
 .roster-panel { margin-top: 12px; }
 .roster-panel h3 { margin-top: 0; }
 .raid-item .row { margin-bottom: 6px; }
@@ -71,3 +154,16 @@ input, select, textarea { border-radius: 8px; border: 1px solid #3b3d44; backgro
 .preview-box { background: #1e1f22; border: 1px solid #3b3d44; border-radius: 8px; padding: 10px; white-space: pre-wrap; }
 .panel h4 { margin-bottom: 8px; }
 button:disabled { opacity: .55; cursor: not-allowed; }
+
+@media (max-width: 760px) {
+  :root {
+    --control-height: 44px;
+    --control-padding-x: 12px;
+    --control-gap: 6px;
+  }
+
+  .session-actions,
+  .inline-actions {
+    align-items: stretch;
+  }
+}
