@@ -19,6 +19,7 @@ Bot Discord basé sur **Nextcord** pour la gestion de guilde Albion Online.
 - Outils manager raid : édition, fermeture, listing, split loot.
 - Dashboard web: aperçu temps réel raid/template, builder de sections (ordre + activation), onglet dédié balances/lootsplit avec simulateur de split raid.
 - Backend dashboard: cache temporaire des permissions/roles membres Discord (moins d’appels API sur commandes répétées), plus robustesse publication raid (IDs normalisés), leaderboard balances + actions add/remove depuis le dashboard.
+- Sécurité dashboard: toutes les routes backend mutantes (`POST`/`PUT`/`DELETE`) exigent un header `X-CSRF-Token` valide avant les contrôles métier.
 - Tickets: correction de la sauvegarde/lecture de transcript pour conserver le vrai contenu message (fallback `system_content` + compatibilité ancien format de snapshots).
 
 Commandes principales :

@@ -146,6 +146,11 @@ def create_app() -> FastAPI:
     cookie_samesite = _resolve_cookie_samesite()
     post_login_redirect = os.getenv("DASHBOARD_POST_LOGIN_REDIRECT", "/").strip() or "/"
 
+    def ensure_csrf_for_mutation(request: Request):
+        if oauth_service is None:
+            raise _oauth_not_configured_error()
+        return check_csrf(request, oauth_service)
+
     @app.get("/health")
     def health():
         return {"ok": True}
@@ -202,9 +207,7 @@ def create_app() -> FastAPI:
 
     @app.post("/auth/logout")
     def auth_logout(request: Request):
-        if oauth_service is None:
-            raise _oauth_not_configured_error()
-        session = check_csrf(request, oauth_service)
+        session = ensure_csrf_for_mutation(request)
         if session.refresh_token:
             oauth_service.revoke_token(session.refresh_token)
         oauth_service.sessions.delete(session.session_id)
@@ -252,9 +255,7 @@ def create_app() -> FastAPI:
 
     @app.post("/me/select-guild/{guild_id}")
     def select_guild(guild_id: str, request: Request):
-        if oauth_service is None:
-            raise _oauth_not_configured_error()
-        session = check_csrf(request, oauth_service)
+        session = ensure_csrf_for_mutation(request)
         resolved_guild_id = int(guild_id)
         user_guild_ids = {int(g.get("id", 0)) for g in session.guilds}
         bot_guild_ids = set(service.get_bot_guild_map().keys())
@@ -314,6 +315,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/raids/{raid_id}/signup", response_model=RaidRosterDTO)
     def signup_raid(raid_id: str, payload: RaidSignupRequestDTO, request: Request):
+        ensure_csrf_for_mutation(request)
         if authorizer is None:
             raise _oauth_not_configured_error()
         member_ctx = authorizer.ensure_guild_member(request)
@@ -324,6 +326,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/raids/{raid_id}/leave", response_model=RaidRosterDTO)
     def leave_raid(raid_id: str, request: Request):
+        ensure_csrf_for_mutation(request)
         if authorizer is None:
             raise _oauth_not_configured_error()
         member_ctx = authorizer.ensure_guild_member(request)
@@ -346,6 +349,7 @@ def create_app() -> FastAPI:
 
     @app.put("/api/raid-templates/{template_name}")
     def update_template(template_name: str, payload: RaidTemplateUpdateRequestDTO, request: Request):
+        ensure_csrf_for_mutation(request)
         if authorizer is not None:
             authorizer.ensure_action_allowed(request, action="comp_wizard")
         try:
@@ -355,6 +359,7 @@ def create_app() -> FastAPI:
 
     @app.put("/api/raids/{raid_id}")
     def update_raid(raid_id: str, payload: RaidUpdateRequestDTO, request: Request):
+        ensure_csrf_for_mutation(request)
         if authorizer is not None:
             authorizer.ensure_action_allowed(request, action="raid_open")
         try:
@@ -406,6 +411,7 @@ def create_app() -> FastAPI:
 
     @app.delete("/api/raids/{raid_id}")
     def delete_raid(raid_id: str, request: Request):
+        ensure_csrf_for_mutation(request)
         if authorizer is not None:
             authorizer.ensure_action_allowed(request, action="raid_open")
         try:
@@ -416,6 +422,7 @@ def create_app() -> FastAPI:
 
     @app.delete("/api/guilds/{guild_id}/tickets/{ticket_id}")
     def delete_ticket_transcript(guild_id: int, ticket_id: str, request: Request):
+        ensure_csrf_for_mutation(request)
         if authorizer is not None:
             authorizer.ensure_action_allowed(request, action="tickets_read", guild_id=guild_id)
         try:
@@ -426,6 +433,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/actions/bank/apply")
     def apply_bank_action(payload: BankActionRequestDTO, request: Request):
+        ensure_csrf_for_mutation(request)
         if authorizer is None:
             raise _oauth_not_configured_error()
         guild_id = int(payload.guild_id)
@@ -444,6 +452,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/actions/raids/open")
     def open_raid(payload: RaidOpenRequestDTO, request: Request):
+        ensure_csrf_for_mutation(request)
         if authorizer is None:
             raise _oauth_not_configured_error()
         guild_id = int(payload.guild_id)
@@ -468,6 +477,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/actions/comp-wizard")
     def run_comp_wizard(payload: CompTemplateCreateRequestDTO, request: Request):
+        ensure_csrf_for_mutation(request)
         if authorizer is None:
             raise _oauth_not_configured_error()
         guild_id = int(payload.guild_id)
