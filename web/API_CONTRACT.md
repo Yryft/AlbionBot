@@ -37,6 +37,7 @@ Base URL backend dashboard: `/api`
   - permission requise: `raid_open` / `raid_manager`
 - `POST /api/actions/comp-wizard`
   - body: `CompTemplateCreateRequestDTO`
+  - permission requise: `comp_wizard` / `raid_manager`
 - `POST /api/raids/{raid_id}/signup`
   - body: `RaidSignupRequestDTO`
 - `POST /api/raids/{raid_id}/leave`
@@ -46,6 +47,7 @@ Base URL backend dashboard: `/api`
   - body: `RaidUpdateRequestDTO`
 - `POST /api/actions/bank/apply`
   - body: `BankActionRequestDTO`
+  - permission requise: `bank_manage` / `bank_manager`
 
 Les endpoints d'action sont pensés pour être protégés derrière une auth manager (JWT/proxy) côté infra.
 
