@@ -168,10 +168,30 @@ class Store:
         self.ticket_records: Dict[str, TicketRecord] = {}
         self.ticket_messages: Dict[str, List[TicketMessageSnapshot]] = {}
         self.ticket_by_user: Dict[int, Dict[int, Dict[TicketRecordStatus, Set[str]]]] = {}
+        self._last_state_fingerprint: str = ""
 
         self.load()
         if self.bank_db and (self._bank_migrated_from_json or self._state_migrated_from_json):
             self.save()
+
+    def _compute_state_fingerprint(self) -> str:
+        if self.bank_db is not None:
+            blob = self.bank_db.get_state_blob(STATE_DB_KEY) or ""
+            return f"db:{hash(blob)}"
+
+        try:
+            stat = os.stat(self.path)
+            return f"file:{int(stat.st_mtime_ns)}:{int(stat.st_size)}"
+        except FileNotFoundError:
+            return "file:missing"
+
+    def reload_if_changed(self) -> bool:
+        current = self._compute_state_fingerprint()
+        if current == self._last_state_fingerprint:
+            return False
+        self.load()
+        self._last_state_fingerprint = self._compute_state_fingerprint()
+        return True
 
     def _safe_read_json_file(self) -> Dict:
         if not os.path.exists(self.path):
@@ -679,6 +699,8 @@ class Store:
             self.bank_balances = {}
             self.bank_actions = {}
 
+        self._last_state_fingerprint = self._compute_state_fingerprint()
+
     def save(self) -> None:
         raw = self._serialize_runtime_state()
 
@@ -711,6 +733,7 @@ class Store:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(raw, f, ensure_ascii=False, indent=2)
         os.replace(tmp, self.path)
+        self._last_state_fingerprint = self._compute_state_fingerprint()
 
     # Bank helpers
     def bank_get_balance(self, guild_id: int, user_id: int) -> int:

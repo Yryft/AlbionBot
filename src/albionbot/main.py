@@ -304,6 +304,9 @@ def main():
 
         raids.start()
 
+        if not sync_external_state.is_running():
+            sync_external_state.start()
+
         # persistent views for existing raids after restart
         for raid in list(store.raids.values()):
             if raid.message_id:
@@ -318,6 +321,15 @@ def main():
                         bot.add_view(view)
                     except Exception:
                         pass
+
+
+    @tasks.loop(seconds=5)
+    async def sync_external_state():
+        changed = False
+        async with store.lock:
+            changed = store.reload_if_changed()
+        if changed:
+            await raids.reconcile_external_updates()
 
     @tasks.loop(seconds=20)
     async def rotate_presence():

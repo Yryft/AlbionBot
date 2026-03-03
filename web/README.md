@@ -63,6 +63,8 @@ Créer **2 services** dans le même projet Railway.
 
 > Le bot et le dashboard ont des variables d'environnement distinctes. Partager uniquement l'accès lecture/écriture aux données (`DATA_PATH` volume ou DB commune) selon votre architecture.
 
+> Le bot recharge l'état partagé périodiquement (5s) afin d'appliquer dans Discord les actions faites depuis le dashboard (raids publiés/édités/supprimés, état banque et tickets rafraîchi).
+
 ## Dépannage: `OAuth Discord non configuré`
 
 Si le dashboard affiche cette erreur, configure les variables côté **backend FastAPI** (pas sur le bot) :
