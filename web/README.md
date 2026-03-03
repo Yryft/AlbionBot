@@ -123,6 +123,7 @@ En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` q
 - Raid opener: remplacement des saisies d'IDs de salons par des sélecteurs explicites (texte/vocal) alimentés par `discord-directory`, avec mode "ID manuel" repliable réservé au dépannage.
 - Banque manager: remplacement de la saisie libre `User IDs` par un multi-select membres (`display_name + id`) + fallback "ID manuel" repliable.
 - Validation UI pré-submit des IDs (salons/utilisateurs) contre le répertoire local Discord pour réduire les erreurs de mapping avant appel API.
+- Validation form-level renforcée dans `web/dashboard/app/page.tsx`: contrôles explicites avant `apiPost`/`apiPut` (montants > 0, IP numérique, date raid future, sélections requises), erreurs contextuelles par champ et désactivation des submit tant que les préconditions minimales ne sont pas satisfaites.
 
 
 ## Spec template (parse_comp_spec)

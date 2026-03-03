@@ -18,6 +18,7 @@ Bot Discord basé sur **Nextcord** pour la gestion de guilde Albion Online.
 - Gestion des inscriptions/absents/waitlist.
 - Outils manager raid : édition, fermeture, listing, split loot.
 - Dashboard web: onglet Banque aligné commandes bot (`/bank_add`, `/bank_remove`, `/bank_add_split`, `/bank_remove_split`, `/bank_undo`, `/pay`, `/bal`) et gestion templates alignée sur le modèle bot (`content_type`, `raid_required_role_ids`, spec complète).
+- Dashboard web: validation form-level côté UI avant appels API (`apiPost`/`apiPut`) avec contrôles montants/IP/date future/sélections requises, messages d'erreurs contextuels par champ et submit désactivé tant que les préconditions minimales ne sont pas remplies.
 - Backend dashboard: cache temporaire des permissions/roles membres Discord (moins d’appels API sur commandes répétées), suivi robuste de publication raid via `publish_status`/`publish_error`, leaderboard balances + actions manager, transfert `/pay`, consultation ciblée `/bal`, historique d'actions et undo.
 - Convention API dashboard: tous les IDs Discord (`guild_id`, `user_id`, `message_id`, `role_id`, `channel_id`) sont exposés en **string** côté HTTP/JSON, avec conversion explicite en interne backend.
 - Sécurité dashboard: toutes les routes backend mutantes (`POST`/`PUT`/`DELETE`) exigent un header `X-CSRF-Token` valide avant les contrôles métier.
