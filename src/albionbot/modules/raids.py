@@ -375,7 +375,7 @@ class RaidModule:
         if not tpl:
             return
         try:
-            channel = await self.bot.fetch_channel(raid.channel_id)
+            channel = await self.bot.fetch_channel(int(raid.channel_id))
             if not isinstance(channel, (nextcord.TextChannel, nextcord.Thread)):
                 return
             msg = await channel.fetch_message(raid.message_id)
@@ -397,7 +397,7 @@ class RaidModule:
         if not tpl:
             return False
         try:
-            channel = await self.bot.fetch_channel(raid.channel_id)
+            channel = await self.bot.fetch_channel(int(raid.channel_id))
             if not isinstance(channel, (nextcord.TextChannel, nextcord.Thread)):
                 return False
 

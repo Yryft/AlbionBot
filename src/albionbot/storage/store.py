@@ -246,10 +246,10 @@ class Store:
                 start_at=int(r["start_at"]),
                 created_by=int(r["created_by"]),
                 created_at=int(r.get("created_at", int(time.time()))),
-                channel_id=r.get("channel_id"),
-                message_id=r.get("message_id"),
-                thread_id=r.get("thread_id"),
-                voice_channel_id=r.get("voice_channel_id"),
+                channel_id=(int(r.get("channel_id")) if r.get("channel_id") is not None else None),
+                message_id=(int(r.get("message_id")) if r.get("message_id") is not None else None),
+                thread_id=(int(r.get("thread_id")) if r.get("thread_id") is not None else None),
+                voice_channel_id=(int(r.get("voice_channel_id")) if r.get("voice_channel_id") is not None else None),
                 signups=signups,
                 absent=set(map(int, r.get("absent", []))),
                 prep_minutes=int(r.get("prep_minutes", 10)),
@@ -394,15 +394,20 @@ class Store:
             for snap in snapshots or []:
                 if not isinstance(snap, dict):
                     continue
+                message_id_raw = snap.get("message_id", snap.get("id", 0))
+                author_id_raw = snap.get("author_id", snap.get("author", 0))
+                content_raw = snap.get("content")
+                if content_raw is None:
+                    content_raw = snap.get("message", snap.get("text", ""))
                 out.append(TicketMessageSnapshot(
-                    message_id=int(snap["message_id"]),
-                    author_id=int(snap["author_id"]),
-                    author_name=str(snap.get("author_name", "")),
-                    author_avatar_url=str(snap.get("author_avatar_url", "")),
-                    content=snap.get("content", ""),
+                    message_id=int(message_id_raw or 0),
+                    author_id=int(author_id_raw or 0),
+                    author_name=str(snap.get("author_name", snap.get("username", ""))),
+                    author_avatar_url=str(snap.get("author_avatar_url", snap.get("avatar_url", ""))),
+                    content=str(content_raw or ""),
                     embeds=list(snap.get("embeds", [])),
                     attachments=list(snap.get("attachments", [])),
-                    created_at=int(snap.get("created_at", int(time.time()))),
+                    created_at=int(snap.get("created_at", snap.get("timestamp", int(time.time())))),
                 ))
             self.ticket_messages[str(ticket_id)] = out
 

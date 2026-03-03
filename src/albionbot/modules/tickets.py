@@ -637,6 +637,16 @@ class TicketModule:
             return self.store.ticket_find_by_channel(message.guild.id, thread_id=message.channel.id)
         return self.store.ticket_find_by_channel(message.guild.id, channel_id=message.channel.id)
 
+    @staticmethod
+    def _extract_message_content(message: nextcord.Message) -> str:
+        content = (getattr(message, "content", "") or "").strip()
+        if content:
+            return content
+        system_content = (getattr(message, "system_content", "") or "").strip()
+        if system_content:
+            return system_content
+        return ""
+
     def append_message_snapshot(self, message: nextcord.Message) -> None:
         ticket = self._find_ticket_by_message(message)
         if ticket is None:
@@ -646,7 +656,7 @@ class TicketModule:
             author_id=message.author.id,
             author_name=getattr(message.author, "display_name", str(message.author)),
             author_avatar_url=str(getattr(getattr(message.author, "display_avatar", None), "url", "")),
-            content=message.content or "",
+            content=self._extract_message_content(message),
             embeds=[embed.to_dict() for embed in message.embeds],
             attachments=[{"id": str(a.id), "filename": a.filename, "url": a.url} for a in message.attachments],
             created_at=int(message.created_at.timestamp()) if message.created_at else int(time.time()),
@@ -657,8 +667,8 @@ class TicketModule:
         ticket = self._find_ticket_by_message(after)
         if ticket is None:
             return
-        before_content = before.content or ""
-        after_content = after.content or ""
+        before_content = self._extract_message_content(before)
+        after_content = self._extract_message_content(after)
         if before_content == after_content:
             return
         snapshot = TicketMessageSnapshot(
@@ -681,7 +691,7 @@ class TicketModule:
             author_id=message.author.id if message.author else 0,
             author_name=getattr(message.author, "display_name", str(message.author)) if message.author else "unknown",
             author_avatar_url=str(getattr(getattr(message.author, "display_avatar", None), "url", "")) if message.author else "",
-            content=f"[DELETE] {message.content or ''}".strip(),
+            content=f"[DELETE] {self._extract_message_content(message)}".strip(),
             embeds=[embed.to_dict() for embed in message.embeds],
             attachments=[{"id": str(a.id), "filename": a.filename, "url": a.url} for a in message.attachments],
         )

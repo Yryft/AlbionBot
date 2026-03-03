@@ -91,3 +91,10 @@ En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` q
 - Suppression définitive des raids et des logs de tickets.
 - Endpoint `GET /api/guilds/{guild_id}/discord-directory` pour alimenter les autocomplétions (channels text/voice + membres).
 - Affichage des balances avec pseudo Discord quand disponible.
+- **Preview temps réel** pour le raid opener et les templates avant publication.
+- **Builder personnalisable** (menus + cases à cocher) pour réordonner/activer/supprimer des sections de message.
+- **Onglet séparé Balances & Lootsplit** avec un simulateur de split de raid puis application directe en banque (`add_split`).
+- Cache de permissions/roles membre côté backend dashboard pour éviter de re-fetch Discord à chaque commande.
+- Normalisation des IDs raid (`channel_id`/`message_id`) pour fiabiliser la publication Discord des raids en attente.
+- Leaderboard balances aligné avec Discord + actions rapides `/bank_add` et `/bank_remove` depuis le dashboard.
+- Correction transcript tickets: conservation du contenu réel des messages (y compris fallback `system_content`) et lecture des anciens snapshots legacy.
