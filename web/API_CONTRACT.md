@@ -10,9 +10,9 @@ Base URL backend dashboard: `/api`
 - `TicketMessageDTO`: `{ message_id, author_id, author_name?, author_avatar_url?, content, embeds[], attachments[], created_at, event_type }`
 - `RaidTemplateDTO`: template de compo + `roles[]`
 - `RaidRoleDTO`: `{ key, label, slots, ip_required, required_role_ids[] }`
-- `RaidDTO`: raid ouverte avec `status` (`OPEN|PINGED|CLOSED`) + `channel_id/message_id` pour suivi publication Discord
-- `RaidDTO.publish_status`: état de la commande de publication (`pending|delivered|failed`)
-- `RaidDTO.publish_error`: dernier message d'erreur côté publication Discord (vide si succès)
+- `RaidDTO`: raid ouverte avec `status` (`OPEN|PINGED|CLOSED`) + état de publication Discord (`publish_status`, `publish_error`)
+  - `publish_status`: `pending|delivered|failed` (source de vérité UI pour l'état de publication)
+  - `publish_error`: dernier message d'erreur côté publication Discord (affiché dans l'UI si non vide)
 
 ## Endpoints lecture
 

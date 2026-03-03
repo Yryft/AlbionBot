@@ -101,7 +101,7 @@ En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` q
 - **Builder personnalisable** (menus + cases à cocher) pour réordonner/activer/supprimer des sections de message.
 - **Onglet séparé Balances & Lootsplit** avec un simulateur de split de raid puis application directe en banque (`add_split`).
 - Cache de permissions/roles membre côté backend dashboard pour éviter de re-fetch Discord à chaque commande.
-- Normalisation des IDs raid (`channel_id`/`message_id`) pour fiabiliser la publication Discord des raids en attente.
+- Suivi UI de publication raid basé sur `publish_status` (`pending|delivered|failed`) + affichage de `publish_error` en cas d'échec.
 - Leaderboard balances aligné avec Discord + actions rapides `/bank_add` et `/bank_remove` depuis le dashboard.
 - Correction transcript tickets: conservation du contenu réel des messages (y compris fallback `system_content`) et lecture des anciens snapshots legacy.
 - Endpoint `POST /api/actions/raids/open` protégé par la permission logique **raid_manager** (et non **bank_manager**).
