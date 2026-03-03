@@ -102,11 +102,11 @@ class DashboardService:
         guild_ids = set(self.store.ticket_configs.keys())
         guild_ids.update(record.guild_id for record in self.store.ticket_records.values())
         guild_ids.update(self.store.guild_permissions.keys())
-        return [GuildDTO(id=gid, name=f"Guild {gid}") for gid in sorted(guild_ids)]
+        return [GuildDTO(id=str(gid), name=f"Guild {gid}") for gid in sorted(guild_ids)]
 
     def get_bot_guild_map(self) -> Dict[int, GuildDTO]:
         guilds = self.list_guilds()
-        return {g.id: g for g in guilds}
+        return {int(g.id): g for g in guilds}
 
     def list_ticket_transcripts(self, guild_id: int) -> List[TicketTranscriptDTO]:
         rows: List[TicketTranscriptDTO] = []
@@ -130,16 +130,16 @@ class DashboardService:
                     name=tpl.name,
                     description=tpl.description,
                     content_type=tpl.content_type,
-                    created_by=tpl.created_by,
+                    created_by=str(tpl.created_by),
                     created_at=tpl.created_at,
-                    raid_required_role_ids=tpl.raid_required_role_ids,
+                    raid_required_role_ids=[str(role_id) for role_id in tpl.raid_required_role_ids],
                     roles=[
                         {
                             "key": r.key,
                             "label": r.label,
                             "slots": r.slots,
                             "ip_required": r.ip_required,
-                            "required_role_ids": r.required_role_ids,
+                            "required_role_ids": [str(role_id) for role_id in r.required_role_ids],
                         }
                         for r in tpl.roles
                     ],
@@ -173,7 +173,7 @@ class DashboardService:
 
         participants = [
             RaidParticipantDTO(
-                user_id=s.user_id,
+                user_id=str(s.user_id),
                 role_key=s.role_key,
                 status=s.status,
                 ip=s.ip,
@@ -184,7 +184,7 @@ class DashboardService:
         return RaidRosterDTO(
             raid=self._to_raid_dto(raid),
             participants=participants,
-            absent_user_ids=sorted(raid.absent),
+            absent_user_ids=[str(user_id) for user_id in sorted(raid.absent)],
         )
 
     def signup_raid(self, raid_id: str, user_id: int, user_role_ids: List[int], role_key: str, ip: Optional[int]) -> RaidRosterDTO:
@@ -293,7 +293,7 @@ class DashboardService:
 
     def list_balances(self, guild_id: int) -> List[BalanceEntryDTO]:
         rows, _ = self.store.bank_get_leaderboard(guild_id, limit=500, offset=0)
-        return [BalanceEntryDTO(user_id=user_id, balance=balance, rank=index + 1) for index, (user_id, balance) in enumerate(rows)]
+        return [BalanceEntryDTO(user_id=str(user_id), balance=balance, rank=index + 1) for index, (user_id, balance) in enumerate(rows)]
 
     def apply_bank_action(self, guild_id: int, actor_id: int, action_type: str, amount: int, target_user_ids: List[int], note: str) -> BankActionResultDTO:
         if not target_user_ids:
@@ -321,7 +321,7 @@ class DashboardService:
         self.store.save()
         return BankActionResultDTO(
             action_id=action.action_id,
-            guild_id=guild_id,
+            guild_id=str(guild_id),
             action_type=action_type,
             total_delta=sum(deltas.values()),
             impacted_users=len(deltas),
@@ -340,8 +340,8 @@ class DashboardService:
                 event_type = "system"
             messages.append(
                 TicketMessageDTO(
-                    message_id=snap.message_id,
-                    author_id=snap.author_id,
+                    message_id=str(snap.message_id),
+                    author_id=str(snap.author_id),
                     author_name=snap.author_name,
                     author_avatar_url=snap.author_avatar_url,
                     content=snap.content,
@@ -354,12 +354,12 @@ class DashboardService:
 
         return TicketTranscriptDTO(
             ticket_id=ticket.ticket_id,
-            guild_id=ticket.guild_id,
-            owner_user_id=ticket.owner_user_id,
+            guild_id=str(ticket.guild_id),
+            owner_user_id=str(ticket.owner_user_id),
             status=ticket.status,
             ticket_type_key=ticket.ticket_type_key,
-            channel_id=ticket.channel_id,
-            thread_id=ticket.thread_id,
+            channel_id=str(ticket.channel_id) if ticket.channel_id is not None else None,
+            thread_id=str(ticket.thread_id) if ticket.thread_id is not None else None,
             created_at=ticket.created_at,
             updated_at=ticket.updated_at,
             messages=messages,
@@ -383,11 +383,11 @@ class DashboardService:
             description=raid.description,
             extra_message=raid.extra_message,
             start_at=raid.start_at,
-            created_by=raid.created_by,
+            created_by=str(raid.created_by),
             created_at=raid.created_at,
-            channel_id=raid.channel_id,
-            message_id=raid.message_id,
-            voice_channel_id=raid.voice_channel_id,
+            channel_id=str(raid.channel_id) if raid.channel_id is not None else None,
+            message_id=str(raid.message_id) if raid.message_id is not None else None,
+            voice_channel_id=str(raid.voice_channel_id) if raid.voice_channel_id is not None else None,
             status=raid_status(raid),
             publish_status=publish_status,
             publish_error=publish_error,

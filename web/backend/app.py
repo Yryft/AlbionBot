@@ -146,6 +146,12 @@ def create_app() -> FastAPI:
     cookie_samesite = _resolve_cookie_samesite()
     post_login_redirect = os.getenv("DASHBOARD_POST_LOGIN_REDIRECT", "/").strip() or "/"
 
+    def parse_discord_id(raw_id: str, field_name: str) -> int:
+        value = (raw_id or "").strip()
+        if not value.isdigit() or int(value) <= 0:
+            raise HTTPException(status_code=422, detail=f"{field_name} invalide")
+        return int(value)
+
     def ensure_csrf_for_mutation(request: Request):
         if oauth_service is None:
             raise _oauth_not_configured_error()
@@ -269,16 +275,18 @@ def create_app() -> FastAPI:
         return service.list_guilds()
 
     @app.get("/api/guilds/{guild_id}/tickets")
-    def list_ticket_transcripts(guild_id: int, request: Request):
+    def list_ticket_transcripts(guild_id: str, request: Request):
+        resolved_guild_id = parse_discord_id(guild_id, "guild_id")
         if authorizer is not None:
-            authorizer.ensure_action_allowed(request, action="tickets_list", guild_id=guild_id)
-        return service.list_ticket_transcripts(guild_id)
+            authorizer.ensure_action_allowed(request, action="tickets_list", guild_id=resolved_guild_id)
+        return service.list_ticket_transcripts(resolved_guild_id)
 
     @app.get("/api/guilds/{guild_id}/tickets/{ticket_id}")
-    def get_ticket_transcript(guild_id: int, ticket_id: str, request: Request):
+    def get_ticket_transcript(guild_id: str, ticket_id: str, request: Request):
+        resolved_guild_id = parse_discord_id(guild_id, "guild_id")
         if authorizer is not None:
-            authorizer.ensure_action_allowed(request, action="tickets_read", guild_id=guild_id)
-        row = service.get_ticket_transcript(guild_id, ticket_id)
+            authorizer.ensure_action_allowed(request, action="tickets_read", guild_id=resolved_guild_id)
+        row = service.get_ticket_transcript(resolved_guild_id, ticket_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Ticket introuvable")
         return row
@@ -352,6 +360,8 @@ def create_app() -> FastAPI:
         ensure_csrf_for_mutation(request)
         if authorizer is not None:
             authorizer.ensure_action_allowed(request, action="comp_wizard")
+        role_ids = [parse_discord_id(role_id, "raid_required_role_ids") for role_id in payload.raid_required_role_ids]
+        payload = payload.model_copy(update={"raid_required_role_ids": role_ids})
         try:
             return service.update_raid_template(template_name, payload)
         except DomainError as exc:
@@ -369,14 +379,15 @@ def create_app() -> FastAPI:
 
 
     @app.get("/api/guilds/{guild_id}/discord-directory", response_model=DiscordDirectoryDTO)
-    def get_discord_directory(guild_id: int, request: Request):
+    def get_discord_directory(guild_id: str, request: Request):
         if authorizer is None or oauth_service is None:
             raise _oauth_not_configured_error()
-        authorizer.ensure_guild_member(request, guild_id=guild_id)
+        resolved_guild_id = parse_discord_id(guild_id, "guild_id")
+        authorizer.ensure_guild_member(request, guild_id=resolved_guild_id)
         cfg = authorizer.cfg
-        channels = oauth_service.fetch_guild_channels(cfg.discord_token, guild_id)
-        roles = oauth_service.fetch_guild_roles(cfg.discord_token, guild_id)
-        members = oauth_service.fetch_guild_members(cfg.discord_token, guild_id)
+        channels = oauth_service.fetch_guild_channels(cfg.discord_token, resolved_guild_id)
+        roles = oauth_service.fetch_guild_roles(cfg.discord_token, resolved_guild_id)
+        members = oauth_service.fetch_guild_members(cfg.discord_token, resolved_guild_id)
         return {
             "channels": [
                 {
@@ -388,7 +399,7 @@ def create_app() -> FastAPI:
                 if ch.get("type") in {0, 2}
             ],
             "roles": [
-                {"id": int(role.get("id", 0)), "name": str(role.get("name") or "role")}
+                {"id": str(role.get("id", "")), "name": str(role.get("name") or "role")}
                 for role in roles
                 if int(role.get("id", 0)) > 0
             ],
@@ -403,10 +414,11 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/api/guilds/{guild_id}/balances", response_model=list[BalanceEntryDTO])
-    def list_balances(guild_id: int, request: Request):
+    def list_balances(guild_id: str, request: Request):
+        resolved_guild_id = parse_discord_id(guild_id, "guild_id")
         if authorizer is not None:
-            authorizer.ensure_action_allowed(request, action="bank_manage", guild_id=guild_id)
-        return service.list_balances(guild_id)
+            authorizer.ensure_action_allowed(request, action="bank_manage", guild_id=resolved_guild_id)
+        return service.list_balances(resolved_guild_id)
 
 
     @app.delete("/api/raids/{raid_id}")
@@ -421,12 +433,13 @@ def create_app() -> FastAPI:
         return {"ok": True}
 
     @app.delete("/api/guilds/{guild_id}/tickets/{ticket_id}")
-    def delete_ticket_transcript(guild_id: int, ticket_id: str, request: Request):
+    def delete_ticket_transcript(guild_id: str, ticket_id: str, request: Request):
+        resolved_guild_id = parse_discord_id(guild_id, "guild_id")
         ensure_csrf_for_mutation(request)
         if authorizer is not None:
-            authorizer.ensure_action_allowed(request, action="tickets_read", guild_id=guild_id)
+            authorizer.ensure_action_allowed(request, action="tickets_read", guild_id=resolved_guild_id)
         try:
-            service.delete_ticket_transcript(guild_id, ticket_id)
+            service.delete_ticket_transcript(resolved_guild_id, ticket_id)
         except DomainError as exc:
             raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
         return {"ok": True}
@@ -436,7 +449,8 @@ def create_app() -> FastAPI:
         ensure_csrf_for_mutation(request)
         if authorizer is None:
             raise _oauth_not_configured_error()
-        guild_id = int(payload.guild_id)
+        guild_id = parse_discord_id(payload.guild_id, "guild_id")
+        target_user_ids = [parse_discord_id(user_id, "target_user_ids") for user_id in payload.target_user_ids]
         auth_ctx = authorizer.ensure_action_allowed(request, action="bank_manage", guild_id=guild_id)
         try:
             return service.apply_bank_action(
@@ -444,7 +458,7 @@ def create_app() -> FastAPI:
                 actor_id=auth_ctx.user_id,
                 action_type=payload.action_type,
                 amount=payload.amount,
-                target_user_ids=payload.target_user_ids,
+                target_user_ids=target_user_ids,
                 note=payload.note,
             )
         except DomainError as exc:
@@ -455,7 +469,9 @@ def create_app() -> FastAPI:
         ensure_csrf_for_mutation(request)
         if authorizer is None:
             raise _oauth_not_configured_error()
-        guild_id = int(payload.guild_id)
+        guild_id = parse_discord_id(payload.guild_id, "guild_id")
+        channel_id = parse_discord_id(payload.channel_id, "channel_id")
+        voice_channel_id = parse_discord_id(payload.voice_channel_id, "voice_channel_id") if payload.voice_channel_id else None
         auth_ctx = authorizer.ensure_action_allowed(request, action="raid_open", guild_id=guild_id)
         command = OpenRaidFromTemplate(
             context=CommandContext(guild_id=auth_ctx.guild_id, user_id=auth_ctx.user_id, request_id=payload.request_id),
@@ -466,8 +482,8 @@ def create_app() -> FastAPI:
             start_at=payload.start_at,
             prep_minutes=payload.prep_minutes,
             cleanup_minutes=payload.cleanup_minutes,
-            channel_id=payload.channel_id,
-            voice_channel_id=payload.voice_channel_id,
+            channel_id=channel_id,
+            voice_channel_id=voice_channel_id,
         )
         try:
             return command_bus.dispatch(command, OpenRaidFromTemplateHandler(service), action="open_raid_from_template")
@@ -480,14 +496,14 @@ def create_app() -> FastAPI:
         ensure_csrf_for_mutation(request)
         if authorizer is None:
             raise _oauth_not_configured_error()
-        guild_id = int(payload.guild_id)
+        guild_id = parse_discord_id(payload.guild_id, "guild_id")
         auth_ctx = authorizer.ensure_action_allowed(request, action="comp_wizard", guild_id=guild_id)
         command = StartCompWizardFlow(
             context=CommandContext(guild_id=auth_ctx.guild_id, user_id=auth_ctx.user_id, request_id=payload.request_id),
             template_id=payload.name,
             description=payload.description,
             content_type=payload.content_type,
-            raid_required_role_ids=payload.raid_required_role_ids,
+            raid_required_role_ids=[parse_discord_id(role_id, "raid_required_role_ids") for role_id in payload.raid_required_role_ids],
             spec=payload.spec,
         )
         try:

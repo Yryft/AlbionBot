@@ -4,6 +4,18 @@ Base URL backend dashboard: `/api`
 
 ## DTOs
 
+## Convention d'identifiants (IDs)
+
+Tous les IDs Discord exposés par l'API dashboard sont des **strings** (snowflakes Discord):
+
+- `guild_id`: `string`
+- `user_id`: `string`
+- `message_id`: `string`
+- `role_id`: `string`
+- `channel_id`: `string`
+
+Le backend conserve des entiers en interne si nécessaire, puis convertit explicitement à l'entrée/sortie des DTOs API.
+
 - `GuildDTO`: `{ id, name, roles[] }`
 - `RoleDTO`: `{ id, name }`
 - `TicketTranscriptDTO`: métadonnées ticket + `messages[]`
@@ -33,10 +45,10 @@ Base URL backend dashboard: `/api`
 > Pour l'ouverture de raid, une **outbox persistante** est utilisée: la commande est créée en `pending`, puis marquée `delivered` ou `failed` (avec retry/backoff automatique côté bot).
 
 - `POST /api/actions/raids/open`
-  - body: `RaidOpenRequestDTO` (`channel_id` requis, `voice_channel_id` optionnel)
+  - body: `RaidOpenRequestDTO` (`channel_id` requis, `voice_channel_id` optionnel, IDs au format `string`)
   - permission requise: `raid_open` / `raid_manager`
 - `POST /api/actions/comp-wizard`
-  - body: `CompTemplateCreateRequestDTO`
+  - body: `CompTemplateCreateRequestDTO` (`raid_required_role_ids[]` en `string`)
   - permission requise: `comp_wizard` / `raid_manager`
 - `POST /api/raids/{raid_id}/signup`
   - body: `RaidSignupRequestDTO`
@@ -46,7 +58,7 @@ Base URL backend dashboard: `/api`
 - `PUT /api/raids/{raid_id}`
   - body: `RaidUpdateRequestDTO`
 - `POST /api/actions/bank/apply`
-  - body: `BankActionRequestDTO`
+  - body: `BankActionRequestDTO` (`target_user_ids[]` en `string`)
   - permission requise: `bank_manage` / `bank_manager`
 
 Les endpoints d'action sont pensés pour être protégés derrière une auth manager (JWT/proxy) côté infra.

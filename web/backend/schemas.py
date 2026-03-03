@@ -6,19 +6,19 @@ from pydantic import BaseModel, Field
 
 
 class RoleDTO(BaseModel):
-    id: int
+    id: str
     name: str
 
 
 class GuildDTO(BaseModel):
-    id: int
+    id: str
     name: str
     roles: List[RoleDTO] = Field(default_factory=list)
 
 
 class TicketMessageDTO(BaseModel):
-    message_id: int
-    author_id: int
+    message_id: str
+    author_id: str
     author_name: str = ""
     author_avatar_url: str = ""
     content: str
@@ -30,12 +30,12 @@ class TicketMessageDTO(BaseModel):
 
 class TicketTranscriptDTO(BaseModel):
     ticket_id: str
-    guild_id: int
-    owner_user_id: int
+    guild_id: str
+    owner_user_id: str
     status: Literal["open", "closed", "deleted"]
     ticket_type_key: str
-    channel_id: Optional[int] = None
-    thread_id: Optional[int] = None
+    channel_id: Optional[str] = None
+    thread_id: Optional[str] = None
     created_at: int
     updated_at: int
     messages: List[TicketMessageDTO] = Field(default_factory=list)
@@ -46,24 +46,24 @@ class RaidRoleDTO(BaseModel):
     label: str
     slots: int
     ip_required: bool = False
-    required_role_ids: List[int] = Field(default_factory=list)
+    required_role_ids: List[str] = Field(default_factory=list)
 
 
 class RaidTemplateDTO(BaseModel):
     name: str
     description: str
     content_type: Literal["ava_raid", "pvp", "pve"]
-    created_by: int
+    created_by: str
     created_at: int
-    raid_required_role_ids: List[int] = Field(default_factory=list)
+    raid_required_role_ids: List[str] = Field(default_factory=list)
     roles: List[RaidRoleDTO] = Field(default_factory=list)
 
 
 class RaidOpenRequestDTO(BaseModel):
     request_id: str
     guild_id: str
-    channel_id: int = Field(gt=0)
-    voice_channel_id: Optional[int] = Field(default=None, gt=0)
+    channel_id: str = Field(min_length=1)
+    voice_channel_id: Optional[str] = Field(default=None, min_length=1)
     template_name: str
     title: str
     description: str = ""
@@ -80,11 +80,11 @@ class RaidDTO(BaseModel):
     description: str
     extra_message: str
     start_at: int
-    created_by: int
+    created_by: str
     created_at: int
-    channel_id: Optional[int] = None
-    message_id: Optional[int] = None
-    voice_channel_id: Optional[int] = None
+    channel_id: Optional[str] = None
+    message_id: Optional[str] = None
+    voice_channel_id: Optional[str] = None
     status: Literal["OPEN", "PINGED", "CLOSED"]
     publish_status: Literal["pending", "delivered", "failed"] = "pending"
     publish_error: str = ""
@@ -92,7 +92,7 @@ class RaidDTO(BaseModel):
 
 
 class RaidParticipantDTO(BaseModel):
-    user_id: int
+    user_id: str
     role_key: str
     status: Literal["main", "wait"]
     ip: Optional[int] = None
@@ -102,7 +102,7 @@ class RaidParticipantDTO(BaseModel):
 class RaidRosterDTO(BaseModel):
     raid: RaidDTO
     participants: List[RaidParticipantDTO] = Field(default_factory=list)
-    absent_user_ids: List[int] = Field(default_factory=list)
+    absent_user_ids: List[str] = Field(default_factory=list)
 
 
 class RaidSignupRequestDTO(BaseModel):
@@ -116,14 +116,14 @@ class CompTemplateCreateRequestDTO(BaseModel):
     name: str
     description: str = ""
     content_type: Literal["ava_raid", "pvp", "pve"] = "pvp"
-    raid_required_role_ids: List[int] = Field(default_factory=list)
+    raid_required_role_ids: List[str] = Field(default_factory=list)
     spec: str = Field(description="Spec wizard multi-lignes: Label;slots;options")
 
 
 class RaidTemplateUpdateRequestDTO(BaseModel):
     description: str = ""
     content_type: Literal["ava_raid", "pvp", "pve"] = "pvp"
-    raid_required_role_ids: List[int] = Field(default_factory=list)
+    raid_required_role_ids: List[str] = Field(default_factory=list)
     spec: str = Field(description="Spec wizard multi-lignes: Label;slots;options")
 
 
@@ -137,7 +137,7 @@ class RaidUpdateRequestDTO(BaseModel):
 
 
 class BalanceEntryDTO(BaseModel):
-    user_id: int
+    user_id: str
     balance: int
     rank: int = 0
 
@@ -147,13 +147,13 @@ class BankActionRequestDTO(BaseModel):
     guild_id: str
     action_type: Literal["add", "remove", "add_split", "remove_split"]
     amount: int = Field(ge=0)
-    target_user_ids: List[int] = Field(default_factory=list)
+    target_user_ids: List[str] = Field(default_factory=list)
     note: str = ""
 
 
 class BankActionResultDTO(BaseModel):
     action_id: str
-    guild_id: int
+    guild_id: str
     action_type: Literal["add", "remove", "add_split", "remove_split"]
     total_delta: int
     impacted_users: int

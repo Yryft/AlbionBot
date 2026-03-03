@@ -108,5 +108,5 @@ def test_user_raid_visibility_and_signup_flow(tmp_path):
 
     roster = service.leave_raid("r1", user_id=10, user_role_ids=[77])
     assert len(roster.participants) == 1
-    assert roster.participants[0].user_id == 11
+    assert roster.participants[0].user_id == "11"
     assert roster.participants[0].status == "main"
