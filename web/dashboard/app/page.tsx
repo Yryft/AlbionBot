@@ -556,7 +556,15 @@ export default function HomePage() {
     <main className="discord-shell">
       <aside className="guild-rail">
         {state.me?.guilds?.map((guild) => (
-          <button key={guild.id} className={guild.id === selectedGuildId ? 'guild-btn active pop' : 'guild-btn pop'} onClick={() => void onSelectGuild(guild.id)} type="button" title={guild.name}>
+          <button
+            key={guild.id}
+            className={guild.id === selectedGuildId ? 'guild-btn active pop' : 'guild-btn pop'}
+            onClick={() => void onSelectGuild(guild.id)}
+            type="button"
+            title={guild.name}
+            aria-label={`Sélectionner le serveur ${guild.name}`}
+            aria-pressed={guild.id === selectedGuildId}
+          >
             {guildIconUrl(guild) ? <img src={guildIconUrl(guild)} alt={guild.name} className="avatar" /> : guild.name.slice(0, 2).toUpperCase()}
           </button>
         ))}
