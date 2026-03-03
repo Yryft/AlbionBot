@@ -380,6 +380,52 @@ class BankDB:
                 (int(undone_at), str(action_id))
             )
 
+    def list_actions(self, guild_id: int, limit: int = 25) -> List[BankAction]:
+        rows = self._fetchall(
+            """
+            SELECT action_id, guild_id, actor_id, created_at, action_type, note, undone, undone_at
+            FROM bank_actions
+            WHERE guild_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?;
+            """
+            if self.kind == "sqlite"
+            else
+            """
+            SELECT action_id, guild_id, actor_id, created_at, action_type, note, undone, undone_at
+            FROM bank_actions
+            WHERE guild_id = %s
+            ORDER BY created_at DESC
+            LIMIT %s;
+            """,
+            (int(guild_id), int(limit)),
+        )
+
+        actions: List[BankAction] = []
+        for row in rows:
+            action_id = str(row["action_id"])
+            deltas_rows = self._fetchall(
+                "SELECT user_id, delta FROM bank_action_deltas WHERE action_id = ?;"
+                if self.kind == "sqlite"
+                else "SELECT user_id, delta FROM bank_action_deltas WHERE action_id = %s;",
+                (action_id,),
+            )
+            deltas = {int(r["user_id"]): int(r["delta"]) for r in deltas_rows}
+            actions.append(
+                BankAction(
+                    action_id=action_id,
+                    guild_id=int(row["guild_id"]),
+                    actor_id=int(row["actor_id"]),
+                    created_at=int(row["created_at"]),
+                    action_type=str(row["action_type"]),
+                    deltas=deltas,
+                    note=str(row.get("note", "") or ""),
+                    undone=bool(row["undone"]) if self.kind == "postgres" else bool(int(row["undone"])),
+                    undone_at=row.get("undone_at"),
+                )
+            )
+        return actions
+
 
     def get_state_blob(self, key: str) -> Optional[str]:
         row = self._fetchone(

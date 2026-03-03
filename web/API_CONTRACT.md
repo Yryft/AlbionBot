@@ -35,7 +35,10 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
 | `/raid_close` | `POST /api/raids/{raid_id}/state` avec `{ "action": "close" }` | `Tous les raids` → bouton **Fermer raid** |
 | `/raid_assistant` (close/edit) | `PUT /api/raids/{raid_id}` + `POST /api/raids/{raid_id}/state` | `Tous les raids` (actions **Éditer** / **Fermer raid**) |
 | Boutons roster raid (`join/leave/absent`) | `GET /api/raids/{raid_id}/roster`, `POST /api/raids/{raid_id}/signup`, `POST /api/raids/{raid_id}/leave` | `Tous les raids` → panneau **Inscriptions en ligne** (**Gérer roster**) |
-| `/loot_split`, `/loot_scout_limits` | _Non exposé dans le backend raids_ (le dashboard utilise seulement `POST /api/actions/bank/apply` pour lootsplit comptable) | `Balances & Lootsplit` |
+| `/loot_split`, `/loot_scout_limits` | _Non exposé dans le backend dashboard_ | _N/A_ |
+| `/bal` | `GET /api/guilds/{guild_id}/balances/{user_id}` | `Banque` → bloc **Consultation ciblée** |
+| `/pay` | `POST /api/actions/bank/pay` | `Banque` → bloc **Transfert** |
+| `/bank_undo` | `POST /api/actions/bank/undo` | `Banque` → bouton **/bank_undo** |
 
 ## Endpoints lecture
 
@@ -47,6 +50,8 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
 - `GET /api/my/raids`
 - `GET /api/raids/{raid_id}/roster`
 - `GET /api/guilds/{guild_id}/balances`
+- `GET /api/guilds/{guild_id}/balances/{user_id}`
+- `GET /api/guilds/{guild_id}/bank/actions?limit=25`
 - `GET /api/public/overview`
 
 ## Endpoints actions managées
@@ -73,6 +78,19 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
 - `POST /api/actions/bank/apply`
   - body: `BankActionRequestDTO` (`target_user_ids[]` en `string`)
   - permission requise: `bank_manage` / `bank_manager`
+- `POST /api/actions/bank/undo`
+  - body: `BankUndoRequestDTO`
+  - permission requise: `bank_manage` / `bank_manager`
+- `POST /api/actions/bank/pay`
+  - body: `BankTransferRequestDTO`
+  - permission requise: membre de la guilde (pas manager)
+
+### Règles de permission banque
+
+- `GET /api/guilds/{guild_id}/balances` et les actions manager (`/bank_add`, `/bank_remove`, `*_split`, `/bank_undo`) exigent `bank_manage` / `bank_manager`.
+- `GET /api/guilds/{guild_id}/balances/{user_id}` autorise la consultation de sa propre balance pour tout membre; la consultation d'un tiers exige `bank_manage`.
+- `POST /api/actions/bank/pay` est accessible à tout membre de la guilde et applique le transfert `from=current_user -> to_user`.
+- Les validations de soldes manager (`apply`, `undo`) utilisent `BANK_ALLOW_NEGATIVE` côté backend dashboard, aligné avec `cfg.bank_allow_negative` du bot.
 
 Les endpoints d'action sont pensés pour être protégés derrière une auth manager (JWT/proxy) côté infra.
 

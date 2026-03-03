@@ -6,7 +6,15 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from albionbot.modules.raids import MAX_IP, MIN_IP, count_main_for_role, parse_comp_spec, raid_status, recompute_promotions, role_map
-from albionbot.modules.bank import apply_deltas, can_apply_deltas, compute_split_deltas, make_action_id
+from albionbot.modules.bank import (
+    UNDO_WINDOW_SECONDS,
+    _now,
+    apply_deltas,
+    can_apply_deltas,
+    compute_split_deltas,
+    find_last_action_for_actor,
+    make_action_id,
+)
 from albionbot.storage.store import CompTemplate, RaidCommand, RaidEvent, Signup, Store
 from albionbot.storage.store import BankAction
 
@@ -17,9 +25,13 @@ from .command_bus import (
     ValidationError,
 )
 from .schemas import (
-    GuildDTO,
     BalanceEntryDTO,
+    BankActionHistoryEntryDTO,
     BankActionResultDTO,
+    BankBalanceDTO,
+    BankTransferResultDTO,
+    BankUndoResultDTO,
+    GuildDTO,
     RaidDTO,
     RaidTemplateDTO,
     RaidUpdateRequestDTO,
@@ -95,8 +107,9 @@ class StartCompWizardFlowHandler(CommandHandler[RaidTemplateDTO]):
 
 
 class DashboardService:
-    def __init__(self, store: Store):
+    def __init__(self, store: Store, bank_allow_negative: bool = True):
         self.store = store
+        self.bank_allow_negative = bool(bank_allow_negative)
 
     def list_guilds(self) -> List[GuildDTO]:
         guild_ids = set(self.store.ticket_configs.keys())
@@ -312,7 +325,7 @@ class DashboardService:
             deltas = compute_split_deltas(amount, target_user_ids, sign)
         else:
             deltas = {uid: sign * amount for uid in target_user_ids}
-        ok, reason = can_apply_deltas(self.store, guild_id, deltas, allow_negative=False)
+        ok, reason = can_apply_deltas(self.store, guild_id, deltas, allow_negative=self.bank_allow_negative)
         if not ok:
             raise ValidationError(code="insufficient_balance", message=reason)
         apply_deltas(self.store, guild_id, deltas)
@@ -335,6 +348,76 @@ class DashboardService:
             impacted_users=len(deltas),
             note=action.note,
         )
+
+    def get_balance(self, guild_id: int, user_id: int) -> BankBalanceDTO:
+        return BankBalanceDTO(guild_id=str(guild_id), user_id=str(user_id), balance=self.store.bank_get_balance(guild_id, user_id))
+
+    def transfer_balance(self, guild_id: int, from_user_id: int, to_user_id: int, amount: int, note: str) -> BankTransferResultDTO:
+        if amount <= 0:
+            raise ValidationError(code="invalid_amount", message="Montant invalide")
+        if from_user_id == to_user_id:
+            raise ValidationError(code="invalid_target", message="Impossible de se transférer à soi-même")
+
+        deltas = {from_user_id: -int(amount), to_user_id: int(amount)}
+        ok, reason = can_apply_deltas(self.store, guild_id, deltas, allow_negative=False)
+        if not ok:
+            raise ValidationError(code="insufficient_balance", message=reason)
+
+        apply_deltas(self.store, guild_id, deltas)
+        self.store.save()
+        return BankTransferResultDTO(
+            guild_id=str(guild_id),
+            from_user_id=str(from_user_id),
+            to_user_id=str(to_user_id),
+            amount=int(amount),
+            note=note.strip(),
+        )
+
+    def undo_last_bank_action(self, guild_id: int, actor_id: int) -> BankUndoResultDTO:
+        action = find_last_action_for_actor(self.store, guild_id, actor_id)
+        if action is None:
+            raise ValidationError(code="undo_not_found", message="Aucune action annulable trouvée")
+
+        age = _now() - action.created_at
+        if age > UNDO_WINDOW_SECONDS:
+            raise ValidationError(code="undo_window_expired", message="Fenêtre d'undo dépassée (15 min)")
+
+        reverse = {uid: -delta for uid, delta in action.deltas.items()}
+        ok, reason = can_apply_deltas(self.store, guild_id, reverse, allow_negative=self.bank_allow_negative)
+        if not ok:
+            raise ValidationError(code="undo_insufficient_balance", message=reason)
+
+        apply_deltas(self.store, guild_id, reverse)
+        undone_at = _now()
+        self.store.bank_mark_action_undone(action.action_id, undone_at)
+        self.store.save()
+
+        return BankUndoResultDTO(
+            action_id=action.action_id,
+            guild_id=str(guild_id),
+            action_type=action.action_type,
+            undone_at=undone_at,
+        )
+
+    def list_bank_action_history(self, guild_id: int, limit: int = 25) -> List[BankActionHistoryEntryDTO]:
+        actions = self.store.bank_list_actions(guild_id, limit=max(1, int(limit)))
+        out: List[BankActionHistoryEntryDTO] = []
+        for action in actions:
+            out.append(
+                BankActionHistoryEntryDTO(
+                    action_id=action.action_id,
+                    guild_id=str(action.guild_id),
+                    actor_id=str(action.actor_id),
+                    created_at=action.created_at,
+                    action_type=action.action_type,
+                    total_delta=sum(action.deltas.values()),
+                    impacted_users=len(action.deltas),
+                    note=action.note,
+                    undone=action.undone,
+                    undone_at=action.undone_at,
+                )
+            )
+        return out
 
     def _to_ticket_transcript(self, ticket) -> TicketTranscriptDTO:
         messages = []
