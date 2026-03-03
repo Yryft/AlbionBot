@@ -8,6 +8,11 @@ Structure proposée:
 ## Principe de contrôle
 
 - Le dashboard sert de **console de pilotage** du bot.
+## Convention IDs API
+
+- Tous les IDs Discord échangés entre frontend et backend (`guild_id`, `user_id`, `message_id`, `role_id`, `channel_id`) sont sérialisés en **`string`**.
+- Le backend convertit ces IDs en `int` uniquement pour son traitement interne.
+
 - Les actions faites depuis le dashboard (raids, compo, banque, tickets) doivent être considérées comme des commandes au bot Discord.
 - Le bot recharge l'état partagé et applique ensuite les effets côté Discord (publication, édition, suppression, synchronisation des vues).
 

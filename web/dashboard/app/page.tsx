@@ -159,8 +159,8 @@ export default function HomePage() {
       setEditingRaidId((prev) => prev || raids[0]?.raid_id || '');
       setSelectedRaidId((prev) => prev || raids[0]?.raid_id || '');
       setLootRaidId((prev) => prev || raids[0]?.raid_id || '');
-      setSelectedBalanceUserId((prev) => prev || String(balances[0]?.user_id || ''));
-      if (!raidChannelId && raids[0]?.channel_id) setRaidChannelId(String(raids[0].channel_id));
+      setSelectedBalanceUserId((prev) => prev || balances[0]?.user_id || '');
+      if (!raidChannelId && raids[0]?.channel_id) setRaidChannelId(raids[0].channel_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur de chargement');
     } finally {
@@ -280,8 +280,8 @@ export default function HomePage() {
     event.preventDefault();
     if (!selectedGuildId || !raidTemplate || !raidStartAt || !raidTitle || !raidChannelId) return;
     await apiPost('/api/actions/raids/open', {
-      request_id: crypto.randomUUID(), guild_id: selectedGuildId, channel_id: Number(raidChannelId),
-      voice_channel_id: raidVoiceChannelId ? Number(raidVoiceChannelId) : null,
+      request_id: crypto.randomUUID(), guild_id: selectedGuildId, channel_id: raidChannelId,
+      voice_channel_id: raidVoiceChannelId || null,
       template_name: raidTemplate, title: raidTitle, description: raidDescription, extra_message: raidExtraMessage,
       start_at: Math.floor(new Date(raidStartAt).getTime() / 1000), prep_minutes: 10, cleanup_minutes: 30,
     });
@@ -319,7 +319,7 @@ export default function HomePage() {
   async function onBankAction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedGuildId) return;
-    const target_user_ids = bankTargets.split(/[\s,]+/).map((id) => Number(id)).filter((v) => Number.isFinite(v) && v > 0);
+    const target_user_ids = bankTargets.split(/[\s,]+/).map((id) => id.trim()).filter((id) => /^([1-9]\d*)$/.test(id));
     await apiPost('/api/actions/bank/apply', {
       request_id: crypto.randomUUID(), guild_id: selectedGuildId, action_type: bankActionType,
       amount: Number(bankAmount), target_user_ids, note: 'dashboard',
@@ -335,7 +335,7 @@ export default function HomePage() {
       guild_id: selectedGuildId,
       action_type: action,
       amount: Number(quickAmount),
-      target_user_ids: [Number(selectedBalanceUserId)],
+      target_user_ids: [selectedBalanceUserId],
       note: 'dashboard-quick',
     });
     await loadDashboard(selectedGuildId);
@@ -345,7 +345,7 @@ export default function HomePage() {
     if (!selectedGuildId || lootStats.perPlayer <= 0 || !lootRecipients.length) return;
     await apiPost('/api/actions/bank/apply', {
       request_id: crypto.randomUUID(), guild_id: selectedGuildId, action_type: 'add_split',
-      amount: lootStats.perPlayer, target_user_ids: lootRecipients.map((id) => Number(id)).filter((v) => Number.isFinite(v) && v > 0), note: `lootsplit raid ${lootRaidId}`,
+      amount: lootStats.perPlayer, target_user_ids: lootRecipients.filter((id) => /^([1-9]\d*)$/.test(id)), note: `lootsplit raid ${lootRaidId}`,
     });
     await loadDashboard(selectedGuildId);
   }
@@ -526,7 +526,7 @@ export default function HomePage() {
                 <h3>Leaderboard (comme Discord)</h3>
                 <ul>{state.balances.slice(0, 30).map((b, index) => (
                   <li key={b.user_id} className="raid-item">
-                    <span>#{b.rank || index + 1} · {memberNameById.get(String(b.user_id)) || b.user_id}</span>
+                    <span>#{b.rank || index + 1} · {memberNameById.get(b.user_id) || b.user_id}</span>
                     <small>{b.balance.toLocaleString('fr-FR')}</small>
                   </li>
                 ))}</ul>

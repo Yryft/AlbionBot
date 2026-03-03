@@ -32,7 +32,7 @@ class FakeOAuthService:
 RAID_OPEN_PAYLOAD = {
     "request_id": "req-1",
     "guild_id": "123",
-    "channel_id": 456,
+    "channel_id": "456",
     "template_name": "zvz",
     "title": "Prime time",
     "description": "desc",
@@ -47,7 +47,7 @@ BANK_APPLY_PAYLOAD = {
     "guild_id": "123",
     "action_type": "add",
     "amount": 100,
-    "target_user_ids": [77],
+    "target_user_ids": ["77"],
     "note": "test",
 }
 
@@ -140,7 +140,7 @@ def test_bank_apply_requires_csrf_header(tmp_path, monkeypatch):
 
 
 def test_bank_apply_with_valid_csrf_header_behaves_normally(tmp_path, monkeypatch):
-    client = _build_client(tmp_path, monkeypatch, role_ids=[111])
+    client = _build_client(tmp_path, monkeypatch, role_ids=[222])
 
     response = client.post("/api/actions/bank/apply", json=BANK_APPLY_PAYLOAD, headers={"X-CSRF-Token": "csrf"})
 
