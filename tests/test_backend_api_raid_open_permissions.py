@@ -42,6 +42,15 @@ RAID_OPEN_PAYLOAD = {
     "cleanup_minutes": 30,
 }
 
+BANK_APPLY_PAYLOAD = {
+    "request_id": "bank-req-1",
+    "guild_id": "123",
+    "action_type": "add",
+    "amount": 100,
+    "target_user_ids": [77],
+    "note": "test",
+}
+
 
 def _write_state(path) -> None:
     path.write_text(
@@ -109,7 +118,7 @@ def _build_client(tmp_path, monkeypatch, *, role_ids: list[int]) -> TestClient:
 def test_raid_manager_without_bank_permission_can_open_raid(tmp_path, monkeypatch):
     client = _build_client(tmp_path, monkeypatch, role_ids=[111])
 
-    response = client.post("/api/actions/raids/open", json=RAID_OPEN_PAYLOAD)
+    response = client.post("/api/actions/raids/open", json=RAID_OPEN_PAYLOAD, headers={"X-CSRF-Token": "csrf"})
 
     assert response.status_code == 200
 
@@ -117,6 +126,38 @@ def test_raid_manager_without_bank_permission_can_open_raid(tmp_path, monkeypatc
 def test_bank_manager_without_raid_permission_cannot_open_raid(tmp_path, monkeypatch):
     client = _build_client(tmp_path, monkeypatch, role_ids=[222])
 
+    response = client.post("/api/actions/raids/open", json=RAID_OPEN_PAYLOAD, headers={"X-CSRF-Token": "csrf"})
+
+    assert response.status_code == 403
+
+
+def test_bank_apply_requires_csrf_header(tmp_path, monkeypatch):
+    client = _build_client(tmp_path, monkeypatch, role_ids=[111])
+
+    response = client.post("/api/actions/bank/apply", json=BANK_APPLY_PAYLOAD)
+
+    assert response.status_code == 403
+
+
+def test_bank_apply_with_valid_csrf_header_behaves_normally(tmp_path, monkeypatch):
+    client = _build_client(tmp_path, monkeypatch, role_ids=[111])
+
+    response = client.post("/api/actions/bank/apply", json=BANK_APPLY_PAYLOAD, headers={"X-CSRF-Token": "csrf"})
+
+    assert response.status_code == 200
+
+
+def test_raid_open_requires_csrf_header(tmp_path, monkeypatch):
+    client = _build_client(tmp_path, monkeypatch, role_ids=[111])
+
     response = client.post("/api/actions/raids/open", json=RAID_OPEN_PAYLOAD)
 
     assert response.status_code == 403
+
+
+def test_raid_open_with_valid_csrf_header_behaves_normally(tmp_path, monkeypatch):
+    client = _build_client(tmp_path, monkeypatch, role_ids=[111])
+
+    response = client.post("/api/actions/raids/open", json=RAID_OPEN_PAYLOAD, headers={"X-CSRF-Token": "csrf"})
+
+    assert response.status_code == 200
