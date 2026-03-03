@@ -274,10 +274,10 @@ class RaidModule:
             except Exception:
                 pass
 
+        await self._consume_raid_command_queue()
+
         for raid in list(self.store.raids.values()):
-            if raid.channel_id and not raid.message_id:
-                await self.publish_raid_if_needed(raid.raid_id)
-            elif raid.channel_id and raid.message_id:
+            if raid.channel_id and raid.message_id:
                 await self.refresh_raid_message(raid.raid_id)
 
         self._known_published_messages = {
@@ -389,17 +389,17 @@ class RaidModule:
         except Exception:
             log.exception("Failed to refresh raid message")
 
-    async def publish_raid_if_needed(self, raid_id: str) -> bool:
+    async def publish_raid_if_needed(self, raid_id: str) -> Tuple[bool, str]:
         raid = self.store.raids.get(raid_id)
         if not raid or not raid.channel_id or raid.message_id:
-            return False
+            return False, ""
         tpl = self.store.templates.get(raid.template_name)
         if not tpl:
-            return False
+            return False, ""
         try:
             channel = await self.bot.fetch_channel(int(raid.channel_id))
             if not isinstance(channel, (nextcord.TextChannel, nextcord.Thread)):
-                return False
+                return False, ""
 
             embed = build_raid_embed(channel.guild, raid, tpl)
             view = self.build_view(raid, tpl)
@@ -415,7 +415,7 @@ class RaidModule:
             async with self.store.lock:
                 persisted = self.store.raids.get(raid_id)
                 if not persisted or persisted.message_id:
-                    return False
+                    return False, ""
                 persisted.channel_id = msg.channel.id
                 persisted.message_id = msg.id
                 persisted.thread_id = thread.id if thread else None
@@ -434,10 +434,10 @@ class RaidModule:
                     )
                 except Exception:
                     pass
-            return True
-        except Exception:
+            return True, ""
+        except Exception as exc:
             log.exception("Failed to publish pending raid raid_id=%s", raid_id)
-            return False
+            return False, str(exc)
 
     # ---------- Temp role / voice overwrites
     async def _ensure_temp_role(self, guild: nextcord.Guild, raid: RaidEvent) -> Optional[nextcord.Role]:
@@ -1015,16 +1015,72 @@ class RaidModule:
             wtxt = "\n⚠️ Warnings:\n" + "\n".join(f"• {w}" for w in warnings[:10])
         await dm.send(f"✅ Template **{name}** enregistré. Rôles: **{len(roles)}**.{wtxt}")
 
+    def _compute_command_retry_delay(self, attempts: int) -> int:
+        # 30s, 60s, 120s ... cap à 15 minutes
+        capped_attempts = max(0, int(attempts))
+        return min(900, 30 * (2 ** capped_attempts))
+
+    async def _consume_raid_command_queue(self) -> None:
+        now = _now()
+        for command in sorted(self.store.raid_commands.values(), key=lambda c: c.created_at):
+            if command.command_type != "open_raid_from_template":
+                continue
+            if command.status == "delivered":
+                continue
+            if command.next_attempt_at > now:
+                continue
+
+            raid = self.store.raids.get(command.raid_id)
+            if raid is None:
+                async with self.store.lock:
+                    persisted = self.store.raid_commands.get(command.command_id)
+                    if persisted is None:
+                        continue
+                    persisted.status = "failed"
+                    persisted.last_error = "Raid introuvable"
+                    persisted.updated_at = _now()
+                    persisted.attempts += 1
+                    persisted.next_attempt_at = persisted.updated_at + self._compute_command_retry_delay(persisted.attempts)
+                    self.store.save()
+                continue
+
+            if raid.message_id:
+                async with self.store.lock:
+                    persisted = self.store.raid_commands.get(command.command_id)
+                    if persisted is None:
+                        continue
+                    persisted.status = "delivered"
+                    persisted.last_error = ""
+                    persisted.updated_at = _now()
+                    persisted.delivered_at = persisted.updated_at
+                    self.store.save()
+                continue
+
+            success, error = await self.publish_raid_if_needed(raid.raid_id)
+            async with self.store.lock:
+                persisted = self.store.raid_commands.get(command.command_id)
+                if persisted is None:
+                    continue
+                persisted.updated_at = _now()
+                persisted.attempts += 1
+                if success:
+                    persisted.status = "delivered"
+                    persisted.last_error = ""
+                    persisted.delivered_at = persisted.updated_at
+                else:
+                    persisted.status = "failed"
+                    persisted.last_error = (error or "Erreur Discord inconnue")[:500]
+                    persisted.next_attempt_at = persisted.updated_at + self._compute_command_retry_delay(persisted.attempts)
+                self.store.save()
+
     # ---------- Scheduler
     @tasks.loop(seconds=15)
     async def scheduler_loop(self):
         now = _now()
+        await self._consume_raid_command_queue()
         for raid in list(self.store.raids.values()):
             if raid.cleanup_done:
                 continue
-
-            if raid.channel_id and not raid.message_id:
-                await self.publish_raid_if_needed(raid.raid_id)
 
             prep_at = raid.start_at - raid.prep_minutes * 60
             if not raid.prep_done and now >= prep_at:

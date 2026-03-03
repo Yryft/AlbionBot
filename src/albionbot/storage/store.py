@@ -10,6 +10,8 @@ RaidStatus = Literal["OPEN", "PINGED", "CLOSED"]
 BankActionType = Literal["add", "remove", "add_split", "remove_split"]
 TicketCreationMode = Literal["private_channel", "private_thread"]
 TicketRecordStatus = Literal["open", "closed", "deleted"]
+RaidCommandType = Literal["open_raid_from_template"]
+RaidCommandStatus = Literal["pending", "delivered", "failed"]
 STATE_DB_KEY = "bot_state_v1"
 
 
@@ -73,6 +75,21 @@ class RaidEvent:
     cleanup_done: bool = False
     last_voice_present_ids: List[int] = field(default_factory=list)
     dm_notify_users: Set[int] = field(default_factory=set)
+
+
+@dataclass
+class RaidCommand:
+    command_id: str
+    command_type: RaidCommandType
+    raid_id: str
+    status: RaidCommandStatus = "pending"
+    payload: Dict[str, object] = field(default_factory=dict)
+    attempts: int = 0
+    next_attempt_at: int = field(default_factory=lambda: int(time.time()))
+    last_error: str = ""
+    created_at: int = field(default_factory=lambda: int(time.time()))
+    updated_at: int = field(default_factory=lambda: int(time.time()))
+    delivered_at: Optional[int] = None
 
 
 @dataclass
@@ -161,6 +178,7 @@ class Store:
         self.templates: Dict[str, CompTemplate] = {}
         self.raids: Dict[str, RaidEvent] = {}
         self.guild_permissions: Dict[int, Dict[str, List[int]]] = {}
+        self.raid_commands: Dict[str, RaidCommand] = {}
         self.bank_balances: Dict[int, Dict[int, int]] = {}
         self.bank_actions: Dict[int, List[BankAction]] = {}
 
@@ -272,6 +290,24 @@ class Store:
             for perm_key, role_ids in perm_map.items():
                 out_map[str(perm_key)] = list(map(int, role_ids or []))
             self.guild_permissions[gid] = out_map
+
+        self.raid_commands = {}
+        for command_id, cmd in raw.get("raid_commands", {}).items():
+            if not isinstance(cmd, dict):
+                continue
+            self.raid_commands[str(command_id)] = RaidCommand(
+                command_id=str(cmd.get("command_id", command_id)),
+                command_type=str(cmd.get("command_type", "open_raid_from_template")),
+                raid_id=str(cmd.get("raid_id", "")),
+                status=str(cmd.get("status", "pending")),
+                payload=dict(cmd.get("payload", {}) or {}),
+                attempts=int(cmd.get("attempts", 0)),
+                next_attempt_at=int(cmd.get("next_attempt_at", int(time.time()))),
+                last_error=str(cmd.get("last_error", "")),
+                created_at=int(cmd.get("created_at", int(time.time()))),
+                updated_at=int(cmd.get("updated_at", int(time.time()))),
+                delivered_at=(int(cmd.get("delivered_at")) if cmd.get("delivered_at") is not None else None),
+            )
 
         self.ticket_configs = {}
         for gid_str, ticket_cfg in raw.get("ticket_configs", {}).items():
@@ -448,7 +484,7 @@ class Store:
         self.ticket_by_user[gid][uid][record.status].add(record.ticket_id)
 
     def _serialize_runtime_state(self) -> Dict:
-        raw = {"templates": {}, "raids": {}, "guild_permissions": {}, "tickets": {"configs": {}, "records": {}, "messages": {}, "by_user": {}}}
+        raw = {"templates": {}, "raids": {}, "guild_permissions": {}, "raid_commands": {}, "tickets": {"configs": {}, "records": {}, "messages": {}, "by_user": {}}}
         for name, t in self.templates.items():
             raw["templates"][name] = {
                 "name": t.name,
@@ -489,6 +525,21 @@ class Store:
 
         for gid, perm_map in self.guild_permissions.items():
             raw["guild_permissions"][str(gid)] = {k: list(map(int, v)) for k, v in perm_map.items()}
+
+        for command_id, command in self.raid_commands.items():
+            raw["raid_commands"][str(command_id)] = {
+                "command_id": command.command_id,
+                "command_type": command.command_type,
+                "raid_id": command.raid_id,
+                "status": command.status,
+                "payload": dict(command.payload),
+                "attempts": command.attempts,
+                "next_attempt_at": command.next_attempt_at,
+                "last_error": command.last_error,
+                "created_at": command.created_at,
+                "updated_at": command.updated_at,
+                "delivered_at": command.delivered_at,
+            }
 
         for gid, conf in self.ticket_configs.items():
             if isinstance(conf, dict):
