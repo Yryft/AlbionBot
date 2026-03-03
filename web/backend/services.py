@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 
 from albionbot.modules.raids import MAX_IP, MIN_IP, count_main_for_role, parse_comp_spec, raid_status, recompute_promotions, role_map
 from albionbot.modules.bank import apply_deltas, can_apply_deltas, compute_split_deltas, make_action_id
-from albionbot.storage.store import CompTemplate, RaidEvent, Signup, Store
+from albionbot.storage.store import CompTemplate, RaidCommand, RaidEvent, Signup, Store
 from albionbot.storage.store import BankAction
 
 from .command_bus import (
@@ -55,6 +55,19 @@ class OpenRaidFromTemplateHandler(CommandHandler[RaidDTO]):
             voice_channel_id=command.voice_channel_id,
         )
         self.service.store.raids[raid_id] = raid
+        now = int(time.time())
+        command_id = f"open_raid_from_template:{raid_id}"
+        self.service.store.raid_commands[command_id] = RaidCommand(
+            command_id=command_id,
+            command_type="open_raid_from_template",
+            raid_id=raid_id,
+            status="pending",
+            payload={"channel_id": int(command.channel_id)},
+            attempts=0,
+            next_attempt_at=now,
+            created_at=now,
+            updated_at=now,
+        )
         self.service.store.save()
         return self.service._to_raid_dto(raid)
 
@@ -353,6 +366,16 @@ class DashboardService:
         )
 
     def _to_raid_dto(self, raid: RaidEvent) -> RaidDTO:
+        command = next(
+            (
+                cmd
+                for cmd in self.store.raid_commands.values()
+                if cmd.raid_id == raid.raid_id and cmd.command_type == "open_raid_from_template"
+            ),
+            None,
+        )
+        publish_status = command.status if command is not None else ("delivered" if raid.message_id else "pending")
+        publish_error = command.last_error if command is not None else ""
         return RaidDTO(
             raid_id=raid.raid_id,
             template_name=raid.template_name,
@@ -366,4 +389,6 @@ class DashboardService:
             message_id=raid.message_id,
             voice_channel_id=raid.voice_channel_id,
             status=raid_status(raid),
+            publish_status=publish_status,
+            publish_error=publish_error,
         )

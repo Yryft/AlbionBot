@@ -86,7 +86,8 @@ class RaidDTO(BaseModel):
     message_id: Optional[int] = None
     voice_channel_id: Optional[int] = None
     status: Literal["OPEN", "PINGED", "CLOSED"]
-
+    publish_status: Literal["pending", "delivered", "failed"] = "pending"
+    publish_error: str = ""
 
 
 

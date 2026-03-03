@@ -11,6 +11,8 @@ Base URL backend dashboard: `/api`
 - `RaidTemplateDTO`: template de compo + `roles[]`
 - `RaidRoleDTO`: `{ key, label, slots, ip_required, required_role_ids[] }`
 - `RaidDTO`: raid ouverte avec `status` (`OPEN|PINGED|CLOSED`) + `channel_id/message_id` pour suivi publication Discord
+- `RaidDTO.publish_status`: état de la commande de publication (`pending|delivered|failed`)
+- `RaidDTO.publish_error`: dernier message d'erreur côté publication Discord (vide si succès)
 
 ## Endpoints lecture
 
@@ -27,6 +29,8 @@ Base URL backend dashboard: `/api`
 ## Endpoints actions managées
 
 > Les écritures dashboard sont traitées comme des **commandes bot**: le dashboard enregistre l'action, puis le bot Discord applique/synchronise l'effet côté Discord (messages raid, état roster, banque, tickets).
+>
+> Pour l'ouverture de raid, une **outbox persistante** est utilisée: la commande est créée en `pending`, puis marquée `delivered` ou `failed` (avec retry/backoff automatique côté bot).
 
 - `POST /api/actions/raids/open`
   - body: `RaidOpenRequestDTO` (`channel_id` requis, `voice_channel_id` optionnel)
