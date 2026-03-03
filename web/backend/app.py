@@ -429,7 +429,7 @@ def create_app() -> FastAPI:
         if authorizer is None:
             raise _oauth_not_configured_error()
         guild_id = int(payload.guild_id)
-        auth_ctx = authorizer.ensure_action_allowed(request, action="bank_manage", guild_id=guild_id)
+        auth_ctx = authorizer.ensure_action_allowed(request, action="raid_open", guild_id=guild_id)
         try:
             return service.apply_bank_action(
                 guild_id=guild_id,
@@ -447,7 +447,7 @@ def create_app() -> FastAPI:
         if authorizer is None:
             raise _oauth_not_configured_error()
         guild_id = int(payload.guild_id)
-        auth_ctx = authorizer.ensure_action_allowed(request, action="bank_manage", guild_id=guild_id)
+        auth_ctx = authorizer.ensure_action_allowed(request, action="raid_open", guild_id=guild_id)
         command = OpenRaidFromTemplate(
             context=CommandContext(guild_id=auth_ctx.guild_id, user_id=auth_ctx.user_id, request_id=payload.request_id),
             template_id=payload.template_name,

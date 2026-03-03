@@ -104,3 +104,4 @@ En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` q
 - Normalisation des IDs raid (`channel_id`/`message_id`) pour fiabiliser la publication Discord des raids en attente.
 - Leaderboard balances aligné avec Discord + actions rapides `/bank_add` et `/bank_remove` depuis le dashboard.
 - Correction transcript tickets: conservation du contenu réel des messages (y compris fallback `system_content`) et lecture des anciens snapshots legacy.
+- Endpoint `POST /api/actions/raids/open` protégé par la permission logique **raid_manager** (et non **bank_manager**).

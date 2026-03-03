@@ -30,6 +30,7 @@ Base URL backend dashboard: `/api`
 
 - `POST /api/actions/raids/open`
   - body: `RaidOpenRequestDTO` (`channel_id` requis, `voice_channel_id` optionnel)
+  - permission requise: `raid_open` / `raid_manager`
 - `POST /api/actions/comp-wizard`
   - body: `CompTemplateCreateRequestDTO`
 - `POST /api/raids/{raid_id}/signup`
