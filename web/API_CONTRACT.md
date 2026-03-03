@@ -134,3 +134,4 @@ Support;2;roles=234567890123456789,345678901234567890
 Comportement validation:
 - erreurs bloquantes (ex: `slots` invalide, ligne mal formée, spec vide) => HTTP 400 avec `detail.details.errors[]`.
 - warnings non bloquants (ex: option inconnue ignorée) => succès HTTP 200 avec `spec_warnings[]` dans la réponse.
+- normalisation automatique dashboard quand `content_type=ava_raid` (création/édition): suppression des variantes/doublons de `raid_leader`/`scout`, puis injection canonique de `raid_leader` (`slots=1`, `ip_required=false`, `required_role_ids=[]`) et `scout` (`slots=1`, `ip_required=false`, `required_role_ids` repris de la première entrée scout fournie dans la spec).
