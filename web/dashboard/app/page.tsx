@@ -244,6 +244,12 @@ export default function HomePage() {
   const raidPreview = useMemo(() => raidBlocks.filter((b) => b.enabled).map((b) => blockLine(b.type, 'raid')).join('\n'), [raidBlocks, raidTitle, raidStartAt, raidChannelId, raidDescription, raidExtraMessage, templateRoleDrafts]);
   const templatePreview = useMemo(() => templateBlocks.filter((b) => b.enabled).map((b) => blockLine(b.type, 'template')).join('\n'), [templateBlocks, templateName, templateDescription, templateRoleDrafts]);
 
+  function publishStatusLabel(raid: RaidDTO): string {
+    if (raid.publish_status === 'delivered') return '✅ Publié sur Discord';
+    if (raid.publish_status === 'failed') return '❌ Échec de publication';
+    return '⏳ En attente de publication';
+  }
+
   const lootStats = useMemo(() => {
     const total = Number(lootTotal) || 0;
     const deduction = Number(lootDeduction) || 0;
@@ -578,7 +584,11 @@ export default function HomePage() {
                     <small>{raid.status} · {fmtDate(raid.start_at)}</small>
                   </button>
                   <small>Template: {raid.template_name}</small>
-                  <small>{raid.message_id ? '✅ Publié sur Discord' : '⏳ En attente de publication'}</small><button type="button" onClick={() => void onDeleteRaid(raid.raid_id)}>Supprimer définitivement</button>
+                  <small>{publishStatusLabel(raid)}</small>
+                  {raid.publish_status === 'failed' && (
+                    <small>⚠️ La publication Discord a échoué{raid.publish_error ? `: ${raid.publish_error}` : '.'}</small>
+                  )}
+                  <button type="button" onClick={() => void onDeleteRaid(raid.raid_id)}>Supprimer définitivement</button>
                 </li>
               ))}
             </ul>

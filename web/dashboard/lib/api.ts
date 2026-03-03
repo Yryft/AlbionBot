@@ -94,6 +94,8 @@ export type RaidDTO = {
   created_at: number;
   channel_id?: string | null;
   message_id?: string | null;
+  publish_status: 'pending' | 'delivered' | 'failed';
+  publish_error: string;
   voice_channel_id?: string | null;
   status: 'OPEN' | 'PINGED' | 'CLOSED';
 };
