@@ -26,6 +26,8 @@ Base URL backend dashboard: `/api`
 
 ## Endpoints actions managées
 
+> Les écritures dashboard sont traitées comme des **commandes bot**: le dashboard enregistre l'action, puis le bot Discord applique/synchronise l'effet côté Discord (messages raid, état roster, banque, tickets).
+
 - `POST /api/actions/raids/open`
   - body: `RaidOpenRequestDTO` (`channel_id` requis, `voice_channel_id` optionnel)
 - `POST /api/actions/comp-wizard`

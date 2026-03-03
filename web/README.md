@@ -5,6 +5,12 @@ Structure proposée:
 - `web/backend`: API FastAPI dédiée dashboard.
 - `web/dashboard`: Frontend Next.js (navigation style Discord).
 
+## Principe de contrôle
+
+- Le dashboard sert de **console de pilotage** du bot.
+- Les actions faites depuis le dashboard (raids, compo, banque, tickets) doivent être considérées comme des commandes au bot Discord.
+- Le bot recharge l'état partagé et applique ensuite les effets côté Discord (publication, édition, suppression, synchronisation des vues).
+
 ## Lancer en local
 
 ### 1) Backend
