@@ -142,6 +142,7 @@ python -m albionbot
 Un service web séparé est disponible sous `web/`:
 - Backend API: `web/backend` (transcripts tickets, comps/raids, actions managées).
 - Synchronisation automatique bot ⇄ dashboard: le bot recharge l'état partagé toutes les 5 secondes et répercute les actions dashboard vers Discord (publication/mise à jour/fermeture des raids et rafraîchissement des messages, données banque/tickets rechargées côté bot). Le backend FastAPI recharge aussi cet état au début de chaque requête pour éviter les statuts de publication obsolètes et les écrasements inter-processus.
+- Résilience PostgreSQL (Railway): reconnexion automatique sur erreur réseau/SSL transitoire (ex. `unexpected eof while reading`) pendant les lectures/écritures banque + état partagé, afin d'éviter les erreurs ASGI lors du refresh d'état.
 - Publication des raids dashboard via outbox/queue persistante: chaque ouverture crée une commande `pending`, traitée ensuite par le bot avec retry/backoff et statut exposé à l'API (`publish_status`, `publish_error`).
 - Pour les templates `ava_raid`, la publication (commande bot ou queue dashboard) pré-inscrit automatiquement le créateur en `raid_leader` (`main`) si ce rôle existe dans la composition.
 - Le dashboard agit comme une interface de contrôle du bot: les actions de gestion sont réalisées via les flux du bot Discord (et non comme un back-office séparé de Discord).
@@ -212,6 +213,7 @@ Si tu veux une config propre et stable, fais cette version:
    - Commandes slash absentes → `GUILD_IDS` incorrect ou propagation Discord pas terminée.
    - Données qui disparaissent → volume absent ou mauvais chemin (`DATA_PATH`/`BANK_SQLITE_PATH`).
    - Erreur DB → `DATABASE_URL`/`BANK_DATABASE_URL` non défini ou inaccessible.
+   - Erreur `psycopg.OperationalError: ... SSL error: unexpected eof while reading` → généralement connexion PostgreSQL idle coupée par le provider; la version actuelle retente automatiquement avec reconnexion, sinon vérifier la stabilité réseau DB.
 
 ### Déployer aussi le dashboard web (optionnel)
 
