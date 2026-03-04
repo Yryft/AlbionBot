@@ -146,6 +146,9 @@ Un service web séparé est disponible sous `web/`:
 - Le dashboard agit comme une interface de contrôle du bot: les actions de gestion sont réalisées via les flux du bot Discord (et non comme un back-office séparé de Discord).
 - Périmètre raids dashboard aligné sur les commandes bot de référence: ouverture (`raid_open`), édition (`raid_edit`), fermeture explicite (`raid_close`) et gestion roster (inscription/retrait).
 - Frontend: `web/dashboard` (navigation type Discord).
+- Dashboard: prévisualisation du message raid dans le formulaire avant confirmation (titre/template/date/description/message additionnel).
+- Dashboard: écran non connecté simplifié avec présentation du bot et un bouton unique de connexion Discord.
+- Dashboard: panneau admin serveur pour gérer les permissions bot (`raid_manager`, `bank_manager`, `ticket_manager`) par rôles et membres (IDs Discord).
 - Accessibilité UI du dashboard renforcée: styles `:focus-visible` explicites sur boutons/liens/champs/listes (`outline` + `offset`), contraste amélioré des états actifs/hover (`tabs`, `rows`, boutons secondaires), états `:disabled` plus lisibles, et boutons de sélection de guilde annotés pour lecteurs d’écran (`aria-label`, `aria-pressed`).
 - Contrat API: `web/API_CONTRACT.md`.
 - Déploiement Railway multi-services: `web/README.md`.

@@ -252,3 +252,14 @@ class DiscordDirectoryDTO(BaseModel):
     channels: List[DiscordChannelDTO] = Field(default_factory=list)
     roles: List[RoleDTO] = Field(default_factory=list)
     members: List[DiscordMemberDTO] = Field(default_factory=list)
+
+
+class GuildPermissionBindingDTO(BaseModel):
+    permission_key: Literal["raid_manager", "bank_manager", "ticket_manager"]
+    role_ids: List[str] = Field(default_factory=list)
+    user_ids: List[str] = Field(default_factory=list)
+
+
+class GuildPermissionUpdateRequestDTO(BaseModel):
+    role_ids: List[str] = Field(default_factory=list)
+    user_ids: List[str] = Field(default_factory=list)

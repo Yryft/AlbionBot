@@ -25,6 +25,7 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
 - `RaidDTO`: raid ouverte avec `status` (`OPEN|PINGED|CLOSED`) + état de publication Discord (`publish_status`, `publish_error`)
   - `publish_status`: `pending|delivered|failed` (source de vérité UI pour l'état de publication)
   - `publish_error`: dernier message d'erreur côté publication Discord (affiché dans l'UI si non vide)
+- `GuildPermissionBindingDTO`: `{ permission_key, role_ids[], user_ids[] }` pour configurer les permissions bot par rôle et membre.
 
 ## Matrice de référence raids (bot ↔ backend ↔ dashboard)
 
@@ -52,6 +53,7 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
 - `GET /api/guilds/{guild_id}/balances`
 - `GET /api/guilds/{guild_id}/balances/{user_id}`
 - `GET /api/guilds/{guild_id}/bank/actions?limit=25`
+- `GET /api/guilds/{guild_id}/permissions` (admin serveur)
 - `GET /api/public/overview`
 
 ## Endpoints actions managées
@@ -88,6 +90,9 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
 - `POST /api/actions/bank/pay`
   - body: `BankTransferRequestDTO`
   - permission requise: membre de la guilde (pas manager)
+- `PUT /api/guilds/{guild_id}/permissions/{permission_key}`
+  - body: `GuildPermissionUpdateRequestDTO` (`role_ids[]`, `user_ids[]`)
+  - permission requise: administrateur du serveur
 
 ### Règles de permission banque
 

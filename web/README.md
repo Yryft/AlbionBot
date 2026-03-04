@@ -127,6 +127,10 @@ En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` q
 - Validation form-level renforcée dans `web/dashboard/app/page.tsx`: contrôles explicites avant `apiPost`/`apiPut` (montants > 0, IP numérique, date raid future, sélections requises), erreurs contextuelles par champ et désactivation des submit tant que les préconditions minimales ne sont pas satisfaites.
 
 
+- Prévisualisation du message raid ajoutée dans le bloc **Raid opener** avant soumission.
+- Écran non-authentifié recentré sur une présentation AlbionBot + CTA unique de connexion Discord.
+- Nouveaux endpoints admin dashboard: `GET /api/guilds/{guild_id}/permissions` et `PUT /api/guilds/{guild_id}/permissions/{permission_key}` pour gérer les permissions par rôles et membres.
+
 ## Spec template (parse_comp_spec)
 
 Format: une ligne par rôle, `Label;slots;options`.

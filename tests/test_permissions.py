@@ -54,6 +54,21 @@ class PermissionLayerTests(unittest.TestCase):
         )
         self.assertFalse(allowed)
 
+    def test_member_allowed_with_direct_user_permission(self):
+        allowed_user_id = 4444
+        self.store.set_permission_user_ids(self.guild_id, PERM_RAID_MANAGER, [allowed_user_id])
+        allowed = has_logical_permission(
+            self.cfg,
+            self.store,
+            self.guild_id,
+            PERM_RAID_MANAGER,
+            role_ids=[111],
+            user_id=allowed_user_id,
+            is_admin=False,
+            can_manage_guild=False,
+        )
+        self.assertTrue(allowed)
+
     def test_role_removed_forbidden(self):
         self.store.set_permission_role_ids(self.guild_id, PERM_RAID_MANAGER, [555])
         allowed = has_logical_permission(

@@ -30,6 +30,8 @@ from .schemas import (
     BankUndoRequestDTO,
     CompTemplateCreateRequestDTO,
     DiscordDirectoryDTO,
+    GuildPermissionBindingDTO,
+    GuildPermissionUpdateRequestDTO,
     DiscordGuildDTO,
     DiscordUserDTO,
     MeDTO,
@@ -52,6 +54,8 @@ from .command_bus import (
 )
 from .services import DashboardService, OpenRaidFromTemplateHandler, StartCompWizardFlowHandler
 
+
+DISCORD_PERM_ADMINISTRATOR = 1 << 3
 
 OAUTH_REQUIRED_ENV_VARS = (
     "DISCORD_OAUTH_CLIENT_ID",
@@ -179,6 +183,18 @@ def create_app() -> FastAPI:
         if not value.isdigit() or int(value) <= 0:
             raise HTTPException(status_code=422, detail=f"{field_name} invalide")
         return int(value)
+
+
+    def ensure_guild_admin(request: Request, guild_id: int) -> None:
+        if authorizer is None:
+            raise _oauth_not_configured_error()
+        member_ctx = authorizer.ensure_guild_member(request, guild_id=guild_id)
+        if member_ctx.is_owner:
+            return
+        user_guild = next((g for g in member_ctx.session.guilds if int(g.get("id", 0)) == guild_id), None)
+        permission_bits = int((user_guild or {}).get("permissions", "0") or "0")
+        if not bool(permission_bits & DISCORD_PERM_ADMINISTRATOR):
+            raise HTTPException(status_code=403, detail="Action réservée aux administrateurs du serveur")
 
     def ensure_csrf_for_mutation(request: Request):
         if oauth_service is None:
@@ -464,6 +480,25 @@ def create_app() -> FastAPI:
                 if (m.get("user") or {}).get("id")
             ],
         }
+
+
+    @app.get("/api/guilds/{guild_id}/permissions", response_model=list[GuildPermissionBindingDTO])
+    def list_guild_permissions(guild_id: str, request: Request):
+        resolved_guild_id = parse_discord_id(guild_id, "guild_id")
+        ensure_guild_admin(request, resolved_guild_id)
+        return service.list_permission_bindings(resolved_guild_id)
+
+    @app.put("/api/guilds/{guild_id}/permissions/{permission_key}", response_model=GuildPermissionBindingDTO)
+    def update_guild_permission(guild_id: str, permission_key: str, payload: GuildPermissionUpdateRequestDTO, request: Request):
+        resolved_guild_id = parse_discord_id(guild_id, "guild_id")
+        ensure_csrf_for_mutation(request)
+        ensure_guild_admin(request, resolved_guild_id)
+        role_ids = [parse_discord_id(role_id, "role_ids") for role_id in payload.role_ids]
+        user_ids = [parse_discord_id(user_id, "user_ids") for user_id in payload.user_ids]
+        try:
+            return service.set_permission_binding(resolved_guild_id, permission_key, role_ids, user_ids)
+        except ValidationError as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
 
     @app.get("/api/guilds/{guild_id}/balances", response_model=list[BalanceEntryDTO])
     def list_balances(guild_id: str, request: Request):

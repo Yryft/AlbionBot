@@ -112,6 +112,7 @@ class DashboardAuthorizationService:
             resolved_guild_id,
             permission_key,
             member_role_ids,
+            user_id=user_id,
             is_admin=is_admin,
             can_manage_guild=can_manage_guild,
         )

@@ -17,6 +17,7 @@ from albionbot.modules.bank import (
 )
 from albionbot.storage.store import CompRole, CompTemplate, RaidCommand, RaidEvent, Signup, Store
 from albionbot.storage.store import BankAction
+from albionbot.utils.permissions import MANAGER_PERMISSIONS
 
 from .command_bus import (
     CommandHandler,
@@ -129,6 +130,29 @@ class DashboardService:
     def get_bot_guild_map(self) -> Dict[int, GuildDTO]:
         guilds = self.list_guilds()
         return {int(g.id): g for g in guilds}
+
+
+    def list_permission_bindings(self, guild_id: int) -> List[dict]:
+        rows: List[dict] = []
+        for permission_key in sorted(MANAGER_PERMISSIONS):
+            rows.append({
+                "permission_key": permission_key,
+                "role_ids": [str(role_id) for role_id in self.store.get_permission_role_ids(guild_id, permission_key)],
+                "user_ids": [str(user_id) for user_id in self.store.get_permission_user_ids(guild_id, permission_key)],
+            })
+        return rows
+
+    def set_permission_binding(self, guild_id: int, permission_key: str, role_ids: List[int], user_ids: List[int]) -> dict:
+        if permission_key not in MANAGER_PERMISSIONS:
+            raise ValidationError(code="invalid_permission_key", message="Permission invalide")
+        self.store.set_permission_role_ids(guild_id, permission_key, role_ids)
+        self.store.set_permission_user_ids(guild_id, permission_key, user_ids)
+        self.store.save()
+        return {
+            "permission_key": permission_key,
+            "role_ids": [str(role_id) for role_id in role_ids],
+            "user_ids": [str(user_id) for user_id in user_ids],
+        }
 
     def list_ticket_transcripts(self, guild_id: int) -> List[TicketTranscriptDTO]:
         rows: List[TicketTranscriptDTO] = []
