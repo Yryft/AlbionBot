@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import Enum
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -332,3 +333,44 @@ class CraftSimulationResultDTO(BaseModel):
     base_materials: List[CraftSimulationMaterialDTO] = Field(default_factory=list)
     intermediate_materials: List[CraftSimulationMaterialDTO] = Field(default_factory=list)
     applied_yields: dict = Field(default_factory=dict)
+
+
+class CraftProfitabilityPricingMode(str, Enum):
+    manual = "manual"
+    prefilled = "prefilled"
+
+
+class CraftProfitabilityRequestDTO(BaseModel):
+    simulation: CraftSimulationResultDTO
+    material_unit_prices: dict[str, float] = Field(default_factory=dict)
+    imbuer_journal_unit_price: float = Field(default=0.0, ge=0)
+    item_sale_unit_price: float = Field(ge=0)
+    crafted_quantity: int = Field(gt=0, le=100000)
+    market_tax_rate: float = Field(default=0.0, ge=0.0, le=100.0)
+    focus_unit_price: float = Field(default=0.0, ge=0)
+    include_focus_cost: bool = True
+    pricing_mode: CraftProfitabilityPricingMode = CraftProfitabilityPricingMode.manual
+
+
+class CraftProfitabilityLineDTO(BaseModel):
+    item_id: str
+    item_name: str
+    quantity: int
+    unit_price: float
+    total_cost: float
+    source: str = "manual"
+
+
+class CraftProfitabilityResultDTO(BaseModel):
+    simulation: CraftSimulationResultDTO
+    pricing_mode: CraftProfitabilityPricingMode
+    material_lines: List[CraftProfitabilityLineDTO] = Field(default_factory=list)
+    total_material_cost: float
+    focus_cost: float
+    imbuer_journal_cost: float
+    total_cost: float
+    gross_revenue: float
+    market_tax_amount: float
+    net_revenue: float
+    profit: float
+    margin_pct: float

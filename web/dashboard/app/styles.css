@@ -248,6 +248,13 @@ textarea:disabled:hover {
   background: #1e1f22;
 }
 
+
+.craft-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .craft-results {
   display: grid;
   gap: 14px;

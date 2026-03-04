@@ -1,302 +1,244 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-
-type MaterialRequirement = {
-  key: string;
-  label: string;
-  qty: number;
-};
+import { useEffect, useMemo, useState } from 'react';
 
 type CraftItem = {
-  key: string;
+  id: string;
   name: string;
   tier: number;
   category: string;
-  sellPrice: number;
-  defaultCraftFee: number;
-  recipe: MaterialRequirement[];
+  craftable: boolean;
 };
 
-const craftItems: CraftItem[] = [
-  {
-    key: 'adept_cleric_robe',
-    name: 'Adept Cleric Robe',
-    tier: 4,
-    category: 'Armor',
-    sellPrice: 37500,
-    defaultCraftFee: 1800,
-    recipe: [
-      { key: 'cloth_t4', label: 'Cloth T4', qty: 16 },
-      { key: 'plank_t4', label: 'Planks T4', qty: 8 },
-    ],
-  },
-  {
-    key: 'expert_soldier_boots',
-    name: 'Expert Soldier Boots',
-    tier: 5,
-    category: 'Armor',
-    sellPrice: 61200,
-    defaultCraftFee: 2400,
-    recipe: [
-      { key: 'leather_t5', label: 'Leather T5', qty: 18 },
-      { key: 'cloth_t5', label: 'Cloth T5', qty: 6 },
-    ],
-  },
-  {
-    key: 'master_broadsword',
-    name: 'Master Broadsword',
-    tier: 6,
-    category: 'Weapon',
-    sellPrice: 148000,
-    defaultCraftFee: 3600,
-    recipe: [
-      { key: 'metalbar_t6', label: 'Metal Bars T6', qty: 16 },
-      { key: 'plank_t6', label: 'Planks T6', qty: 12 },
-    ],
-  },
-  {
-    key: 'grandmaster_mercenary_jacket',
-    name: 'Grandmaster Mercenary Jacket',
-    tier: 7,
-    category: 'Armor',
-    sellPrice: 325000,
-    defaultCraftFee: 5200,
-    recipe: [
-      { key: 'leather_t7', label: 'Leather T7', qty: 22 },
-      { key: 'cloth_t7', label: 'Cloth T7', qty: 10 },
-    ],
-  },
-];
+type MaterialRow = {
+  item_id: string;
+  item_name: string;
+  gross_quantity: number;
+  net_quantity: number;
+};
+
+type SimulationResponse = {
+  item_id: string;
+  focus_efficiency: number;
+  focus_per_item: number;
+  total_focus: number;
+  items_craftable_with_available_focus: number;
+  base_materials: MaterialRow[];
+  intermediate_materials: MaterialRow[];
+  applied_yields: Record<string, number>;
+};
+
+type ProfitabilityLine = {
+  item_id: string;
+  item_name: string;
+  quantity: number;
+  unit_price: number;
+  total_cost: number;
+  source: string;
+};
+
+type ProfitabilityResponse = {
+  material_lines: ProfitabilityLine[];
+  total_material_cost: number;
+  focus_cost: number;
+  imbuer_journal_cost: number;
+  total_cost: number;
+  gross_revenue: number;
+  market_tax_amount: number;
+  net_revenue: number;
+  profit: number;
+  margin_pct: number;
+};
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || '';
 
 export default function CraftCalculator() {
+  const [items, setItems] = useState<CraftItem[]>([]);
   const [search, setSearch] = useState('');
-  const [selectedItemKey, setSelectedItemKey] = useState<string>(craftItems[0]?.key ?? '');
+  const [selectedItemId, setSelectedItemId] = useState('');
   const [quantity, setQuantity] = useState(1);
-  const [cityBonus, setCityBonus] = useState(15);
-  const [hideoutBonus, setHideoutBonus] = useState(0);
+  const [masteryLevel, setMasteryLevel] = useState(0);
+  const [specializationLevel, setSpecializationLevel] = useState(0);
+  const [locationKey, setLocationKey] = useState('city');
+  const [availableFocus, setAvailableFocus] = useState(30000);
+  const [useFocus, setUseFocus] = useState(true);
   const [taxRate, setTaxRate] = useState(6.5);
-  const [craftFee, setCraftFee] = useState(craftItems[0]?.defaultCraftFee ?? 0);
-  const [salePrice, setSalePrice] = useState(craftItems[0]?.sellPrice ?? 0);
-  const [materialPrices, setMaterialPrices] = useState<Record<string, number>>({
-    cloth_t4: 640,
-    plank_t4: 520,
-    leather_t5: 1230,
-    cloth_t5: 980,
-    metalbar_t6: 3350,
-    plank_t6: 2740,
-    leather_t7: 7900,
-    cloth_t7: 6840,
-  });
+  const [focusUnitPrice, setFocusUnitPrice] = useState(0);
+  const [journalUnitPrice, setJournalUnitPrice] = useState(0);
+  const [saleUnitPrice, setSaleUnitPrice] = useState(0);
+  const [pricingMode, setPricingMode] = useState<'manual' | 'prefilled'>('manual');
+  const [materialPrices, setMaterialPrices] = useState<Record<string, number>>({});
+  const [marketPriceHints, setMarketPriceHints] = useState<Record<string, number>>({});
+  const [simulation, setSimulation] = useState<SimulationResponse | null>(null);
+  const [profitability, setProfitability] = useState<ProfitabilityResponse | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`${API_BASE}/api/craft/items?q=&limit=25`, { signal: controller.signal })
+      .then((r) => r.json())
+      .then((rows: CraftItem[]) => {
+        setItems(rows);
+        if (!selectedItemId && rows.length > 0) setSelectedItemId(rows[0].id);
+      })
+      .catch(() => setError('Impossible de charger les items craft.'));
+    return () => controller.abort();
+  }, [selectedItemId]);
 
   const filteredItems = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return craftItems;
-    return craftItems.filter((item) =>
-      `${item.name} ${item.category} T${item.tier}`.toLowerCase().includes(query),
-    );
-  }, [search]);
+    const q = search.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((item) => `${item.name} ${item.id} T${item.tier}`.toLowerCase().includes(q));
+  }, [items, search]);
 
-  const selectedItem = useMemo(
-    () => craftItems.find((item) => item.key === selectedItemKey) ?? null,
-    [selectedItemKey],
-  );
+  useEffect(() => {
+    if (!selectedItemId) return;
+    setError('');
 
-  const displayedItems = useMemo(() => {
-    if (filteredItems.length > 0) return filteredItems;
-    return selectedItem ? [selectedItem] : [];
-  }, [filteredItems, selectedItem]);
+    async function run() {
+      const simulationRes = await fetch(`${API_BASE}/api/craft/simulate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          item_id: selectedItemId,
+          quantity,
+          mastery_level: masteryLevel,
+          specialization_level: specializationLevel,
+          location_key: locationKey,
+          available_focus: availableFocus,
+          use_focus: useFocus,
+        }),
+      });
+      if (!simulationRes.ok) throw new Error('simulation_failed');
+      const simulationPayload: SimulationResponse = await simulationRes.json();
+      setSimulation(simulationPayload);
 
-  const materialRows = useMemo(() => {
-    if (!selectedItem) return [];
-    const returnRate = Math.min((cityBonus + hideoutBonus) / 100, 0.95);
+      const detailRes = await fetch(`${API_BASE}/api/craft/items/${selectedItemId}`);
+      if (detailRes.ok) {
+        const detail = await detailRes.json();
+        const hintedPrices: Record<string, number> = detail?.metadata?.market_prices ?? {};
+        setMarketPriceHints(hintedPrices);
+        if (pricingMode === 'prefilled' && Object.keys(hintedPrices).length > 0) {
+          setMaterialPrices((prev) => ({ ...hintedPrices, ...prev }));
+        }
+      }
 
-    return selectedItem.recipe.map((material) => {
-      const baseQty = material.qty * quantity;
-      const effectiveQty = baseQty * (1 - returnRate);
-      const unitPrice = materialPrices[material.key] ?? 0;
-      const totalCost = effectiveQty * unitPrice;
-      return {
-        ...material,
-        baseQty,
-        effectiveQty,
-        unitPrice,
-        totalCost,
-      };
+      const profitabilityRes = await fetch(`${API_BASE}/api/craft/profitability`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          simulation: simulationPayload,
+          material_unit_prices: materialPrices,
+          imbuer_journal_unit_price: journalUnitPrice,
+          item_sale_unit_price: saleUnitPrice,
+          crafted_quantity: quantity,
+          market_tax_rate: taxRate,
+          focus_unit_price: focusUnitPrice,
+          include_focus_cost: useFocus,
+          pricing_mode: pricingMode,
+        }),
+      });
+      if (!profitabilityRes.ok) throw new Error('profitability_failed');
+      setProfitability(await profitabilityRes.json());
+    }
+
+    run().catch(() => {
+      setProfitability(null);
+      setError('Simulation indisponible. Vérifie la configuration API/provider.');
     });
-  }, [cityBonus, hideoutBonus, materialPrices, quantity, selectedItem]);
+  }, [selectedItemId, quantity, masteryLevel, specializationLevel, locationKey, availableFocus, useFocus, pricingMode, materialPrices, journalUnitPrice, saleUnitPrice, taxRate, focusUnitPrice]);
 
-  const summary = useMemo(() => {
-    const materialsCost = materialRows.reduce((sum, row) => sum + row.totalCost, 0);
-    const craftCost = craftFee * quantity;
-    const grossRevenue = salePrice * quantity;
-    const taxAmount = grossRevenue * (taxRate / 100);
-    const netRevenue = grossRevenue - taxAmount;
-    const totalCost = materialsCost + craftCost;
-    const profit = netRevenue - totalCost;
-    return {
-      materialsCost,
-      craftCost,
-      grossRevenue,
-      taxAmount,
-      netRevenue,
-      totalCost,
-      profit,
-      marginPct: netRevenue > 0 ? (profit / netRevenue) * 100 : 0,
-    };
-  }, [craftFee, materialRows, quantity, salePrice, taxRate]);
-
-  function onSelectItem(itemKey: string) {
-    const found = craftItems.find((item) => item.key === itemKey);
-    if (!found) return;
-    setSelectedItemKey(itemKey);
-    setSalePrice(found.sellPrice);
-    setCraftFee(found.defaultCraftFee);
-  }
+  const marketPrefillAvailable = Object.keys(marketPriceHints).length > 0;
 
   return (
     <div className="craft-calculator">
       <div className="craft-controls">
         <label className="craft-search">
           Rechercher un item
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Ex: cleric, sword, T6..."
-          />
+          <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ex: cleric, sword, T6..." />
         </label>
-
         <label>
           Item
-          <select value={selectedItemKey} onChange={(e) => onSelectItem(e.target.value)}>
-            {displayedItems.map((item) => (
-              <option key={item.key} value={item.key}>
-                {item.name} · T{item.tier} · {item.category}
-              </option>
+          <select value={selectedItemId} onChange={(e) => setSelectedItemId(e.target.value)}>
+            {filteredItems.map((item) => (
+              <option key={item.id} value={item.id}>{item.name} · T{item.tier} · {item.category}</option>
             ))}
           </select>
-          {filteredItems.length === 0 && <small className="muted">Aucun résultat, item courant conservé.</small>}
         </label>
-
         <label>
           Quantité
-          <input
-            type="number"
-            min={1}
-            step={1}
-            value={quantity}
-            onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))}
-          />
+          <input type="number" min={1} value={quantity} onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))} />
+        </label>
+        <label>
+          Mode prix
+          <select value={pricingMode} onChange={(e) => setPricingMode(e.target.value as 'manual' | 'prefilled')}>
+            <option value="manual">Prix manuel</option>
+            <option value="prefilled" disabled={!marketPrefillAvailable}>Prérempli (API marché)</option>
+          </select>
         </label>
       </div>
 
       <div className="craft-controls craft-bonus-grid">
-        <label>
-          Bonus ville (%)
-          <input
-            type="number"
-            min={0}
-            max={65}
-            step={0.1}
-            value={cityBonus}
-            onChange={(e) => setCityBonus(Math.max(0, Number(e.target.value) || 0))}
-          />
+        <label>Mastery <input type="number" min={0} max={100} value={masteryLevel} onChange={(e) => setMasteryLevel(Math.max(0, Number(e.target.value) || 0))} /></label>
+        <label>Specialization <input type="number" min={0} max={100} value={specializationLevel} onChange={(e) => setSpecializationLevel(Math.max(0, Number(e.target.value) || 0))} /></label>
+        <label>Location
+          <select value={locationKey} onChange={(e) => setLocationKey(e.target.value)}>
+            <option value="none">Sans bonus</option>
+            <option value="city">Ville</option>
+            <option value="hideout">Hideout</option>
+            <option value="hideout_quality">Hideout qualité</option>
+          </select>
         </label>
-        <label>
-          Bonus hideout (%)
-          <input
-            type="number"
-            min={0}
-            max={45}
-            step={0.1}
-            value={hideoutBonus}
-            onChange={(e) => setHideoutBonus(Math.max(0, Number(e.target.value) || 0))}
-          />
-        </label>
-        <label>
-          Taxe marché (%)
-          <input
-            type="number"
-            min={0}
-            max={20}
-            step={0.1}
-            value={taxRate}
-            onChange={(e) => setTaxRate(Math.max(0, Number(e.target.value) || 0))}
-          />
-        </label>
-        <label>
-          Frais craft / item
-          <input
-            type="number"
-            min={0}
-            step={100}
-            value={craftFee}
-            onChange={(e) => setCraftFee(Math.max(0, Number(e.target.value) || 0))}
-          />
-        </label>
-        <label>
-          Prix de vente / item
-          <input
-            type="number"
-            min={0}
-            step={100}
-            value={salePrice}
-            onChange={(e) => setSalePrice(Math.max(0, Number(e.target.value) || 0))}
-          />
-        </label>
+        <label>Focus dispo <input type="number" min={0} value={availableFocus} onChange={(e) => setAvailableFocus(Math.max(0, Number(e.target.value) || 0))} /></label>
+        <label>Taxe marché (%) <input type="number" min={0} max={20} step={0.1} value={taxRate} onChange={(e) => setTaxRate(Math.max(0, Number(e.target.value) || 0))} /></label>
+        <label>Prix focus unitaire <input type="number" min={0} value={focusUnitPrice} onChange={(e) => setFocusUnitPrice(Math.max(0, Number(e.target.value) || 0))} /></label>
+        <label>Livre d'imbuer / unité <input type="number" min={0} value={journalUnitPrice} onChange={(e) => setJournalUnitPrice(Math.max(0, Number(e.target.value) || 0))} /></label>
+        <label>Prix vente item / unité <input type="number" min={0} value={saleUnitPrice} onChange={(e) => setSaleUnitPrice(Math.max(0, Number(e.target.value) || 0))} /></label>
+        <label className="craft-checkbox"><input type="checkbox" checked={useFocus} onChange={(e) => setUseFocus(e.target.checked)} /> Valoriser le focus</label>
       </div>
+
+      {error && <p className="muted">{error}</p>}
 
       <div className="craft-results">
         <section>
-          <h3>Matériaux estimés</h3>
+          <h3>Breakdown matériaux</h3>
           <div className="craft-table">
             <div className="craft-row craft-head">
-              <span>Matériau</span>
-              <span>Qté brute</span>
-              <span>Qté après bonus</span>
-              <span>Prix unitaire</span>
-              <span>Coût total</span>
+              <span>Matériau</span><span>Qté brute</span><span>Qté nette</span><span>Prix unitaire</span><span>Ligne</span>
             </div>
-            {materialRows.map((row) => (
-              <div key={row.key} className="craft-row">
-                <span>{row.label}</span>
-                <span>{row.baseQty.toFixed(2)}</span>
-                <span>{row.effectiveQty.toFixed(2)}</span>
-                <label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={row.unitPrice}
-                    onChange={(e) =>
-                      setMaterialPrices((prev) => ({
-                        ...prev,
-                        [row.key]: Math.max(0, Number(e.target.value) || 0),
-                      }))
-                    }
-                  />
-                </label>
-                <span>{Math.round(row.totalCost).toLocaleString('fr-FR')}</span>
-              </div>
-            ))}
+            {(simulation?.base_materials ?? []).map((row) => {
+              const unitPrice = materialPrices[row.item_id] ?? marketPriceHints[row.item_id] ?? 0;
+              const line = profitability?.material_lines.find((l) => l.item_id === row.item_id);
+              return (
+                <div key={row.item_id} className="craft-row">
+                  <span>{row.item_name}</span>
+                  <span>{row.gross_quantity}</span>
+                  <span>{row.net_quantity}</span>
+                  <label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={unitPrice}
+                      onChange={(e) => setMaterialPrices((prev) => ({ ...prev, [row.item_id]: Math.max(0, Number(e.target.value) || 0) }))}
+                    />
+                  </label>
+                  <span>{Math.round(line?.total_cost ?? 0).toLocaleString('fr-FR')}</span>
+                </div>
+              );
+            })}
           </div>
         </section>
 
         <section className="craft-profit">
-          <h3>Profit estimé</h3>
+          <h3>Récap rentabilité</h3>
           <dl>
-            <div><dt>Coût matériaux</dt><dd>{Math.round(summary.materialsCost).toLocaleString('fr-FR')}</dd></div>
-            <div><dt>Frais de craft</dt><dd>{Math.round(summary.craftCost).toLocaleString('fr-FR')}</dd></div>
-            <div><dt>Coût total</dt><dd>{Math.round(summary.totalCost).toLocaleString('fr-FR')}</dd></div>
-            <div><dt>Vente brute</dt><dd>{Math.round(summary.grossRevenue).toLocaleString('fr-FR')}</dd></div>
-            <div><dt>Taxe marché</dt><dd>-{Math.round(summary.taxAmount).toLocaleString('fr-FR')}</dd></div>
-            <div><dt>Vente nette</dt><dd>{Math.round(summary.netRevenue).toLocaleString('fr-FR')}</dd></div>
-            <div className={summary.profit >= 0 ? 'profit-positive' : 'profit-negative'}>
-              <dt>Profit</dt>
-              <dd>{Math.round(summary.profit).toLocaleString('fr-FR')}</dd>
-            </div>
-            <div><dt>Marge nette</dt><dd>{summary.marginPct.toFixed(1)}%</dd></div>
+            <div><dt>Coût total matériaux</dt><dd>{Math.round(profitability?.total_material_cost ?? 0).toLocaleString('fr-FR')}</dd></div>
+            <div><dt>Coût focus implicite</dt><dd>{Math.round(profitability?.focus_cost ?? 0).toLocaleString('fr-FR')}</dd></div>
+            <div><dt>Coût livres d'imbuer</dt><dd>{Math.round(profitability?.imbuer_journal_cost ?? 0).toLocaleString('fr-FR')}</dd></div>
+            <div><dt>Revenu brut</dt><dd>{Math.round(profitability?.gross_revenue ?? 0).toLocaleString('fr-FR')}</dd></div>
+            <div><dt>Revenu net</dt><dd>{Math.round(profitability?.net_revenue ?? 0).toLocaleString('fr-FR')}</dd></div>
+            <div className={(profitability?.profit ?? 0) >= 0 ? 'profit-positive' : 'profit-negative'}><dt>Profit</dt><dd>{Math.round(profitability?.profit ?? 0).toLocaleString('fr-FR')}</dd></div>
+            <div><dt>Marge</dt><dd>{(profitability?.margin_pct ?? 0).toFixed(1)}%</dd></div>
           </dl>
         </section>
       </div>

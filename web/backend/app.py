@@ -53,6 +53,8 @@ from .schemas import (
     CraftItemDetailDTO,
     CraftSimulationRequestDTO,
     CraftSimulationResultDTO,
+    CraftProfitabilityRequestDTO,
+    CraftProfitabilityResultDTO,
 )
 from .command_bus import (
     AuditLogger,
@@ -468,6 +470,64 @@ def create_app() -> FastAPI:
                 status_code=status,
                 detail={"code": exc.code, "message": exc.message, "details": {"last_sync_error": albion_provider.last_sync_error}},
             ) from exc
+
+
+    @app.post("/api/craft/profitability", response_model=CraftProfitabilityResultDTO)
+    async def simulate_craft_profitability(payload: CraftProfitabilityRequestDTO):
+        try:
+            simulation = payload.simulation
+            if simulation.item_id.strip() == "":
+                raise CraftSimulationError("invalid_item_id", "simulation.item_id requis")
+
+            material_lines = []
+            total_material_cost = 0.0
+            for row in simulation.base_materials:
+                unit_price = float(payload.material_unit_prices.get(row.item_id, 0.0))
+                quantity = int(row.net_quantity)
+                line_total = unit_price * quantity
+                total_material_cost += line_total
+                source = "prefilled" if payload.pricing_mode.value == "prefilled" and row.item_id in payload.material_unit_prices else "manual"
+                material_lines.append(
+                    {
+                        "item_id": row.item_id,
+                        "item_name": row.item_name,
+                        "quantity": quantity,
+                        "unit_price": unit_price,
+                        "total_cost": line_total,
+                        "source": source,
+                    }
+                )
+
+            focus_cost = 0.0
+            if payload.include_focus_cost:
+                focus_cost = float(simulation.total_focus) * float(payload.focus_unit_price)
+
+            crafted_quantity = int(payload.crafted_quantity)
+            imbuer_journal_cost = float(payload.imbuer_journal_unit_price) * crafted_quantity
+            gross_revenue = float(payload.item_sale_unit_price) * crafted_quantity
+            market_tax_amount = gross_revenue * (float(payload.market_tax_rate) / 100.0)
+            net_revenue = gross_revenue - market_tax_amount
+
+            total_cost = total_material_cost + focus_cost + imbuer_journal_cost
+            profit = net_revenue - total_cost
+            margin_pct = (profit / net_revenue * 100.0) if net_revenue > 0 else 0.0
+
+            return {
+                "simulation": simulation.model_dump() if hasattr(simulation, "model_dump") else simulation.dict(),
+                "pricing_mode": payload.pricing_mode,
+                "material_lines": material_lines,
+                "total_material_cost": total_material_cost,
+                "focus_cost": focus_cost,
+                "imbuer_journal_cost": imbuer_journal_cost,
+                "total_cost": total_cost,
+                "gross_revenue": gross_revenue,
+                "market_tax_amount": market_tax_amount,
+                "net_revenue": net_revenue,
+                "profit": profit,
+                "margin_pct": margin_pct,
+            }
+        except CraftSimulationError as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
 
 
     @app.post("/api/admin/craft/cache/invalidate")

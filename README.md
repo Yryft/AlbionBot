@@ -152,6 +152,7 @@ Un service web séparé est disponible sous `web/`:
 - Dashboard: écran non connecté simplifié avec présentation du bot et un bouton unique de connexion Discord.
 - Dashboard: panneau admin serveur pour gérer les permissions bot (`raid_manager`, `bank_manager`, `ticket_manager`) par rôles et membres (IDs Discord), désormais isolé dans un onglet dédié **Administration**.
 - Dashboard: nouvel onglet **Craft calculator** pour estimer les matériaux consommés (bonus ville/HO), ajuster les prix unitaires et projeter le profit net après taxe marché.
+- Dashboard craft: ajout du mode prix `manuel/prérempli`, saisie du livre d'imbuer et endpoint backend de simulation rentabilité avec breakdown ligne par ligne (matériaux, focus, revenus, profit, marge).
 - Dashboard: écran non connecté corrigé pour utiliser toute la largeur (suppression de l'effet de colonne latérale vide).
 - Accessibilité UI du dashboard renforcée: styles `:focus-visible` explicites sur boutons/liens/champs/listes (`outline` + `offset`), contraste amélioré des états actifs/hover (`tabs`, `rows`, boutons secondaires), états `:disabled` plus lisibles, et boutons de sélection de guilde annotés pour lecteurs d’écran (`aria-label`, `aria-pressed`).
 - Contrat API: `web/API_CONTRACT.md`.
@@ -379,3 +380,9 @@ Clés `location_key` supportées actuellement:
 - `hideout`
 - `hideout_quality`
 
+
+
+### Calculateur craft & rentabilité
+- Endpoint backend `POST /api/craft/profitability` pour simuler la rentabilité à partir du résultat craft (`/api/craft/simulate`) + prix d'entrée utilisateur.
+- Retour détaillé pour l'UI: coûts par matériau, coût focus implicite, coût livre d'imbuer, revenu brut/net, profit et marge (%).
+- Front dashboard mis à jour avec formulaire de prix unitaires et récapitulatif financier complet.
