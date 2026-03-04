@@ -23,6 +23,7 @@ Bot Discord basé sur **Nextcord** pour la gestion de guilde Albion Online.
 - Convention API dashboard: tous les IDs Discord (`guild_id`, `user_id`, `message_id`, `role_id`, `channel_id`) sont exposés en **string** côté HTTP/JSON, avec conversion explicite en interne backend.
 - Sécurité dashboard: toutes les routes backend mutantes (`POST`/`PUT`/`DELETE`) exigent un header `X-CSRF-Token` valide avant les contrôles métier.
 - Permission dashboard: `POST /api/actions/bank/apply` et `POST /api/actions/bank/undo` exigent la clé métier `bank_manage` (permission logique `bank_manager`), alors que `POST /api/actions/bank/pay` est disponible à tout membre de guilde.
+- Cleanup admin dashboard: suppression directe des éléments persistés (raids, templates, logs tickets et entrées banque individuelles) pour corriger les données orphelines/mauvaises entrées sans manipuler la DB à la main.
 - Règle de solde négatif dashboard alignée bot: validations manager banque basées sur `BANK_ALLOW_NEGATIVE` (équivalent de `cfg.bank_allow_negative`).
 - Tickets: correction de la sauvegarde/lecture de transcript pour conserver le vrai contenu message (fallback `system_content` + compatibilité ancien format de snapshots).
 
@@ -146,9 +147,10 @@ Un service web séparé est disponible sous `web/`:
 - Le dashboard agit comme une interface de contrôle du bot: les actions de gestion sont réalisées via les flux du bot Discord (et non comme un back-office séparé de Discord).
 - Périmètre raids dashboard aligné sur les commandes bot de référence: ouverture (`raid_open`), édition (`raid_edit`), fermeture explicite (`raid_close`) et gestion roster (inscription/retrait).
 - Frontend: `web/dashboard` (navigation type Discord).
-- Dashboard: prévisualisation du message raid dans le formulaire avant confirmation (titre/template/date/description/message additionnel).
+- Dashboard: prévisualisation du message raid dans le formulaire avant confirmation, alignée sur le rendu bot exact (embed + composants interactifs).
 - Dashboard: écran non connecté simplifié avec présentation du bot et un bouton unique de connexion Discord.
-- Dashboard: panneau admin serveur pour gérer les permissions bot (`raid_manager`, `bank_manager`, `ticket_manager`) par rôles et membres (IDs Discord).
+- Dashboard: panneau admin serveur pour gérer les permissions bot (`raid_manager`, `bank_manager`, `ticket_manager`) par rôles et membres (IDs Discord), désormais isolé dans un onglet dédié **Administration**.
+- Dashboard: écran non connecté corrigé pour utiliser toute la largeur (suppression de l'effet de colonne latérale vide).
 - Accessibilité UI du dashboard renforcée: styles `:focus-visible` explicites sur boutons/liens/champs/listes (`outline` + `offset`), contraste amélioré des états actifs/hover (`tabs`, `rows`, boutons secondaires), états `:disabled` plus lisibles, et boutons de sélection de guilde annotés pour lecteurs d’écran (`aria-label`, `aria-pressed`).
 - Contrat API: `web/API_CONTRACT.md`.
 - Déploiement Railway multi-services: `web/README.md`.

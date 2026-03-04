@@ -827,6 +827,17 @@ class Store:
             self.bank_balances[guild_id] = {}
         self.bank_balances[guild_id][user_id] = bal
 
+    def bank_delete_balance(self, guild_id: int, user_id: int) -> bool:
+        if self.bank_db is not None:
+            return self.bank_db.delete_balance(guild_id, user_id)
+        guild_balances = self.bank_balances.get(guild_id)
+        if guild_balances is None or user_id not in guild_balances:
+            return False
+        guild_balances.pop(user_id, None)
+        if not guild_balances:
+            self.bank_balances.pop(guild_id, None)
+        return True
+
     def bank_append_action(self, action: BankAction) -> None:
         if self.bank_db is not None:
             self.bank_db.append_action(action)

@@ -12,6 +12,7 @@ import {
   GuildPermissionKey,
   MeDTO,
   RaidDTO,
+  RaidOpenPreviewDTO,
   RaidRosterDTO,
   RaidTemplateDTO,
   TicketTranscriptDTO,
@@ -27,7 +28,7 @@ import {
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
-type TabKey = 'active' | 'raids' | 'balances' | 'tickets';
+type TabKey = 'active' | 'raids' | 'balances' | 'tickets' | 'admin';
 type RaidSort = 'start_desc' | 'start_asc' | 'status';
 type LoadState = {
   health: boolean;
@@ -60,6 +61,10 @@ const permissionLabels: Record<GuildPermissionKey, string> = {
 };
 function fmtDate(ts: number): string {
   return new Date(ts * 1000).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function isDiscordId(value: string): boolean {
+  return /^([1-9]\d*)$/.test(value.trim());
 }
 
 function guildIconUrl(guild: { id: string; icon?: string | null }): string {
@@ -116,6 +121,8 @@ export default function HomePage() {
   const [manualRaidChannelId, setManualRaidChannelId] = useState('');
   const [manualRaidVoiceChannelId, setManualRaidVoiceChannelId] = useState('');
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [raidMessagePreview, setRaidMessagePreview] = useState<RaidOpenPreviewDTO | null>(null);
+  const [raidPreviewLoading, setRaidPreviewLoading] = useState(false);
 
 
   const [permissionBindings, setPermissionBindings] = useState<GuildPermissionBindingDTO[]>([]);
@@ -243,6 +250,38 @@ export default function HomePage() {
     const ts = new Date(value).getTime();
     return Number.isFinite(ts) && ts > Date.now();
   }
+
+  useEffect(() => {
+    const startTimestamp = raidStartAt ? Math.floor(new Date(raidStartAt).getTime() / 1000) : 0;
+    if (!selectedGuildId || !raidTemplate || !raidTitle.trim() || !startTimestamp || Number.isNaN(startTimestamp)) {
+      setRaidMessagePreview(null);
+      return;
+    }
+
+    let cancelled = false;
+    setRaidPreviewLoading(true);
+    void apiPost<RaidOpenPreviewDTO>('/api/actions/raids/preview', {
+      guild_id: selectedGuildId,
+      template_name: raidTemplate,
+      title: raidTitle,
+      description: raidDescription,
+      extra_message: raidExtraMessage,
+      start_at: startTimestamp,
+    })
+      .then((preview) => {
+        if (!cancelled) setRaidMessagePreview(preview);
+      })
+      .catch(() => {
+        if (!cancelled) setRaidMessagePreview(null);
+      })
+      .finally(() => {
+        if (!cancelled) setRaidPreviewLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedGuildId, raidTemplate, raidTitle, raidDescription, raidExtraMessage, raidStartAt]);
 
   useEffect(() => {
     const template = state.templates.find((tpl) => tpl.name === editingTemplate);
@@ -475,9 +514,8 @@ export default function HomePage() {
     event.preventDefault();
     const nextErrors: Record<string, string> = {};
     if (!selectedGuildId) nextErrors.lookupGuild = 'Sélectionne un serveur pour consulter une balance.';
-    if (!lookupUserId) nextErrors.lookupUserId = 'Un user ID est requis.';
-    if (!memberIds.has(lookupUserId)) {
-      nextErrors.lookupUserId = `ID utilisateur invalide (absent du répertoire local): ${lookupUserId}`;
+    if (!lookupUserId || !isDiscordId(lookupUserId)) {
+      nextErrors.lookupUserId = 'Un user ID Discord valide est requis.';
     }
     if (Object.keys(nextErrors).length) {
       setFormErrors((prev) => ({ ...prev, ...nextErrors }));
@@ -545,6 +583,11 @@ export default function HomePage() {
     await loadDashboard(selectedGuildId);
   }
 
+  async function onDeleteRaid(raidId: string) {
+    await apiDelete(`/api/raids/${raidId}`);
+    await loadDashboard(selectedGuildId);
+  }
+
   function onPrepareRaidEdit(raid: RaidDTO) {
     setEditingRaidId(raid.raid_id);
     setRaidTitle(raid.title);
@@ -560,6 +603,15 @@ export default function HomePage() {
     await loadDashboard(selectedGuildId);
   }
 
+  async function onDeleteBalanceEntry(userId: string) {
+    if (!selectedGuildId) return;
+    await apiDelete(`/api/guilds/${selectedGuildId}/balances/${userId}`);
+    if (lookupUserId === userId) {
+      setLookupBalance(null);
+    }
+    await loadDashboard(selectedGuildId);
+  }
+
   async function onLogout() {
     await apiPost('/auth/logout');
     setDiscordDirectory(null);
@@ -571,7 +623,7 @@ export default function HomePage() {
   const canUpdateRaid = Boolean(editingRaidId && raidTitle.trim() && raidStartAt);
   const canApplyBankAction = Boolean(selectedGuildId && readPositiveAmount(bankAmount) && (bankTargetIds.length || bankTargetsManual.trim()));
   const canQuickAction = Boolean(selectedGuildId && selectedBalanceUserId && readPositiveAmount(quickAmount));
-  const canLookupBalance = Boolean(selectedGuildId && lookupUserId.trim());
+  const canLookupBalance = Boolean(selectedGuildId && isDiscordId(lookupUserId));
   const canPay = Boolean(selectedGuildId && payTargetUserId && readPositiveAmount(payAmount));
   const canSignupRaid = Boolean(selectedRaidId && signupRoleKey && (!signupIp || (/^\d+$/.test(signupIp) && Number(signupIp) > 0)));
 
@@ -593,17 +645,9 @@ export default function HomePage() {
     setPermissionUserInputs((prev) => ({ ...prev, [permissionKey]: updated.user_ids.join(',') }));
   }
 
-  const raidPreview = useMemo(() => ({
-    title: raidTitle.trim() || 'Titre du raid',
-    template: raidTemplate || 'Template',
-    startAt: raidStartAt ? new Date(raidStartAt).toLocaleString('fr-FR') : 'Date non définie',
-    description: raidDescription.trim() || 'Pas de description',
-    extra: raidExtraMessage.trim() || 'Aucun message additionnel',
-  }), [raidTitle, raidTemplate, raidStartAt, raidDescription, raidExtraMessage]);
-
   if (!state.me) {
     return (
-      <main className="discord-shell">
+      <main className="discord-shell guest-shell">
         <section className="main-panel" style={{ marginLeft: 0 }}>
           <header className="topbar">
             <div>
@@ -662,6 +706,7 @@ export default function HomePage() {
           <button type="button" className={activeTab === 'raids' ? 'tab active' : 'tab'} onClick={() => setActiveTab('raids')}>Tous les raids</button>
           <button type="button" className={activeTab === 'balances' ? 'tab active' : 'tab'} onClick={() => setActiveTab('balances')}>Balances & Lootsplit</button>
           <button type="button" className={activeTab === 'tickets' ? 'tab active' : 'tab'} onClick={() => setActiveTab('tickets')}>Tous les tickets</button>
+          {isSelectedGuildAdmin && <button type="button" className={activeTab === 'admin' ? 'tab active' : 'tab'} onClick={() => setActiveTab('admin')}>Administration</button>}
         </div>
 
         {canUseDashboard && activeTab === 'active' && (
@@ -672,33 +717,6 @@ export default function HomePage() {
               <article><h3>Raids</h3><strong>{state.overview?.raid_count ?? 0}</strong></article>
               <article><h3>Templates</h3><strong>{state.overview?.template_count ?? 0}</strong></article>
             </section>
-
-            {isSelectedGuildAdmin && (
-              <section className="panel fade-in">
-                <h2>Permissions bot (admin)</h2>
-                <p>Définis les rôles et membres autorisés pour chaque permission manager.</p>
-                <div className="form-grid">
-                  {permissionBindings.map((binding) => (
-                    <article key={binding.permission_key} className="preview-box">
-                      <h3>{permissionLabels[binding.permission_key]}</h3>
-                      <label>Rôles (IDs séparés par virgule/espace)
-                        <input
-                          value={permissionRoleInputs[binding.permission_key] || ''}
-                          onChange={(e) => setPermissionRoleInputs((prev) => ({ ...prev, [binding.permission_key]: e.target.value }))}
-                        />
-                      </label>
-                      <label>Membres (IDs séparés par virgule/espace)
-                        <input
-                          value={permissionUserInputs[binding.permission_key] || ''}
-                          onChange={(e) => setPermissionUserInputs((prev) => ({ ...prev, [binding.permission_key]: e.target.value }))}
-                        />
-                      </label>
-                      <button type="button" onClick={() => void onSavePermissionBinding(binding.permission_key)}>Enregistrer</button>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            )}
 
             <section className="panel split">
               <div>
@@ -736,12 +754,28 @@ export default function HomePage() {
                     </label>
                   </details>
                   <article className="preview-box">
-                    <strong>Prévisualisation Discord</strong>
-                    <p><strong>{raidPreview.title}</strong></p>
-                    <p>Template: {raidPreview.template}</p>
-                    <p>Départ: {raidPreview.startAt}</p>
-                    <p>{raidPreview.description}</p>
-                    <p>{raidPreview.extra}</p>
+                    <strong>Prévisualisation exacte du message Discord</strong>
+                    {raidPreviewLoading && <p>Chargement de la preview…</p>}
+                    {!raidPreviewLoading && raidMessagePreview && (
+                      <>
+                        <p><strong>{raidMessagePreview.embed.title || '(sans titre)'}</strong></p>
+                        {raidMessagePreview.embed.description && <p>{raidMessagePreview.embed.description}</p>}
+                        {(raidMessagePreview.embed.fields || []).map((field, index) => (
+                          <div key={`${field.name}-${index}`}>
+                            <p><strong>{field.name || '​'}</strong></p>
+                            <pre>{field.value}</pre>
+                          </div>
+                        ))}
+                        {raidMessagePreview.embed.footer?.text && <p><small>{raidMessagePreview.embed.footer.text}</small></p>}
+                        <p><strong>Composants interactifs</strong></p>
+                        <ul>
+                          {raidMessagePreview.components.map((component, index) => (
+                            <li key={`${component.kind}-${index}`}>{component.kind === 'select' ? 'Menu' : 'Bouton'}: {component.label}</li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    {!raidPreviewLoading && !raidMessagePreview && <p>Renseigne template, titre et date pour afficher la preview exacte.</p>}
                   </article>
                   <button type="submit" disabled={!canOpenRaid}>Ouvrir le raid</button>
                 </form>
@@ -798,6 +832,7 @@ Support;2;ip=false;roles=234567890123456789,345678901234567890`}</pre>
                   <li key={b.user_id} className="raid-item">
                     <span>#{b.rank || index + 1} · {memberNameById.get(b.user_id) || b.user_id}</span>
                     <small>{b.balance.toLocaleString('fr-FR')}</small>
+                    <button type="button" onClick={() => void onDeleteBalanceEntry(b.user_id)}>Supprimer entrée</button>
                   </li>
                 ))}</ul>
                 <div className="inline-actions">
@@ -845,7 +880,10 @@ Support;2;ip=false;roles=234567890123456789,345678901234567890`}</pre>
                   </label>
                   {formErrors.lookupUserId && <small className="error-banner">{formErrors.lookupUserId}</small>}
                   <datalist id="member-ids">{(discordDirectory?.members || []).map((m) => <option key={m.id} value={m.id} label={`${m.display_name} (${m.id})`} />)}</datalist>
-                  <button type="submit" disabled={!canLookupBalance}>/bal</button>
+                  <div className="inline-actions">
+                    <button type="submit" disabled={!canLookupBalance}>/bal</button>
+                    <button type="button" disabled={!canLookupBalance} onClick={() => void onDeleteBalanceEntry(lookupUserId)}>Supprimer entrée banque</button>
+                  </div>
                 </form>
                 {lookupBalance && <p>Balance: <strong>{lookupBalance.balance.toLocaleString('fr-FR')}</strong></p>}
                 <form className="form-grid" onSubmit={onPay}>
@@ -895,6 +933,7 @@ Support;2;ip=false;roles=234567890123456789,345678901234567890`}</pre>
                     <button type="button" onClick={() => onPrepareRaidEdit(raid)}>Éditer</button>
                     <button type="button" onClick={() => setSelectedRaidId(raid.raid_id)}>Gérer roster</button>
                     <button type="button" onClick={() => void onCloseRaid(raid.raid_id)} disabled={raid.status === 'CLOSED'}>Fermer raid</button>
+                    <button type="button" onClick={() => void onDeleteRaid(raid.raid_id)}>Supprimer raid</button>
                   </div>
                 </li>
               ))}
@@ -961,6 +1000,33 @@ Support;2;ip=false;roles=234567890123456789,345678901234567890`}</pre>
                   </article>
                 ))}
               </div>
+            </div>
+          </section>
+        )}
+
+        {canUseDashboard && activeTab === 'admin' && isSelectedGuildAdmin && (
+          <section className="panel fade-in">
+            <h2>Panneau administratif</h2>
+            <p>Définis les rôles et membres autorisés pour chaque permission manager.</p>
+            <div className="form-grid">
+              {permissionBindings.map((binding) => (
+                <article key={binding.permission_key} className="preview-box">
+                  <h3>{permissionLabels[binding.permission_key]}</h3>
+                  <label>Rôles (IDs séparés par virgule/espace)
+                    <input
+                      value={permissionRoleInputs[binding.permission_key] || ''}
+                      onChange={(e) => setPermissionRoleInputs((prev) => ({ ...prev, [binding.permission_key]: e.target.value }))}
+                    />
+                  </label>
+                  <label>Membres (IDs séparés par virgule/espace)
+                    <input
+                      value={permissionUserInputs[binding.permission_key] || ''}
+                      onChange={(e) => setPermissionUserInputs((prev) => ({ ...prev, [binding.permission_key]: e.target.value }))}
+                    />
+                  </label>
+                  <button type="button" onClick={() => void onSavePermissionBinding(binding.permission_key)}>Enregistrer</button>
+                </article>
+              ))}
             </div>
           </section>
         )}

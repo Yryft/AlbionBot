@@ -115,6 +115,22 @@ export type RaidTemplateDTO = {
   roles: RaidRoleDTO[];
 };
 
+
+export type RaidOpenPreviewComponentDTO = {
+  kind: 'select' | 'button';
+  label: string;
+};
+
+export type RaidOpenPreviewDTO = {
+  embed: {
+    title?: string;
+    description?: string;
+    fields?: { name: string; value: string; inline?: boolean }[];
+    footer?: { text?: string };
+  };
+  components: RaidOpenPreviewComponentDTO[];
+};
+
 export type RaidDTO = {
   raid_id: string;
   template_name: string;
