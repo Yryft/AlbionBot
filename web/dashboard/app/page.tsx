@@ -1009,7 +1009,7 @@ Support;2;ip=false;roles=234567890123456789,345678901234567890`}</pre>
         {canUseDashboard && activeTab === 'craft' && (
           <section className="panel fade-in">
             <h2>Craft calculator</h2>
-            <p className="muted">Estimation des matériaux, du coût de craft et de la marge selon bonus ville/HO.</p>
+            <p className="muted">Simulation craft + rentabilité: saisie des prix (manuel/prérempli), breakdown détaillé et marge nette.</p>
             <CraftCalculator />
           </section>
         )}

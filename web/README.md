@@ -135,6 +135,7 @@ En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` q
 - Navigation dashboard ajustée: le panneau administratif (permissions) est déplacé dans un onglet dédié **Administration** pour séparer les opérations admin du dashboard opérationnel quotidien.
 - Écran d'accueil non connecté corrigé: la page occupe désormais toute la largeur utile (plus de colonne latérale vide héritée de la vue connectée).
 - Client API dashboard enrichi pour le craft: nouveaux DTOs (`CraftItemDTO`, `CraftLocationBonusDTO`, `CraftSimulation*`, `CraftProfitability*`) et wrappers dédiés (`apiGetCraftItems`, `apiGetCraftLocationBonuses`, `apiPostCraftSimulation`, `apiPostCraftProfitability`) avec propagation uniforme des erreurs `ApiError`.
+- Calculateur craft & rentabilité: endpoint `POST /api/craft/profitability` (simulation + prix saisis) avec breakdown transparent par matériau (quantité, prix unitaire, coût ligne), mode de prix `manual|prefilled`, et agrégats (`coût matériaux`, `coût focus`, `revenu brut/net`, `profit`, `marge`).
 
 ## Spec template (parse_comp_spec)
 
@@ -168,3 +169,16 @@ Variables d'environnement associées:
 - `ALBION_CACHE_MEMORY_TTL_SECONDS` (TTL cache mémoire),
 - `ALBION_CACHE_SNAPSHOT_PATH` (snapshot persistant warm start/fallback),
 - `ALBION_SYNC_INTERVAL_SECONDS` (job de sync périodique).
+
+
+## Calculateur craft & rentabilité
+
+Le dashboard propose désormais un flux complet de simulation de rentabilité:
+- saisie des prix unitaires matériau par matériau + coût livre d'imbuer + prix de vente final,
+- mode **Prix manuel** et mode **Prérempli** (activé si des prix marché sont exposés par l'API provider),
+- récapitulatif des coûts/revenus: matériaux, focus implicite (si valorisé), brut/net, profit et marge.
+
+API associée:
+- `POST /api/craft/simulate`: calcule les quantités brutes/nettes et le focus,
+- `POST /api/craft/profitability`: agrège les prix d'entrée et retourne un breakdown ligne par ligne + KPI de rentabilité.
+

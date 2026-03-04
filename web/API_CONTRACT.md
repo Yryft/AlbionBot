@@ -33,8 +33,8 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
   - `base_materials[]`: `{ item_id, item_name, gross_quantity, net_quantity }` (matériaux bruts non craftables)
   - `intermediate_materials[]`: `{ item_id, item_name, gross_quantity, net_quantity }` (intermédiaires craftables)
   - `applied_yields`: `{ base_return_rate, location_return_rate_bonus, hideout_return_rate_bonus, focus_return_rate_bonus, additional_return_rate_bonus, total_return_rate }`
-- `CraftProfitabilityRequestDTO`: `{ simulation, material_unit_prices, journal_unit_price, item_sale_unit_price }`
-- `CraftProfitabilityResultDTO`: `{ simulation, total_material_cost, total_journal_cost, total_production_cost, total_revenue, margin, profit }`
+- `CraftProfitabilityRequestDTO`: `{ simulation, material_unit_prices, imbuer_journal_unit_price, item_sale_unit_price, crafted_quantity, market_tax_rate, focus_unit_price, include_focus_cost, pricing_mode }`
+- `CraftProfitabilityResultDTO`: `{ simulation, pricing_mode, material_lines[], total_material_cost, focus_cost, imbuer_journal_cost, total_cost, gross_revenue, market_tax_amount, net_revenue, profit, margin_pct }`
 
 ## Matrice de référence raids (bot ↔ backend ↔ dashboard)
 
@@ -137,7 +137,7 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
   - erreurs de validation métier: `ApiError` avec payload `detail` (`code`, `message`, `details`)
 - `POST /api/craft/profitability`
   - body: `CraftProfitabilityRequestDTO`
-  - réponse: `CraftProfitabilityResultDTO`
+  - réponse: `CraftProfitabilityResultDTO` avec breakdown ligne par ligne (`material_lines[]`) pour affichage transparent
   - erreurs de validation métier: `ApiError` avec payload `detail` (`code`, `message`, `details`)
 
 ### Règles de permission banque
