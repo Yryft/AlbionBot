@@ -29,9 +29,10 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
 - `CraftItemDTO`: `{ id, name, tier, enchant, icon, category, craftable }`
 - `CraftLocationBonusDTO`: `{ location_key, location_name, is_hideout, return_rate_bonus, focus_bonus, craft_fee }`
 - `CraftSimulationRequestDTO`: `{ item_id, quantity, mastery_level, specialization_level, location_key, available_focus }`
-- `CraftSimulationResultDTO`: `{ item_id, focus_per_item, total_focus, materials[], applied_yields }`
-  - `materials[]`: `{ item_id, item_name, gross_quantity, net_quantity }`
-  - `applied_yields`: `{ base_return_rate, location_return_rate_bonus, focus_return_rate_bonus, total_return_rate }`
+- `CraftSimulationResultDTO`: `{ item_id, focus_efficiency, focus_per_item, total_focus, items_craftable_with_available_focus, base_materials[], intermediate_materials[], applied_yields }`
+  - `base_materials[]`: `{ item_id, item_name, gross_quantity, net_quantity }` (matériaux bruts non craftables)
+  - `intermediate_materials[]`: `{ item_id, item_name, gross_quantity, net_quantity }` (intermédiaires craftables)
+  - `applied_yields`: `{ base_return_rate, location_return_rate_bonus, hideout_return_rate_bonus, focus_return_rate_bonus, additional_return_rate_bonus, total_return_rate }`
 - `CraftProfitabilityRequestDTO`: `{ simulation, material_unit_prices, journal_unit_price, item_sale_unit_price }`
 - `CraftProfitabilityResultDTO`: `{ simulation, total_material_cost, total_journal_cost, total_production_cost, total_revenue, margin, profit }`
 
@@ -50,6 +51,21 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
 | `/pay` | `POST /api/actions/bank/pay` | `Banque` → bloc **Transfert** |
 | `/bank_undo` | `POST /api/actions/bank/undo` | `Banque` → bouton **/bank_undo** |
 | _Cleanup admin banque_ | `DELETE /api/guilds/{guild_id}/balances/{user_id}` | `Banque` → suppression d'une entrée utilisateur |
+
+
+### Formules & hypothèses craft simulation
+
+- Validation stricte:
+  - `quantity > 0`, `0 <= mastery_level <= 100`, `0 <= specialization_level <= 100`, `available_focus >= 0`, `location_key` connu.
+  - l'item cible doit être `craftable=true`.
+- Efficacité focus: `focus_efficiency = min(0.5, mastery_level*0.002 + specialization_level*0.003)`.
+- Coût focus unitaire: `focus_per_item = ceil(base_focus_cost * (1 - focus_efficiency))` (min 1).
+- Coût focus total: `total_focus = focus_per_item * quantity`.
+- Rendement total: `total_return_rate = clamp(base + location + hideout + bonus + (focus_bonus si use_focus), 0, 0.95)`.
+- Matériaux nets: `net_quantity = ceil(gross_quantity * (1 - total_return_rate))`.
+- Multi-étapes:
+  - `base_materials`: expansion récursive jusqu'aux ressources non craftables.
+  - `intermediate_materials`: composants craftables intermédiaires cumulés.
 
 ## Endpoints lecture
 
