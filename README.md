@@ -151,6 +151,7 @@ Un service web séparé est disponible sous `web/`:
 - Dashboard: prévisualisation du message raid dans le formulaire avant confirmation, alignée sur le rendu bot exact (embed + composants interactifs).
 - Dashboard: écran non connecté simplifié avec présentation du bot et un bouton unique de connexion Discord.
 - Dashboard: panneau admin serveur pour gérer les permissions bot (`raid_manager`, `bank_manager`, `ticket_manager`) par rôles et membres (IDs Discord), désormais isolé dans un onglet dédié **Administration**.
+- Dashboard: nouvel onglet **Craft calculator** pour estimer les matériaux consommés (bonus ville/HO), ajuster les prix unitaires et projeter le profit net après taxe marché.
 - Dashboard: écran non connecté corrigé pour utiliser toute la largeur (suppression de l'effet de colonne latérale vide).
 - Accessibilité UI du dashboard renforcée: styles `:focus-visible` explicites sur boutons/liens/champs/listes (`outline` + `offset`), contraste amélioré des états actifs/hover (`tabs`, `rows`, boutons secondaires), états `:disabled` plus lisibles, et boutons de sélection de guilde annotés pour lecteurs d’écran (`aria-label`, `aria-pressed`).
 - Contrat API: `web/API_CONTRACT.md`.

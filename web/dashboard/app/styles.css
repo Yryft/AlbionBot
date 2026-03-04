@@ -225,3 +225,101 @@ textarea:disabled:hover {
     align-items: stretch;
   }
 }
+
+.craft-calculator {
+  display: grid;
+  gap: 14px;
+}
+
+.craft-controls {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.craft-search input {
+  width: 100%;
+}
+
+.craft-bonus-grid {
+  border: 1px solid #3b3d44;
+  border-radius: 8px;
+  padding: 10px;
+  background: #1e1f22;
+}
+
+.craft-results {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 2fr 1fr;
+}
+
+.craft-table {
+  display: grid;
+  gap: 8px;
+}
+
+.craft-row {
+  display: grid;
+  gap: 8px;
+  align-items: center;
+  grid-template-columns: minmax(120px, 1.3fr) repeat(4, minmax(90px, 1fr));
+  background: #1e1f22;
+  border: 1px solid #3b3d44;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.craft-row input {
+  width: 100%;
+}
+
+.craft-head {
+  background: #2a2f3c;
+  font-weight: 700;
+}
+
+.craft-profit dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.craft-profit div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #3b3d44;
+  border-radius: 8px;
+  padding: 8px;
+  background: #1e1f22;
+}
+
+.craft-profit dt,
+.craft-profit dd {
+  margin: 0;
+}
+
+.profit-positive {
+  border-color: #2f9e44 !important;
+  background: rgba(47, 158, 68, 0.12) !important;
+}
+
+.profit-negative {
+  border-color: #f23f43 !important;
+  background: rgba(242, 63, 67, 0.12) !important;
+}
+
+@media (max-width: 980px) {
+  .craft-results {
+    grid-template-columns: 1fr;
+  }
+
+  .craft-row {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+
+  .craft-head {
+    display: none;
+  }
+}
