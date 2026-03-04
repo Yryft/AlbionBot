@@ -8,6 +8,8 @@ import {
   BankActionType,
   BankBalanceDTO,
   DiscordDirectoryDTO,
+  GuildPermissionBindingDTO,
+  GuildPermissionKey,
   MeDTO,
   RaidDTO,
   RaidRosterDTO,
@@ -50,6 +52,12 @@ const initialState: LoadState = {
 };
 
 const statusOrder: Record<string, number> = { OPEN: 0, PINGED: 1, CLOSED: 2 };
+const DISCORD_PERM_ADMINISTRATOR = 1 << 3;
+const permissionLabels: Record<GuildPermissionKey, string> = {
+  raid_manager: 'raid_manager',
+  bank_manager: 'bank_manager',
+  ticket_manager: 'ticket_manager',
+};
 function fmtDate(ts: number): string {
   return new Date(ts * 1000).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
 }
@@ -110,6 +118,11 @@ export default function HomePage() {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
 
+  const [permissionBindings, setPermissionBindings] = useState<GuildPermissionBindingDTO[]>([]);
+  const [permissionRoleInputs, setPermissionRoleInputs] = useState<Record<string, string>>({});
+  const [permissionUserInputs, setPermissionUserInputs] = useState<Record<string, string>>({});
+
+
   async function loadDashboard(guildId?: string | null) {
     setBusy(true);
     setError('');
@@ -128,6 +141,7 @@ export default function HomePage() {
       let balances: BalanceEntryDTO[] = [];
       let directory: DiscordDirectoryDTO | null = null;
       let history: BankActionHistoryEntryDTO[] = [];
+      let permissions: GuildPermissionBindingDTO[] = [];
 
       if (activeGuild) {
         [raids, templates, tickets, balances, directory, history] = await Promise.all([
@@ -138,9 +152,18 @@ export default function HomePage() {
           apiGet<DiscordDirectoryDTO>(`/api/guilds/${activeGuild}/discord-directory`),
           apiGet<BankActionHistoryEntryDTO[]>(`/api/guilds/${activeGuild}/bank/actions?limit=25`),
         ]);
+        const activeGuildMeta = me?.guilds?.find((g) => g.id === activeGuild);
+        const permissionBits = Number(activeGuildMeta?.permissions || '0');
+        const isAdmin = Boolean(activeGuildMeta?.owner) || Boolean(permissionBits & DISCORD_PERM_ADMINISTRATOR);
+        if (isAdmin) {
+          permissions = await apiGet<GuildPermissionBindingDTO[]>(`/api/guilds/${activeGuild}/permissions`);
+        }
       }
 
       setDiscordDirectory(directory);
+      setPermissionBindings(permissions);
+      setPermissionRoleInputs(Object.fromEntries(permissions.map((item) => [item.permission_key, item.role_ids.join(",")])));
+      setPermissionUserInputs(Object.fromEntries(permissions.map((item) => [item.permission_key, item.user_ids.join(",")])));
       setState({ health: Boolean(health?.ok), overview, me, raids, templates, tickets, balances, selectedTicket: null });
       setBankHistory(history);
       setSelectedGuildId(activeGuild);
@@ -552,6 +575,52 @@ export default function HomePage() {
   const canPay = Boolean(selectedGuildId && payTargetUserId && readPositiveAmount(payAmount));
   const canSignupRaid = Boolean(selectedRaidId && signupRoleKey && (!signupIp || (/^\d+$/.test(signupIp) && Number(signupIp) > 0)));
 
+  function parseDiscordIds(raw: string): string[] {
+    return Array.from(new Set(raw.split(/[\s,]+/).map((value) => value.trim()).filter((value) => /^([1-9]\d*)$/.test(value))));
+  }
+
+  const selectedGuild = state.me?.guilds?.find((guild) => guild.id === selectedGuildId);
+  const selectedGuildPermissionBits = Number(selectedGuild?.permissions || '0');
+  const isSelectedGuildAdmin = Boolean(selectedGuild?.owner) || Boolean(selectedGuildPermissionBits & DISCORD_PERM_ADMINISTRATOR);
+
+  async function onSavePermissionBinding(permissionKey: GuildPermissionKey) {
+    if (!selectedGuildId) return;
+    const role_ids = parseDiscordIds(permissionRoleInputs[permissionKey] || '');
+    const user_ids = parseDiscordIds(permissionUserInputs[permissionKey] || '');
+    const updated = await apiPut<GuildPermissionBindingDTO>(`/api/guilds/${selectedGuildId}/permissions/${permissionKey}`, { role_ids, user_ids });
+    setPermissionBindings((prev) => prev.map((item) => (item.permission_key === permissionKey ? updated : item)));
+    setPermissionRoleInputs((prev) => ({ ...prev, [permissionKey]: updated.role_ids.join(',') }));
+    setPermissionUserInputs((prev) => ({ ...prev, [permissionKey]: updated.user_ids.join(',') }));
+  }
+
+  const raidPreview = useMemo(() => ({
+    title: raidTitle.trim() || 'Titre du raid',
+    template: raidTemplate || 'Template',
+    startAt: raidStartAt ? new Date(raidStartAt).toLocaleString('fr-FR') : 'Date non définie',
+    description: raidDescription.trim() || 'Pas de description',
+    extra: raidExtraMessage.trim() || 'Aucun message additionnel',
+  }), [raidTitle, raidTemplate, raidStartAt, raidDescription, raidExtraMessage]);
+
+  if (!state.me) {
+    return (
+      <main className="discord-shell">
+        <section className="main-panel" style={{ marginLeft: 0 }}>
+          <header className="topbar">
+            <div>
+              <h1>AlbionBot Dashboard</h1>
+              <p>Gestion centralisée des raids, tickets et balances Albion.</p>
+            </div>
+          </header>
+          <section className="panel fade-in">
+            <h2>Connecte-toi avec Discord</h2>
+            <p>Accède au dashboard pour prévisualiser tes actions avant confirmation, piloter les raids et gérer les permissions du bot sur ton serveur.</p>
+            <a className="discord-login" href={`${apiBase}/auth/discord/login`}>Se connecter avec Discord</a>
+          </section>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="discord-shell">
       <aside className="guild-rail">
@@ -604,6 +673,33 @@ export default function HomePage() {
               <article><h3>Templates</h3><strong>{state.overview?.template_count ?? 0}</strong></article>
             </section>
 
+            {isSelectedGuildAdmin && (
+              <section className="panel fade-in">
+                <h2>Permissions bot (admin)</h2>
+                <p>Définis les rôles et membres autorisés pour chaque permission manager.</p>
+                <div className="form-grid">
+                  {permissionBindings.map((binding) => (
+                    <article key={binding.permission_key} className="preview-box">
+                      <h3>{permissionLabels[binding.permission_key]}</h3>
+                      <label>Rôles (IDs séparés par virgule/espace)
+                        <input
+                          value={permissionRoleInputs[binding.permission_key] || ''}
+                          onChange={(e) => setPermissionRoleInputs((prev) => ({ ...prev, [binding.permission_key]: e.target.value }))}
+                        />
+                      </label>
+                      <label>Membres (IDs séparés par virgule/espace)
+                        <input
+                          value={permissionUserInputs[binding.permission_key] || ''}
+                          onChange={(e) => setPermissionUserInputs((prev) => ({ ...prev, [binding.permission_key]: e.target.value }))}
+                        />
+                      </label>
+                      <button type="button" onClick={() => void onSavePermissionBinding(binding.permission_key)}>Enregistrer</button>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
+
             <section className="panel split">
               <div>
                 <h2>Raid opener</h2>
@@ -639,6 +735,14 @@ export default function HomePage() {
                       <input value={manualRaidVoiceChannelId} onChange={(e) => { setManualRaidVoiceChannelId(e.target.value); clearFieldError('openRaidVoiceChannel'); }} inputMode="numeric" />
                     </label>
                   </details>
+                  <article className="preview-box">
+                    <strong>Prévisualisation Discord</strong>
+                    <p><strong>{raidPreview.title}</strong></p>
+                    <p>Template: {raidPreview.template}</p>
+                    <p>Départ: {raidPreview.startAt}</p>
+                    <p>{raidPreview.description}</p>
+                    <p>{raidPreview.extra}</p>
+                  </article>
                   <button type="submit" disabled={!canOpenRaid}>Ouvrir le raid</button>
                 </form>
                 <label>Raid à modifier<select value={editingRaidId} onChange={(e) => setEditingRaidId(e.target.value)}>{state.raids.map((raid) => <option key={raid.raid_id} value={raid.raid_id}>{raid.title}</option>)}</select></label>
@@ -862,7 +966,6 @@ Support;2;ip=false;roles=234567890123456789,345678901234567890`}</pre>
         )}
 
         {busy && <p className="muted">Synchronisation en cours…</p>}
-        {!state.me && <a className="discord-login" href={`${apiBase}/auth/discord/login`}>Se connecter avec Discord</a>}
       </section>
     </main>
   );

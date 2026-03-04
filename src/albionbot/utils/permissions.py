@@ -48,6 +48,7 @@ def has_logical_permission(
     permission_key: str,
     role_ids: Iterable[int],
     *,
+    user_id: Optional[int] = None,
     is_admin: bool,
     can_manage_guild: bool = False,
 ) -> bool:
@@ -60,6 +61,9 @@ def has_logical_permission(
     if permission_key == PERM_BANK_MANAGER and cfg.bank_require_manage_guild and can_manage_guild:
         return True
     allowed_role_ids = role_ids_for_permission(cfg, store, guild_id, permission_key)
+    allowed_user_ids = store.get_permission_user_ids(guild_id, permission_key) if store is not None else []
+    if user_id is not None and int(user_id) in set(allowed_user_ids):
+        return True
     if not allowed_role_ids:
         return permission_key == PERM_TICKET_MANAGER and has_logical_permission(
             cfg,
@@ -67,6 +71,7 @@ def has_logical_permission(
             guild_id,
             PERM_RAID_MANAGER,
             role_ids,
+            user_id=user_id,
             is_admin=is_admin,
             can_manage_guild=can_manage_guild,
         )
@@ -88,6 +93,7 @@ def can_manage_raids(cfg: Config, member: nextcord.Member, store: Optional[Store
         member.guild.id,
         PERM_RAID_MANAGER,
         (r.id for r in member.roles),
+        user_id=member.id,
         is_admin=bool(member.guild_permissions.administrator),
         can_manage_guild=bool(member.guild_permissions.manage_guild),
     )
@@ -104,6 +110,7 @@ def can_manage_bank(cfg: Config, member: nextcord.Member, store: Optional[Store]
         member.guild.id,
         PERM_BANK_MANAGER,
         (r.id for r in member.roles),
+        user_id=member.id,
         is_admin=bool(member.guild_permissions.administrator),
         can_manage_guild=bool(member.guild_permissions.manage_guild),
     )
@@ -118,6 +125,7 @@ def can_manage_tickets(cfg: Config, member: nextcord.Member, store: Optional[Sto
         member.guild.id,
         PERM_TICKET_MANAGER,
         (r.id for r in member.roles),
+        user_id=member.id,
         is_admin=bool(member.guild_permissions.administrator),
         can_manage_guild=bool(member.guild_permissions.manage_guild),
     )

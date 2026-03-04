@@ -52,6 +52,14 @@ export type MeDTO = {
 
 export type DiscordChannelDTO = { id: string; name: string; type: number };
 export type DiscordMemberDTO = { id: string; display_name: string };
+export type GuildPermissionKey = 'raid_manager' | 'bank_manager' | 'ticket_manager';
+
+export type GuildPermissionBindingDTO = {
+  permission_key: GuildPermissionKey;
+  role_ids: string[];
+  user_ids: string[];
+};
+
 export type DiscordDirectoryDTO = {
   channels: DiscordChannelDTO[];
   roles: RoleDTO[];

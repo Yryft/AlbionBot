@@ -17,16 +17,17 @@ import web.backend.app as backend_app
 
 
 class FakeOAuthService:
-    def __init__(self, session: SessionData, role_ids: list[int]):
+    def __init__(self, session: SessionData, role_ids: list[int], member_permissions: str = "0"):
         self._session = session
         self._role_ids = role_ids
+        self._member_permissions = member_permissions
         self.sessions = SimpleNamespace(get=lambda session_id: self._session if session_id == session.session_id else None)
 
     def ensure_valid_session(self, session: SessionData) -> SessionData:
         return session
 
     def fetch_guild_member(self, access_token: str, guild_id: int) -> dict:
-        return {"roles": [str(role_id) for role_id in self._role_ids], "permissions": "0"}
+        return {"roles": [str(role_id) for role_id in self._role_ids], "permissions": self._member_permissions}
 
 
 RAID_OPEN_PAYLOAD = {
@@ -88,7 +89,7 @@ def _write_state(path) -> None:
     )
 
 
-def _build_client(tmp_path, monkeypatch, *, role_ids: list[int]) -> TestClient:
+def _build_client(tmp_path, monkeypatch, *, role_ids: list[int], guild_permissions: str = "0", member_permissions: str = "0") -> TestClient:
     data_path = tmp_path / "state.json"
     _write_state(data_path)
     monkeypatch.setenv("DATA_PATH", str(data_path))
@@ -104,10 +105,10 @@ def _build_client(tmp_path, monkeypatch, *, role_ids: list[int]) -> TestClient:
         refresh_token="refresh",
         token_expires_at=9999999999,
         user={"id": "42"},
-        guilds=[{"id": "123", "owner": False, "permissions": "0"}],
+        guilds=[{"id": "123", "owner": False, "permissions": guild_permissions}],
         selected_guild_id=123,
     )
-    monkeypatch.setattr(backend_app, "_build_oauth_service", lambda: FakeOAuthService(session, role_ids))
+    monkeypatch.setattr(backend_app, "_build_oauth_service", lambda: FakeOAuthService(session, role_ids, member_permissions=member_permissions))
 
     app = backend_app.create_app()
     client = TestClient(app)
@@ -161,3 +162,32 @@ def test_raid_open_with_valid_csrf_header_behaves_normally(tmp_path, monkeypatch
     response = client.post("/api/actions/raids/open", json=RAID_OPEN_PAYLOAD, headers={"X-CSRF-Token": "csrf"})
 
     assert response.status_code == 200
+
+
+def test_admin_can_list_and_update_permission_bindings(tmp_path, monkeypatch):
+    client = _build_client(tmp_path, monkeypatch, role_ids=[], guild_permissions=str(1 << 3), member_permissions=str(1 << 3))
+
+    list_response = client.get('/api/guilds/123/permissions')
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert any(item['permission_key'] == 'raid_manager' for item in payload)
+
+    update_response = client.put(
+        '/api/guilds/123/permissions/raid_manager',
+        json={'role_ids': ['333'], 'user_ids': ['42']},
+        headers={'X-CSRF-Token': 'csrf'},
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()['user_ids'] == ['42']
+
+
+def test_non_admin_cannot_update_permission_bindings(tmp_path, monkeypatch):
+    client = _build_client(tmp_path, monkeypatch, role_ids=[111], guild_permissions='0', member_permissions='0')
+
+    response = client.put(
+        '/api/guilds/123/permissions/raid_manager',
+        json={'role_ids': ['333'], 'user_ids': ['42']},
+        headers={'X-CSRF-Token': 'csrf'},
+    )
+
+    assert response.status_code == 403

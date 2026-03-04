@@ -178,6 +178,7 @@ class Store:
         self.templates: Dict[str, CompTemplate] = {}
         self.raids: Dict[str, RaidEvent] = {}
         self.guild_permissions: Dict[int, Dict[str, List[int]]] = {}
+        self.guild_user_permissions: Dict[int, Dict[str, List[int]]] = {}
         self.raid_commands: Dict[str, RaidCommand] = {}
         self.bank_balances: Dict[int, Dict[int, int]] = {}
         self.bank_actions: Dict[int, List[BankAction]] = {}
@@ -290,6 +291,16 @@ class Store:
             for perm_key, role_ids in perm_map.items():
                 out_map[str(perm_key)] = list(map(int, role_ids or []))
             self.guild_permissions[gid] = out_map
+
+        self.guild_user_permissions = {}
+        for gid_str, perm_map in raw.get("guild_user_permissions", {}).items():
+            gid = int(gid_str)
+            if not isinstance(perm_map, dict):
+                continue
+            out_map: Dict[str, List[int]] = {}
+            for perm_key, user_ids in perm_map.items():
+                out_map[str(perm_key)] = list(map(int, user_ids or []))
+            self.guild_user_permissions[gid] = out_map
 
         self.raid_commands = {}
         for command_id, cmd in raw.get("raid_commands", {}).items():
@@ -484,7 +495,7 @@ class Store:
         self.ticket_by_user[gid][uid][record.status].add(record.ticket_id)
 
     def _serialize_runtime_state(self) -> Dict:
-        raw = {"templates": {}, "raids": {}, "guild_permissions": {}, "raid_commands": {}, "tickets": {"configs": {}, "records": {}, "messages": {}, "by_user": {}}}
+        raw = {"templates": {}, "raids": {}, "guild_permissions": {}, "guild_user_permissions": {}, "raid_commands": {}, "tickets": {"configs": {}, "records": {}, "messages": {}, "by_user": {}}}
         for name, t in self.templates.items():
             raw["templates"][name] = {
                 "name": t.name,
@@ -525,6 +536,9 @@ class Store:
 
         for gid, perm_map in self.guild_permissions.items():
             raw["guild_permissions"][str(gid)] = {k: list(map(int, v)) for k, v in perm_map.items()}
+
+        for gid, perm_map in self.guild_user_permissions.items():
+            raw["guild_user_permissions"][str(gid)] = {k: list(map(int, v)) for k, v in perm_map.items()}
 
         for command_id, command in self.raid_commands.items():
             raw["raid_commands"][str(command_id)] = {
@@ -597,6 +611,14 @@ class Store:
         if guild_id not in self.guild_permissions:
             self.guild_permissions[guild_id] = {}
         self.guild_permissions[guild_id][permission_key] = list(map(int, role_ids))
+
+    def get_permission_user_ids(self, guild_id: int, permission_key: str) -> List[int]:
+        return list(self.guild_user_permissions.get(guild_id, {}).get(permission_key, []))
+
+    def set_permission_user_ids(self, guild_id: int, permission_key: str, user_ids: List[int]) -> None:
+        if guild_id not in self.guild_user_permissions:
+            self.guild_user_permissions[guild_id] = {}
+        self.guild_user_permissions[guild_id][permission_key] = list(map(int, user_ids))
 
     def get_ticket_config(self, guild_id: int) -> Dict[str, object]:
         data = self.ticket_configs.get(guild_id)
