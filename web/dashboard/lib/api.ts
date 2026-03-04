@@ -191,6 +191,71 @@ export type BankActionHistoryEntryDTO = {
   undone_at?: number | null;
 };
 
+export type CraftItemDTO = {
+  id: string;
+  name: string;
+  tier: number;
+  enchant: number;
+  icon: string;
+  category: string;
+  craftable: boolean;
+};
+
+export type CraftLocationBonusDTO = {
+  location_key: string;
+  location_name: string;
+  is_hideout: boolean;
+  return_rate_bonus: number;
+  focus_bonus: number;
+  craft_fee: number;
+};
+
+export type CraftSimulationRequestDTO = {
+  item_id: string;
+  quantity: number;
+  mastery_level: number;
+  specialization_level: number;
+  location_key: string;
+  available_focus: number;
+};
+
+export type CraftMaterialBreakdownDTO = {
+  item_id: string;
+  item_name: string;
+  gross_quantity: number;
+  net_quantity: number;
+};
+
+export type CraftSimulationResultDTO = {
+  item_id: string;
+  focus_per_item: number;
+  total_focus: number;
+  materials: CraftMaterialBreakdownDTO[];
+  applied_yields: {
+    base_return_rate: number;
+    location_return_rate_bonus: number;
+    focus_return_rate_bonus: number;
+    total_return_rate: number;
+  };
+};
+
+export type CraftProfitabilityRequestDTO = {
+  simulation: CraftSimulationRequestDTO;
+  material_unit_prices: Record<string, number>;
+  journal_unit_price: number;
+  item_sale_unit_price: number;
+};
+
+export type CraftProfitabilityResultDTO = {
+  simulation: CraftSimulationResultDTO;
+  total_material_cost: number;
+  total_journal_cost: number;
+  total_production_cost: number;
+  total_revenue: number;
+  margin: number;
+  profit: number;
+};
+
 const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
 let csrfTokenCache = "";
@@ -297,4 +362,51 @@ export async function apiDelete<T>(path: string): Promise<T> {
     throw await buildApiError(res, path);
   }
   return parseJsonSafe<T>(res);
+}
+
+function ensureCraftApiError(error: unknown, path: string): never {
+  if (error instanceof ApiError) {
+    throw error;
+  }
+  throw new ApiError(`Craft API error on ${path}`);
+}
+
+export async function apiGetCraftItems(): Promise<CraftItemDTO[]> {
+  const path = '/api/craft/items';
+  try {
+    return await apiGet<CraftItemDTO[]>(path);
+  } catch (error) {
+    ensureCraftApiError(error, path);
+  }
+}
+
+export async function apiGetCraftLocationBonuses(): Promise<CraftLocationBonusDTO[]> {
+  const path = '/api/craft/locations';
+  try {
+    return await apiGet<CraftLocationBonusDTO[]>(path);
+  } catch (error) {
+    ensureCraftApiError(error, path);
+  }
+}
+
+export async function apiPostCraftSimulation(
+  body: CraftSimulationRequestDTO,
+): Promise<CraftSimulationResultDTO> {
+  const path = '/api/craft/simulate';
+  try {
+    return await apiPost<CraftSimulationResultDTO>(path, body);
+  } catch (error) {
+    ensureCraftApiError(error, path);
+  }
+}
+
+export async function apiPostCraftProfitability(
+  body: CraftProfitabilityRequestDTO,
+): Promise<CraftProfitabilityResultDTO> {
+  const path = '/api/craft/profitability';
+  try {
+    return await apiPost<CraftProfitabilityResultDTO>(path, body);
+  } catch (error) {
+    ensureCraftApiError(error, path);
+  }
 }

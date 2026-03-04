@@ -26,6 +26,14 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
   - `publish_status`: `pending|delivered|failed` (source de vérité UI pour l'état de publication)
   - `publish_error`: dernier message d'erreur côté publication Discord (affiché dans l'UI si non vide)
 - `GuildPermissionBindingDTO`: `{ permission_key, role_ids[], user_ids[] }` pour configurer les permissions bot par rôle et membre.
+- `CraftItemDTO`: `{ id, name, tier, enchant, icon, category, craftable }`
+- `CraftLocationBonusDTO`: `{ location_key, location_name, is_hideout, return_rate_bonus, focus_bonus, craft_fee }`
+- `CraftSimulationRequestDTO`: `{ item_id, quantity, mastery_level, specialization_level, location_key, available_focus }`
+- `CraftSimulationResultDTO`: `{ item_id, focus_per_item, total_focus, materials[], applied_yields }`
+  - `materials[]`: `{ item_id, item_name, gross_quantity, net_quantity }`
+  - `applied_yields`: `{ base_return_rate, location_return_rate_bonus, focus_return_rate_bonus, total_return_rate }`
+- `CraftProfitabilityRequestDTO`: `{ simulation, material_unit_prices, journal_unit_price, item_sale_unit_price }`
+- `CraftProfitabilityResultDTO`: `{ simulation, total_material_cost, total_journal_cost, total_production_cost, total_revenue, margin, profit }`
 
 ## Matrice de référence raids (bot ↔ backend ↔ dashboard)
 
@@ -58,6 +66,8 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
 - `GET /api/guilds/{guild_id}/bank/actions?limit=25`
 - `GET /api/guilds/{guild_id}/permissions` (admin serveur)
 - `GET /api/public/overview`
+- `GET /api/craft/items`
+- `GET /api/craft/locations`
 
 ## Endpoints actions managées
 
@@ -104,6 +114,14 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
 - `PUT /api/guilds/{guild_id}/permissions/{permission_key}`
   - body: `GuildPermissionUpdateRequestDTO` (`role_ids[]`, `user_ids[]`)
   - permission requise: administrateur du serveur
+- `POST /api/craft/simulate`
+  - body: `CraftSimulationRequestDTO`
+  - réponse: `CraftSimulationResultDTO`
+  - erreurs de validation métier: `ApiError` avec payload `detail` (`code`, `message`, `details`)
+- `POST /api/craft/profitability`
+  - body: `CraftProfitabilityRequestDTO`
+  - réponse: `CraftProfitabilityResultDTO`
+  - erreurs de validation métier: `ApiError` avec payload `detail` (`code`, `message`, `details`)
 
 ### Règles de permission banque
 
