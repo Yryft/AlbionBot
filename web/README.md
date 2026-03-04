@@ -75,6 +75,7 @@ Créer **2 services** dans le même projet Railway.
 > Le bot et le dashboard ont des variables d'environnement distinctes. Partager uniquement l'accès lecture/écriture aux données (`DATA_PATH` volume ou DB commune) selon votre architecture.
 
 > Le bot recharge l'état partagé périodiquement (5s) afin d'appliquer dans Discord les actions faites depuis le dashboard (raids publiés/édités/fermés, état banque et tickets rafraîchi).
+> Le backend dashboard recharge aussi l'état partagé au début de chaque requête HTTP pour éviter les statuts de publication obsolètes (ex: raid affiché `pending` alors qu'il est déjà publié) et limiter les écrasements inter-processus.
 
 ## Dépannage: `OAuth Discord non configuré`
 

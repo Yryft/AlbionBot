@@ -147,6 +147,21 @@ def create_app() -> FastAPI:
     authorizer = DashboardAuthorizationService(store, oauth_service) if oauth_service is not None else None
 
     app = FastAPI(title="AlbionBot Dashboard API", version="0.1.0")
+
+    @app.middleware("http")
+    async def refresh_store_state(request: Request, call_next):
+        """Always serve requests from the latest shared state snapshot.
+
+        The Discord bot process and the dashboard API can run as distinct
+        processes that both read/write the same state file. Without an
+        opportunistic reload, the API may keep stale in-memory data and return
+        outdated publish statuses (e.g. `pending` while the raid is already
+        sent on Discord), or overwrite fresh bot updates on the next save.
+        """
+
+        store.reload_if_changed()
+        return await call_next(request)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=os.getenv("DASHBOARD_CORS_ORIGINS", "*").split(","),
