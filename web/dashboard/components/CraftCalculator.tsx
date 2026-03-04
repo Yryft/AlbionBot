@@ -76,14 +76,22 @@ export default function CraftCalculator() {
   useEffect(() => {
     const controller = new AbortController();
     fetch(`${API_BASE}/api/craft/items?q=&limit=25`, { signal: controller.signal })
-      .then((r) => r.json())
-      .then((rows: CraftItem[]) => {
-        setItems(rows);
-        if (!selectedItemId && rows.length > 0) setSelectedItemId(rows[0].id);
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`items_${r.status}`);
+        const payload: unknown = await r.json();
+        if (!Array.isArray(payload)) throw new Error('items_invalid_payload');
+        return payload as CraftItem[];
       })
-      .catch(() => setError('Impossible de charger les items craft.'));
+      .then((rows) => {
+        setItems(rows);
+        setSelectedItemId((prev) => (prev || rows.length === 0 ? prev : rows[0].id));
+      })
+      .catch(() => {
+        setItems([]);
+        setError('API craft indisponible (items). Réessaie dans quelques instants.');
+      });
     return () => controller.abort();
-  }, [selectedItemId]);
+  }, []);
 
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase();
