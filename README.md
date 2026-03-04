@@ -358,3 +358,24 @@ Comportement:
 - snapshot disque rechargé au démarrage,
 - endpoint admin d'invalidation manuelle `POST /api/admin/craft/cache/invalidate?guild_id=<id>` (admin Discord + CSRF),
 - fallback automatique sur le dernier snapshot valide en cas d'échec du provider externe.
+
+### Simulation craft (backend domain)
+
+Le backend dashboard expose maintenant `POST /api/craft/simulate` avec un module métier pur `web/backend/domain/crafting/simulator.py` (sans dépendance I/O) pour les calculs.
+
+- Validation stricte des inputs: `quantity > 0`, `mastery/specialization` bornés `0..100`, `available_focus >= 0`, `location_key` supporté, item `craftable`.
+- Formules:
+  - `focus_efficiency = min(0.5, mastery*0.002 + specialization*0.003)`
+  - `focus_per_item = ceil(base_focus_cost * (1 - focus_efficiency))`
+  - `total_focus = focus_per_item * quantity`
+  - `total_return_rate = clamp(base + city/HO + bonus + focus(si activé), 0, 0.95)`
+  - `net_quantity = ceil(gross_quantity * (1 - total_return_rate))`
+- Multi-étapes: séparation explicite entre `base_materials` (bruts non craftables) et `intermediate_materials` (composants craftables).
+- Résultat structuré: focus/item, focus total, items réalisables avec focus disponible, rendements appliqués, matériaux bruts vs nets.
+
+Clés `location_key` supportées actuellement:
+- `none`
+- `city`
+- `hideout`
+- `hideout_quality`
+

@@ -25,6 +25,7 @@ from .auth import (
 )
 from .authorization import DashboardAuthorizationService
 from .albion_provider import AlbionProviderError, AlbionProviderService
+from .domain.crafting import CraftSimulationError, CraftSimulationInput, FocusYieldConfig, simulate_crafting
 from .schemas import (
     BalanceEntryDTO,
     BankActionHistoryEntryDTO,
@@ -50,6 +51,8 @@ from .schemas import (
     RaidStateUpdateRequestDTO,
     CraftItemDTO,
     CraftItemDetailDTO,
+    CraftSimulationRequestDTO,
+    CraftSimulationResultDTO,
 )
 from .command_bus import (
     AuditLogger,
@@ -71,6 +74,14 @@ OAUTH_REQUIRED_ENV_VARS = (
     "DISCORD_OAUTH_CLIENT_SECRET",
     "DISCORD_OAUTH_REDIRECT_URI",
 )
+
+
+CRAFT_LOCATION_BONUSES = {
+    "none": {"location_return_rate_bonus": 0.0, "hideout_return_rate_bonus": 0.0, "focus_return_rate_bonus": 0.0, "additional_return_rate_bonus": 0.0},
+    "city": {"location_return_rate_bonus": 0.15, "hideout_return_rate_bonus": 0.0, "focus_return_rate_bonus": 0.25, "additional_return_rate_bonus": 0.0},
+    "hideout": {"location_return_rate_bonus": 0.0, "hideout_return_rate_bonus": 0.28, "focus_return_rate_bonus": 0.25, "additional_return_rate_bonus": 0.0},
+    "hideout_quality": {"location_return_rate_bonus": 0.0, "hideout_return_rate_bonus": 0.28, "focus_return_rate_bonus": 0.25, "additional_return_rate_bonus": 0.03},
+}
 
 
 def _missing_oauth_env_vars() -> list[str]:
@@ -400,6 +411,64 @@ def create_app() -> FastAPI:
                 status_code=status,
                 detail={"code": exc.code, "message": exc.message, "details": {"last_sync_error": albion_provider.last_sync_error}},
             ) from exc
+
+    @app.post("/api/craft/simulate", response_model=CraftSimulationResultDTO)
+    async def simulate_craft(payload: CraftSimulationRequestDTO):
+        try:
+            item_detail = await albion_provider.get_item_detail(payload.item_id)
+            item = item_detail["item"]
+            if not item.get("craftable", False):
+                raise CraftSimulationError("item_not_craftable", "L'item cible n'est pas craftable")
+
+            location = CRAFT_LOCATION_BONUSES.get(payload.location_key)
+            if location is None:
+                raise CraftSimulationError("invalid_location", "location_key inconnu", details={"location_key": payload.location_key})
+
+            items, recipes = await albion_provider.get_catalog_snapshot()
+            names_by_item_id = {row["id"]: row.get("name", row["id"]) for row in items}
+            craftable_by_item_id = {row["id"]: bool(row.get("craftable", False)) for row in items}
+
+            simulation = simulate_crafting(
+                simulation_input=CraftSimulationInput(
+                    quantity=payload.quantity,
+                    mastery_level=payload.mastery_level,
+                    specialization_level=payload.specialization_level,
+                    available_focus=payload.available_focus,
+                    base_focus_cost=int(item_detail.get("metadata", {}).get("base_focus_cost", 100)),
+                    use_focus=payload.use_focus,
+                    yields=FocusYieldConfig(
+                        base_return_rate=0.152,
+                        location_return_rate_bonus=location["location_return_rate_bonus"],
+                        hideout_return_rate_bonus=location["hideout_return_rate_bonus"],
+                        focus_return_rate_bonus=location["focus_return_rate_bonus"],
+                        additional_return_rate_bonus=location["additional_return_rate_bonus"],
+                    ),
+                ),
+                recipe=item_detail.get("recipe", []),
+                recipes_by_item_id=recipes,
+                craftable_by_item_id=craftable_by_item_id,
+                names_by_item_id=names_by_item_id,
+            )
+
+            return {
+                "item_id": payload.item_id,
+                "focus_efficiency": simulation.focus_efficiency,
+                "focus_per_item": simulation.focus_per_item,
+                "total_focus": simulation.total_focus,
+                "items_craftable_with_available_focus": simulation.items_craftable_with_available_focus,
+                "base_materials": [row.__dict__ for row in simulation.base_materials],
+                "intermediate_materials": [row.__dict__ for row in simulation.intermediate_materials],
+                "applied_yields": simulation.applied_yields,
+            }
+        except CraftSimulationError as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
+        except AlbionProviderError as exc:
+            status = 404 if exc.code == "item_not_found" else 503
+            raise HTTPException(
+                status_code=status,
+                detail={"code": exc.code, "message": exc.message, "details": {"last_sync_error": albion_provider.last_sync_error}},
+            ) from exc
+
 
     @app.post("/api/admin/craft/cache/invalidate")
     async def invalidate_craft_cache(guild_id: str, request: Request):

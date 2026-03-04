@@ -174,6 +174,11 @@ class AlbionProviderService:
         async with self._lock:
             self._last_refresh_ts = 0.0
 
+
+    async def get_catalog_snapshot(self) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+        await self.refresh(force=False)
+        return list(self._items_cache), dict(self._recipes_cache)
+
     async def search_items(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
         await self.refresh(force=False)
         q = query.strip().lower()

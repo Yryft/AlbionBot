@@ -304,3 +304,31 @@ class CraftItemDetailDTO(BaseModel):
     item: CraftItemDTO
     recipe: List[CraftRecipeMaterialDTO] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
+
+
+class CraftSimulationRequestDTO(BaseModel):
+    item_id: str
+    quantity: int = Field(gt=0, le=100000)
+    mastery_level: int = Field(ge=0, le=100)
+    specialization_level: int = Field(ge=0, le=100)
+    location_key: str = Field(default="none", min_length=1)
+    available_focus: int = Field(ge=0)
+    use_focus: bool = True
+
+
+class CraftSimulationMaterialDTO(BaseModel):
+    item_id: str
+    item_name: str
+    gross_quantity: int
+    net_quantity: int
+
+
+class CraftSimulationResultDTO(BaseModel):
+    item_id: str
+    focus_efficiency: float
+    focus_per_item: int
+    total_focus: int
+    items_craftable_with_available_focus: int
+    base_materials: List[CraftSimulationMaterialDTO] = Field(default_factory=list)
+    intermediate_materials: List[CraftSimulationMaterialDTO] = Field(default_factory=list)
+    applied_yields: dict = Field(default_factory=dict)
