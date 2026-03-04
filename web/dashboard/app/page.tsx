@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import CraftCalculator from '../components/CraftCalculator';
 import {
   ApiOverviewDTO,
   BalanceEntryDTO,
@@ -28,7 +29,7 @@ import {
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
-type TabKey = 'active' | 'raids' | 'balances' | 'tickets' | 'admin';
+type TabKey = 'active' | 'raids' | 'balances' | 'tickets' | 'craft' | 'admin';
 type RaidSort = 'start_desc' | 'start_asc' | 'status';
 type LoadState = {
   health: boolean;
@@ -705,6 +706,7 @@ export default function HomePage() {
           <button type="button" className={activeTab === 'active' ? 'tab active' : 'tab'} onClick={() => setActiveTab('active')}>Dashboard</button>
           <button type="button" className={activeTab === 'raids' ? 'tab active' : 'tab'} onClick={() => setActiveTab('raids')}>Tous les raids</button>
           <button type="button" className={activeTab === 'balances' ? 'tab active' : 'tab'} onClick={() => setActiveTab('balances')}>Balances & Lootsplit</button>
+          <button type="button" className={activeTab === 'craft' ? 'tab active' : 'tab'} onClick={() => setActiveTab('craft')}>Craft calculator</button>
           <button type="button" className={activeTab === 'tickets' ? 'tab active' : 'tab'} onClick={() => setActiveTab('tickets')}>Tous les tickets</button>
           {isSelectedGuildAdmin && <button type="button" className={activeTab === 'admin' ? 'tab active' : 'tab'} onClick={() => setActiveTab('admin')}>Administration</button>}
         </div>
@@ -1001,6 +1003,14 @@ Support;2;ip=false;roles=234567890123456789,345678901234567890`}</pre>
                 ))}
               </div>
             </div>
+          </section>
+        )}
+
+        {canUseDashboard && activeTab === 'craft' && (
+          <section className="panel fade-in">
+            <h2>Craft calculator</h2>
+            <p className="muted">Estimation des matériaux, du coût de craft et de la marge selon bonus ville/HO.</p>
+            <CraftCalculator />
           </section>
         )}
 
