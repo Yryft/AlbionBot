@@ -153,3 +153,18 @@ Options reconnues: `key=`, `ip=true|false`, `req=` / `require=` / `roles=`.
 
 Erreurs bloquantes (spec vide, slots invalides, lignes invalides) sont remontées en `detail.details.errors[]`.
 Warnings non bloquants (option inconnue) remontent en `spec_warnings[]` sur les endpoints de création/édition template.
+
+## Provider craft Albion (backend)
+
+Nouveaux endpoints backend:
+- `GET /api/craft/items?q=<texte>&limit=<n>`: recherche/autocomplete items craftables.
+- `GET /api/craft/items/{item_id}`: détail craft (recette + icône + métadonnées provider).
+- `POST /api/admin/craft/cache/invalidate?guild_id=<id>`: invalidation manuelle cache (admin serveur + CSRF).
+
+Variables d'environnement associées:
+- `ALBION_PROVIDER_URL` (source catalogue/recettes),
+- `ALBION_PROVIDER_TIMEOUT_SECONDS` (timeout HTTP),
+- `ALBION_ICON_BASE_URL` (mapping icônes),
+- `ALBION_CACHE_MEMORY_TTL_SECONDS` (TTL cache mémoire),
+- `ALBION_CACHE_SNAPSHOT_PATH` (snapshot persistant warm start/fallback),
+- `ALBION_SYNC_INTERVAL_SECONDS` (job de sync périodique).

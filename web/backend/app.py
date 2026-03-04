@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import os
 import secrets
+import asyncio
+import contextlib
+import logging
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -21,6 +24,7 @@ from .auth import (
     set_session_cookies,
 )
 from .authorization import DashboardAuthorizationService
+from .albion_provider import AlbionProviderError, AlbionProviderService
 from .schemas import (
     BalanceEntryDTO,
     BankActionHistoryEntryDTO,
@@ -44,6 +48,8 @@ from .schemas import (
     RaidRosterDTO,
     RaidSignupRequestDTO,
     RaidStateUpdateRequestDTO,
+    CraftItemDTO,
+    CraftItemDetailDTO,
 )
 from .command_bus import (
     AuditLogger,
@@ -58,6 +64,7 @@ from .services import DashboardService, OpenRaidFromTemplateHandler, StartCompWi
 
 
 DISCORD_PERM_ADMINISTRATOR = 1 << 3
+logger = logging.getLogger(__name__)
 
 OAUTH_REQUIRED_ENV_VARS = (
     "DISCORD_OAUTH_CLIENT_ID",
@@ -148,11 +155,35 @@ def create_app() -> FastAPI:
         bank_sqlite_path=bank_sqlite_path,
     )
     service = DashboardService(store, bank_allow_negative=_env_bool("BANK_ALLOW_NEGATIVE", True))
+    albion_provider = AlbionProviderService()
     command_bus = CommandBus(rate_limiter=RateLimiter(), audit_logger=AuditLogger())
     oauth_service = _build_oauth_service()
     authorizer = DashboardAuthorizationService(store, oauth_service) if oauth_service is not None else None
 
     app = FastAPI(title="AlbionBot Dashboard API", version="0.1.0")
+    app.state.albion_sync_task = None
+
+    async def _run_albion_sync_loop() -> None:
+        while True:
+            try:
+                if albion_provider.provider_url:
+                    await albion_provider.refresh(force=True)
+            except AlbionProviderError as exc:
+                logger.exception("Albion periodic sync failed (%s): %s", exc.code, exc.message)
+            await asyncio.sleep(max(60, albion_provider.sync_interval_s))
+
+    @app.on_event("startup")
+    async def start_albion_sync_job() -> None:
+        app.state.albion_sync_task = asyncio.create_task(_run_albion_sync_loop())
+
+    @app.on_event("shutdown")
+    async def stop_albion_sync_job() -> None:
+        task = app.state.albion_sync_task
+        if task is None:
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
     @app.middleware("http")
     async def refresh_store_state(request: Request, call_next):
@@ -348,6 +379,36 @@ def create_app() -> FastAPI:
             "raid_count": len(service.store.raids),
             "template_count": len(service.store.templates),
         }
+
+    @app.get("/api/craft/items", response_model=list[CraftItemDTO])
+    async def search_craft_items(q: str = "", limit: int = 20):
+        try:
+            return await albion_provider.search_items(query=q, limit=limit)
+        except AlbionProviderError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={"code": exc.code, "message": exc.message, "details": {"last_sync_error": albion_provider.last_sync_error}},
+            ) from exc
+
+    @app.get("/api/craft/items/{item_id}", response_model=CraftItemDetailDTO)
+    async def craft_item_detail(item_id: str):
+        try:
+            return await albion_provider.get_item_detail(item_id)
+        except AlbionProviderError as exc:
+            status = 404 if exc.code == "item_not_found" else 503
+            raise HTTPException(
+                status_code=status,
+                detail={"code": exc.code, "message": exc.message, "details": {"last_sync_error": albion_provider.last_sync_error}},
+            ) from exc
+
+    @app.post("/api/admin/craft/cache/invalidate")
+    async def invalidate_craft_cache(guild_id: str, request: Request):
+        resolved_guild_id = parse_discord_id(guild_id, "guild_id")
+        ensure_csrf_for_mutation(request)
+        ensure_guild_admin(request, resolved_guild_id)
+        await albion_provider.invalidate()
+        await albion_provider.refresh(force=True)
+        return {"ok": True}
 
 
     @app.get("/api/my/raids")

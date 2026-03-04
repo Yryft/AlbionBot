@@ -282,3 +282,25 @@ class GuildPermissionBindingDTO(BaseModel):
 class GuildPermissionUpdateRequestDTO(BaseModel):
     role_ids: List[str] = Field(default_factory=list)
     user_ids: List[str] = Field(default_factory=list)
+
+
+class CraftItemDTO(BaseModel):
+    id: str
+    name: str
+    tier: int
+    enchant: int
+    icon: str
+    category: str
+    craftable: bool
+
+
+class CraftRecipeMaterialDTO(BaseModel):
+    item_id: str
+    item_name: str
+    quantity: int
+
+
+class CraftItemDetailDTO(BaseModel):
+    item: CraftItemDTO
+    recipe: List[CraftRecipeMaterialDTO] = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)

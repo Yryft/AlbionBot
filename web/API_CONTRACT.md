@@ -66,8 +66,9 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
 - `GET /api/guilds/{guild_id}/bank/actions?limit=25`
 - `GET /api/guilds/{guild_id}/permissions` (admin serveur)
 - `GET /api/public/overview`
-- `GET /api/craft/items`
-- `GET /api/craft/locations`
+- `GET /api/craft/items?q=<texte>&limit=<n>`
+- `GET /api/craft/items/{item_id}`
+- `POST /api/admin/craft/cache/invalidate?guild_id=<discord_guild_id>` (admin serveur + CSRF)
 
 ## Endpoints actions managées
 
