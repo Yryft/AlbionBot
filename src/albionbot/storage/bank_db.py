@@ -36,6 +36,7 @@ class BankDB:
     def __init__(self, cfg: BankDBConfig):
         self.cfg = cfg
         self.kind = "postgres" if (cfg.database_url or "").strip() else "sqlite"
+        self._pg_url = (cfg.database_url or "").strip()
 
         if self.kind == "postgres":
             if psycopg is None:
@@ -43,10 +44,8 @@ class BankDB:
                     "BANK_DATABASE_URL/DATABASE_URL is set but psycopg is not installed. "
                     "Add 'psycopg[binary]' to dependencies."
                 )
-            url = (cfg.database_url or "").strip()
             # Some providers still use postgres:// (psycopg prefers postgresql:// but accepts both)
-            self._pg_conn = psycopg.connect(url, row_factory=dict_row)
-            self._pg_conn.autocommit = True
+            self._pg_conn = self._connect_postgres()
             self._sqlite_conn = None
         else:
             self._pg_conn = None
@@ -64,6 +63,49 @@ class BankDB:
         finally:
             if self._sqlite_conn:
                 self._sqlite_conn.close()
+
+    def _connect_postgres(self):
+        assert psycopg is not None
+        conn = psycopg.connect(self._pg_url, row_factory=dict_row)
+        conn.autocommit = True
+        return conn
+
+    def _reconnect_postgres(self) -> None:
+        if self.kind != "postgres":
+            return
+        try:
+            if self._pg_conn is not None:
+                self._pg_conn.close()
+        except Exception:
+            pass
+        self._pg_conn = self._connect_postgres()
+
+    @staticmethod
+    def _is_retryable_postgres_error(exc: Exception) -> bool:
+        if psycopg is None:
+            return False
+        retryable_types = tuple(
+            t for t in (
+                getattr(psycopg, "OperationalError", None),
+                getattr(psycopg, "InterfaceError", None),
+            )
+            if t is not None
+        )
+        if retryable_types and isinstance(exc, retryable_types):
+            return True
+        message = str(exc).lower()
+        return "ssl" in message and "eof" in message
+
+    def _run_postgres(self, operation):
+        assert self._pg_conn is not None
+        try:
+            return operation(self._pg_conn)
+        except Exception as exc:
+            if not self._is_retryable_postgres_error(exc):
+                raise
+            self._reconnect_postgres()
+            assert self._pg_conn is not None
+            return operation(self._pg_conn)
 
     # -----------------------------
     # Schema
@@ -170,9 +212,11 @@ class BankDB:
     # -----------------------------
     def _exec(self, sql: str, params: Tuple = ()) -> None:
         if self.kind == "postgres":
-            assert self._pg_conn is not None
-            with self._pg_conn.cursor() as cur:
-                cur.execute(sql, params)
+            def run(conn):
+                with conn.cursor() as cur:
+                    cur.execute(sql, params)
+
+            self._run_postgres(run)
         else:
             assert self._sqlite_conn is not None
             cur = self._sqlite_conn.cursor()
@@ -181,11 +225,13 @@ class BankDB:
 
     def _fetchone(self, sql: str, params: Tuple = ()) -> Optional[dict]:
         if self.kind == "postgres":
-            assert self._pg_conn is not None
-            with self._pg_conn.cursor() as cur:
-                cur.execute(sql, params)
-                row = cur.fetchone()
-                return dict(row) if row else None
+            def run(conn):
+                with conn.cursor() as cur:
+                    cur.execute(sql, params)
+                    row = cur.fetchone()
+                    return dict(row) if row else None
+
+            return self._run_postgres(run)
         else:
             assert self._sqlite_conn is not None
             cur = self._sqlite_conn.cursor()
@@ -197,11 +243,13 @@ class BankDB:
 
     def _fetchall(self, sql: str, params: Tuple = ()) -> List[dict]:
         if self.kind == "postgres":
-            assert self._pg_conn is not None
-            with self._pg_conn.cursor() as cur:
-                cur.execute(sql, params)
-                rows = cur.fetchall()
-                return [dict(r) for r in rows]
+            def run(conn):
+                with conn.cursor() as cur:
+                    cur.execute(sql, params)
+                    rows = cur.fetchall()
+                    return [dict(r) for r in rows]
+
+            return self._run_postgres(run)
         else:
             assert self._sqlite_conn is not None
             cur = self._sqlite_conn.cursor()
@@ -246,13 +294,15 @@ class BankDB:
 
     def delete_balance(self, guild_id: int, user_id: int) -> bool:
         if self.kind == "postgres":
-            assert self._pg_conn is not None
-            with self._pg_conn.cursor() as cur:
-                cur.execute(
-                    "DELETE FROM bank_balances WHERE guild_id = %s AND user_id = %s;",
-                    (int(guild_id), int(user_id)),
-                )
-                return cur.rowcount > 0
+            def run(conn):
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "DELETE FROM bank_balances WHERE guild_id = %s AND user_id = %s;",
+                        (int(guild_id), int(user_id)),
+                    )
+                    return cur.rowcount > 0
+
+            return self._run_postgres(run)
 
         assert self._sqlite_conn is not None
         cur = self._sqlite_conn.cursor()
@@ -312,12 +362,14 @@ class BankDB:
                 )
             )
             # deltas
-            assert self._pg_conn is not None
-            with self._pg_conn.cursor() as cur:
-                cur.executemany(
-                    "INSERT INTO bank_action_deltas(action_id, user_id, delta) VALUES (%s, %s, %s);",
-                    [(action.action_id, int(uid), int(delta)) for uid, delta in action.deltas.items()]
-                )
+            def run(conn):
+                with conn.cursor() as cur:
+                    cur.executemany(
+                        "INSERT INTO bank_action_deltas(action_id, user_id, delta) VALUES (%s, %s, %s);",
+                        [(action.action_id, int(uid), int(delta)) for uid, delta in action.deltas.items()]
+                    )
+
+            self._run_postgres(run)
         else:
             self._exec(
                 """
@@ -544,10 +596,12 @@ class BankDB:
         to_delete = [r["action_id"] for r in rows]
         if self.kind == "postgres":
             # delete deltas then actions (CASCADE should also handle deltas, but keep explicit)
-            assert self._pg_conn is not None
-            with self._pg_conn.cursor() as cur:
-                cur.execute("DELETE FROM bank_action_deltas WHERE action_id = ANY(%s);", (to_delete,))
-                cur.execute("DELETE FROM bank_actions WHERE action_id = ANY(%s);", (to_delete,))
+            def run(conn):
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM bank_action_deltas WHERE action_id = ANY(%s);", (to_delete,))
+                    cur.execute("DELETE FROM bank_actions WHERE action_id = ANY(%s);", (to_delete,))
+
+            self._run_postgres(run)
         else:
             assert self._sqlite_conn is not None
             cur = self._sqlite_conn.cursor()
