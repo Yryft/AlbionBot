@@ -339,3 +339,22 @@ Support;2;roles=234567890123456789,345678901234567890
 - Erreurs bloquantes (spec vide, slots invalides, ligne mal formée) retournées par le backend dashboard avec détail.
 - Warnings non bloquants (options inconnues ignorées) retournés dans la réponse de création/édition (`spec_warnings`).
 - Normalisation automatique dashboard pour `content_type=ava_raid` (création/édition): les variantes/doublons de `raid_leader` et `scout` sont supprimés puis remplacés par la structure canonique bot (`raid_leader` forcé: `slots=1`, `ip_required=false`, `required_role_ids=[]`; `scout` forcé: `slots=1`, `ip_required=false`, `required_role_ids` repris depuis la première entrée scout fournie).
+
+### Variables cache/provider Albion (backend dashboard)
+
+Le backend dashboard expose désormais des endpoints de lecture craft (`/api/craft/items`, `/api/craft/items/{item_id}`) alimentés par un provider Albion avec cache multi-niveaux.
+
+| Variable | Obligatoire | Rôle |
+|---|---:|---|
+| `ALBION_PROVIDER_URL` | ✅ | Endpoint JSON du provider Albion (catalogue + recettes) |
+| `ALBION_PROVIDER_TIMEOUT_SECONDS` | optionnel | Timeout HTTP provider (défaut: `8`) |
+| `ALBION_ICON_BASE_URL` | optionnel | Base URL de rendu des icônes item (défaut: `https://render.albiononline.com/v1/item`) |
+| `ALBION_CACHE_MEMORY_TTL_SECONDS` | optionnel | TTL cache mémoire pour requêtes fréquentes (défaut: `300`) |
+| `ALBION_CACHE_SNAPSHOT_PATH` | optionnel | Fichier snapshot persistant pour warm start/fallback (défaut: `data/albion_provider_snapshot.json`) |
+| `ALBION_SYNC_INTERVAL_SECONDS` | optionnel | Fréquence du job de synchronisation périodique (défaut: `1800`) |
+
+Comportement:
+- cache mémoire court pour l'autocomplete et les consultations répétées,
+- snapshot disque rechargé au démarrage,
+- endpoint admin d'invalidation manuelle `POST /api/admin/craft/cache/invalidate?guild_id=<id>` (admin Discord + CSRF),
+- fallback automatique sur le dernier snapshot valide en cas d'échec du provider externe.
