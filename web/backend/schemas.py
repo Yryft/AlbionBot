@@ -79,6 +79,25 @@ class RaidOpenRequestDTO(BaseModel):
     cleanup_minutes: int = 30
 
 
+
+
+class RaidOpenPreviewRequestDTO(BaseModel):
+    guild_id: str
+    template_name: str
+    title: str
+    description: str = ""
+    extra_message: str = ""
+    start_at: int
+
+
+class RaidOpenPreviewComponentDTO(BaseModel):
+    kind: Literal["select", "button"]
+    label: str
+
+
+class RaidOpenPreviewDTO(BaseModel):
+    embed: dict
+    components: List[RaidOpenPreviewComponentDTO] = Field(default_factory=list)
 class RaidDTO(BaseModel):
     raid_id: str
     template_name: str

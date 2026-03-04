@@ -244,6 +244,25 @@ class BankDB:
                 (guild_id, user_id, int(balance), now)
             )
 
+    def delete_balance(self, guild_id: int, user_id: int) -> bool:
+        if self.kind == "postgres":
+            assert self._pg_conn is not None
+            with self._pg_conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM bank_balances WHERE guild_id = %s AND user_id = %s;",
+                    (int(guild_id), int(user_id)),
+                )
+                return cur.rowcount > 0
+
+        assert self._sqlite_conn is not None
+        cur = self._sqlite_conn.cursor()
+        cur.execute(
+            "DELETE FROM bank_balances WHERE guild_id = ? AND user_id = ?;",
+            (int(guild_id), int(user_id)),
+        )
+        self._sqlite_conn.commit()
+        return cur.rowcount > 0
+
     def get_leaderboard(self, guild_id: int, limit: int, offset: int = 0) -> List[Tuple[int, int]]:
         rows = self._fetchall(
             """

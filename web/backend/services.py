@@ -5,7 +5,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from albionbot.modules.raids import AVA_RAID, MAX_IP, MIN_IP, count_main_for_role, parse_comp_spec, raid_status, recompute_promotions, role_map
+from albionbot.modules.raids import AVA_RAID, MAX_IP, MIN_IP, build_raid_embed, count_main_for_role, parse_comp_spec, raid_status, recompute_promotions, role_map
 from albionbot.modules.bank import (
     UNDO_WINDOW_SECONDS,
     _now,
@@ -34,6 +34,8 @@ from .schemas import (
     BankUndoResultDTO,
     GuildDTO,
     RaidDTO,
+    RaidOpenPreviewComponentDTO,
+    RaidOpenPreviewDTO,
     RaidTemplateDTO,
     TemplateMutationResultDTO,
     RaidUpdateRequestDTO,
@@ -300,6 +302,19 @@ class DashboardService:
         if raid is None:
             raise ValidationError(code="raid_not_found", message="Raid introuvable")
         del self.store.raids[raid_id]
+        orphan_command_ids = [
+            command_id
+            for command_id, command in self.store.raid_commands.items()
+            if command.raid_id == raid_id
+        ]
+        for command_id in orphan_command_ids:
+            self.store.raid_commands.pop(command_id, None)
+        self.store.save()
+
+    def delete_bank_balance(self, guild_id: int, user_id: int) -> None:
+        deleted = self.store.bank_delete_balance(guild_id, user_id)
+        if not deleted:
+            raise ValidationError(code="balance_not_found", message="Entrée banque introuvable")
         self.store.save()
 
     def delete_ticket_transcript(self, guild_id: int, ticket_id: str) -> None:
@@ -362,6 +377,42 @@ class DashboardService:
             CompRole(key="scout", label="Scout", slots=1, ip_required=False, required_role_ids=scout_required_role_ids),
         ]
         return [forced_roles[0]] + filtered_roles + [forced_roles[1]]
+
+    def build_raid_open_preview(
+        self,
+        template_name: str,
+        title: str,
+        description: str,
+        extra_message: str,
+        start_at: int,
+    ) -> RaidOpenPreviewDTO:
+        template = self.store.templates.get(template_name)
+        if template is None:
+            raise ValidationError(code="template_not_found", message="Template introuvable")
+
+        raid = RaidEvent(
+            raid_id="preview",
+            template_name=template_name,
+            title=title,
+            description=description,
+            extra_message=extra_message,
+            start_at=int(start_at),
+            created_by=0,
+        )
+        embed = build_raid_embed(None, raid, template).to_dict()
+
+        options_count = len(template.roles)
+        pages = max(1, (options_count + 24) // 25)
+        components = [
+            RaidOpenPreviewComponentDTO(kind="select", label=f"S'inscrire — choisir un rôle (page {page}/{pages})")
+            for page in range(1, pages + 1)
+        ]
+        components.extend([
+            RaidOpenPreviewComponentDTO(kind="button", label="Absent (toggle)"),
+            RaidOpenPreviewComponentDTO(kind="button", label="Leave"),
+            RaidOpenPreviewComponentDTO(kind="button", label="DM notif (toggle)"),
+        ])
+        return RaidOpenPreviewDTO(embed=embed, components=components)
 
     def update_raid(self, raid_id: str, payload: RaidUpdateRequestDTO) -> RaidDTO:
         raid = self.store.raids.get(raid_id)

@@ -34,12 +34,14 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
 | `/raid_open` | `POST /api/actions/raids/open` | `Dashboard` → bloc **Raid opener** |
 | `/raid_edit` | `PUT /api/raids/{raid_id}` | `Dashboard` → bloc **Raid opener** (édition) + bouton **Éditer** dans `Tous les raids` |
 | `/raid_close` | `POST /api/raids/{raid_id}/state` avec `{ "action": "close" }` | `Tous les raids` → bouton **Fermer raid** |
+| _Cleanup admin_ | `DELETE /api/raids/{raid_id}` | `Tous les raids` → bouton **Supprimer raid** |
 | `/raid_assistant` (close/edit) | `PUT /api/raids/{raid_id}` + `POST /api/raids/{raid_id}/state` | `Tous les raids` (actions **Éditer** / **Fermer raid**) |
 | Boutons roster raid (`join/leave/absent`) | `GET /api/raids/{raid_id}/roster`, `POST /api/raids/{raid_id}/signup`, `POST /api/raids/{raid_id}/leave` | `Tous les raids` → panneau **Inscriptions en ligne** (**Gérer roster**) |
 | `/loot_split`, `/loot_scout_limits` | _Non exposé dans le backend dashboard_ | _N/A_ |
 | `/bal` | `GET /api/guilds/{guild_id}/balances/{user_id}` | `Banque` → bloc **Consultation ciblée** |
 | `/pay` | `POST /api/actions/bank/pay` | `Banque` → bloc **Transfert** |
 | `/bank_undo` | `POST /api/actions/bank/undo` | `Banque` → bouton **/bank_undo** |
+| _Cleanup admin banque_ | `DELETE /api/guilds/{guild_id}/balances/{user_id}` | `Banque` → suppression d'une entrée utilisateur |
 
 ## Endpoints lecture
 
@@ -52,6 +54,7 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
 - `GET /api/raids/{raid_id}/roster`
 - `GET /api/guilds/{guild_id}/balances`
 - `GET /api/guilds/{guild_id}/balances/{user_id}`
+- `DELETE /api/guilds/{guild_id}/balances/{user_id}`
 - `GET /api/guilds/{guild_id}/bank/actions?limit=25`
 - `GET /api/guilds/{guild_id}/permissions` (admin serveur)
 - `GET /api/public/overview`
@@ -62,6 +65,10 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
 >
 > Pour l'ouverture de raid, une **outbox persistante** est utilisée: la commande est créée en `pending`, puis marquée `delivered` ou `failed` (avec retry/backoff automatique côté bot).
 
+- `POST /api/actions/raids/preview`
+  - body: `RaidOpenPreviewRequestDTO`
+  - réponse: `RaidOpenPreviewDTO` (embed Discord + composants, alignés sur le rendu bot)
+  - permission requise: `raid_open` / `raid_manager`
 - `POST /api/actions/raids/open`
   - body: `RaidOpenRequestDTO` (`channel_id` requis, `voice_channel_id` optionnel, IDs au format `string`)
   - permission requise: `raid_open` / `raid_manager`
@@ -81,6 +88,8 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
   - body: `RaidUpdateRequestDTO`
 - `POST /api/raids/{raid_id}/state`
   - body: `RaidStateUpdateRequestDTO` (`action: close`)
+- `DELETE /api/raids/{raid_id}`
+  - permission requise: `raid_open` / `raid_manager`
 - `POST /api/actions/bank/apply`
   - body: `BankActionRequestDTO` (`target_user_ids[]` en `string`)
   - permission requise: `bank_manage` / `bank_manager`
@@ -90,6 +99,8 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
 - `POST /api/actions/bank/pay`
   - body: `BankTransferRequestDTO`
   - permission requise: membre de la guilde (pas manager)
+- `DELETE /api/guilds/{guild_id}/balances/{user_id}`
+  - permission requise: `bank_manage` / `bank_manager`
 - `PUT /api/guilds/{guild_id}/permissions/{permission_key}`
   - body: `GuildPermissionUpdateRequestDTO` (`role_ids[]`, `user_ids[]`)
   - permission requise: administrateur du serveur

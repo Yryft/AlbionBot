@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from web.backend.command_bus import CommandContext, StartCompWizardFlow
-from albionbot.storage.store import CompRole, CompTemplate, RaidEvent, Store, TicketMessageSnapshot, TicketRecord
+from albionbot.storage.store import CompRole, CompTemplate, RaidCommand, RaidEvent, Store, TicketMessageSnapshot, TicketRecord
 import time
 from web.backend.schemas import RaidTemplateUpdateRequestDTO, RaidUpdateRequestDTO
 from web.backend.services import DashboardService, StartCompWizardFlowHandler
@@ -156,3 +156,51 @@ def test_dashboard_edit_ava_template_normalizes_reserved_roles(tmp_path):
     assert updated_tpl.template.roles[-1].slots == 1
     assert updated_tpl.template.roles[-1].ip_required is False
     assert updated_tpl.template.roles[-1].required_role_ids == ["111111111111111111", "222222222222222222"]
+
+
+def test_delete_raid_removes_pending_commands(tmp_path):
+    store = _build_store(tmp_path)
+    store.raid_commands["open_raid_from_template:r1"] = RaidCommand(
+        command_id="open_raid_from_template:r1",
+        command_type="open_raid_from_template",
+        raid_id="r1",
+    )
+    service = DashboardService(store)
+
+    service.delete_raid("r1")
+
+    assert "r1" not in store.raids
+    assert "open_raid_from_template:r1" not in store.raid_commands
+
+
+def test_delete_bank_balance_entry(tmp_path):
+    service = DashboardService(_build_store(tmp_path))
+    service.apply_bank_action(
+        guild_id=10,
+        actor_id=99,
+        action_type="add",
+        amount=100,
+        target_user_ids=[123],
+        note="seed",
+    )
+
+    service.delete_bank_balance(10, 123)
+
+    assert service.get_balance(10, 123).balance == 0
+    assert service.list_balances(10) == []
+
+
+def test_build_raid_open_preview_matches_embed_shape(tmp_path):
+    service = DashboardService(_build_store(tmp_path))
+
+    preview = service.build_raid_open_preview(
+        template_name="zvz",
+        title="CTA ZvZ",
+        description="On pousse à l'ouest",
+        extra_message="Soyez prêts",
+        start_at=1800000000,
+    )
+
+    assert preview.embed.get("title") == "CTA ZvZ"
+    assert any(field.get("name") == "🕒" for field in preview.embed.get("fields", []))
+    assert any(component.kind == "button" and component.label == "Leave" for component in preview.components)

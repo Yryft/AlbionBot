@@ -125,11 +125,15 @@ En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` q
 - Banque manager: remplacement de la saisie libre `User IDs` par un multi-select membres (`display_name + id`) + fallback "ID manuel" repliable.
 - Validation UI pré-submit des IDs (salons/utilisateurs) contre le répertoire local Discord pour réduire les erreurs de mapping avant appel API.
 - Validation form-level renforcée dans `web/dashboard/app/page.tsx`: contrôles explicites avant `apiPost`/`apiPut` (montants > 0, IP numérique, date raid future, sélections requises), erreurs contextuelles par champ et désactivation des submit tant que les préconditions minimales ne sont pas satisfaites.
+- Cleanup admin étendu: boutons de suppression pour les raids et endpoint `DELETE /api/guilds/{guild_id}/balances/{user_id}` pour purger les mauvaises entrées banque (utilisateurs supprimés/orphelins).
 
 
 - Prévisualisation du message raid ajoutée dans le bloc **Raid opener** avant soumission.
+- Preview Raid opener renforcée: rendu backend du message **exact** (embed + composants interactifs) via `POST /api/actions/raids/preview`, en réutilisant la logique bot côté API.
 - Écran non-authentifié recentré sur une présentation AlbionBot + CTA unique de connexion Discord.
 - Nouveaux endpoints admin dashboard: `GET /api/guilds/{guild_id}/permissions` et `PUT /api/guilds/{guild_id}/permissions/{permission_key}` pour gérer les permissions par rôles et membres.
+- Navigation dashboard ajustée: le panneau administratif (permissions) est déplacé dans un onglet dédié **Administration** pour séparer les opérations admin du dashboard opérationnel quotidien.
+- Écran d'accueil non connecté corrigé: la page occupe désormais toute la largeur utile (plus de colonne latérale vide héritée de la vue connectée).
 
 ## Spec template (parse_comp_spec)
 

@@ -35,6 +35,8 @@ from .schemas import (
     DiscordGuildDTO,
     DiscordUserDTO,
     MeDTO,
+    RaidOpenPreviewDTO,
+    RaidOpenPreviewRequestDTO,
     RaidOpenRequestDTO,
     RaidTemplateUpdateRequestDTO,
     TemplateMutationResultDTO,
@@ -518,6 +520,20 @@ def create_app() -> FastAPI:
             authorizer.ensure_action_allowed(request, action="bank_manage", guild_id=resolved_guild_id)
         return service.get_balance(resolved_guild_id, resolved_user_id)
 
+    @app.delete("/api/guilds/{guild_id}/balances/{user_id}")
+    def delete_user_balance(guild_id: str, user_id: str, request: Request):
+        resolved_guild_id = parse_discord_id(guild_id, "guild_id")
+        resolved_user_id = parse_discord_id(user_id, "user_id")
+        ensure_csrf_for_mutation(request)
+        if authorizer is None:
+            raise _oauth_not_configured_error()
+        authorizer.ensure_action_allowed(request, action="bank_manage", guild_id=resolved_guild_id)
+        try:
+            service.delete_bank_balance(resolved_guild_id, resolved_user_id)
+        except DomainError as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
+        return {"ok": True}
+
     @app.get("/api/guilds/{guild_id}/bank/actions", response_model=list[BankActionHistoryEntryDTO])
     def list_bank_actions(guild_id: str, request: Request, limit: int = 25):
         resolved_guild_id = parse_discord_id(guild_id, "guild_id")
@@ -597,6 +613,23 @@ def create_app() -> FastAPI:
                 to_user_id=to_user_id,
                 amount=payload.amount,
                 note=payload.note,
+            )
+        except DomainError as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
+
+    @app.post("/api/actions/raids/preview", response_model=RaidOpenPreviewDTO)
+    def preview_open_raid(payload: RaidOpenPreviewRequestDTO, request: Request):
+        if authorizer is None:
+            raise _oauth_not_configured_error()
+        guild_id = parse_discord_id(payload.guild_id, "guild_id")
+        authorizer.ensure_action_allowed(request, action="raid_open", guild_id=guild_id)
+        try:
+            return service.build_raid_open_preview(
+                template_name=payload.template_name,
+                title=payload.title,
+                description=payload.description,
+                extra_message=payload.extra_message,
+                start_at=payload.start_at,
             )
         except DomainError as exc:
             raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc
