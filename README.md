@@ -352,18 +352,19 @@ Le backend dashboard expose désormais des endpoints de lecture craft (`/api/cra
 | `ALBION_ICON_BASE_URL` | optionnel | Base URL de rendu des icônes item (défaut: `https://render.albiononline.com/v1/item`) |
 | `ALBION_CACHE_MEMORY_TTL_SECONDS` | optionnel | TTL cache mémoire pour requêtes fréquentes (défaut: `300`) |
 | `ALBION_CACHE_SNAPSHOT_PATH` | optionnel | Fichier snapshot persistant pour warm start/fallback (défaut: `data/albion_provider_snapshot.json`) |
-| `ALBION_SYNC_INTERVAL_SECONDS` | optionnel | Fréquence du job de synchronisation périodique (défaut: `1800`) |
+| `ALBION_SYNC_INTERVAL_SECONDS` | optionnel | Fréquence du job de synchronisation périodique (défaut: `86400`, soit 24h) |
 
 Comportement:
-- cache mémoire court pour l'autocomplete et les consultations répétées,
-- snapshot disque rechargé au démarrage,
+- synchronisation journalière (24h) qui télécharge `items.txt`, calcule les diffs (`insert/update/deactivate`) et persiste l'index dans la table SQL dédiée `craft_items_index`,
+- persistance de métadonnées de synchro (`source`, `checksum`, date de tentative/réussite, compteurs, erreur) dans `craft_sync_state`,
+- `GET /api/craft/items` lit désormais en priorité depuis `craft_items_index` (fallback mémoire/snapshot si nécessaire),
 - endpoint admin d'invalidation manuelle `POST /api/admin/craft/cache/invalidate?guild_id=<id>` (admin Discord + CSRF),
-- fallback automatique sur le dernier snapshot valide en cas d'échec du provider externe.
-- fusion des sources possible: catalogue/recettes via `ALBION_PROVIDER_URL` + liste massive d'items via la source intégrée `ao-bin-dumps` pour améliorer l'autocomplete.
+- fallback automatique: en cas d'échec réseau, l'API continue à servir la dernière version DB/snapshot et conserve `last_success_at`,
+- exposition du statut de synchro via `GET /api/craft/metadata` et `GET /api/admin/craft/sync-status?guild_id=<id>`,
 - récupération paresseuse du détail d'un item via le template Tools4Albion intégré (`{item_id}`) si la recette n'est pas encore en cache.
 
 Endpoints intégrés en dur:
-- `items.txt` -> `https://raw.githubusercontent.com/broderickhyman/ao-bin-dumps/master/formatted/items.txt` (index massif pour autocomplete),
+- `items.txt` -> `https://raw.githubusercontent.com/ao-data/ao-bin-dumps/master/formatted/items.txt` (index massif pour autocomplete),
 - détail item -> `https://www.tools4albion.com/api_info.php?item_id={item_id}` pour charger recette/metadata au besoin.
 
 

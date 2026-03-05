@@ -890,6 +890,60 @@ class Store:
         actions = self.bank_actions.get(guild_id, [])
         return sorted(actions, key=lambda a: a.created_at, reverse=True)[: max(1, int(limit))]
 
+    def craft_search_items(self, query: str = "", limit: int = 20, include_inactive: bool = False) -> List[Dict]:
+        if self.bank_db is None:
+            return []
+        return self.bank_db.get_craft_items_index(query=query, limit=limit, include_inactive=include_inactive)
+
+    def craft_list_all_items(self, include_inactive: bool = False) -> List[Dict]:
+        if self.bank_db is None:
+            return []
+        return self.bank_db.list_all_craft_items_index(include_inactive=include_inactive)
+
+    def craft_get_item(self, item_id: str) -> Optional[Dict]:
+        if self.bank_db is None:
+            return None
+        return self.bank_db.get_craft_item_by_id(item_id)
+
+    def craft_upsert_items_index(self, items: List[Dict], source: str, checksum: str, synced_at: int) -> Dict[str, int]:
+        if self.bank_db is None:
+            return {"items_count": 0, "inserted_count": 0, "updated_count": 0, "deactivated_count": 0}
+        return self.bank_db.upsert_craft_items_index(items=items, source=source, checksum=checksum, synced_at=synced_at)
+
+    def craft_upsert_sync_state(
+        self,
+        *,
+        source: str,
+        checksum: str,
+        status: str,
+        items_count: int,
+        inserted_count: int,
+        updated_count: int,
+        deactivated_count: int,
+        last_attempt_at: int,
+        last_success_at: Optional[int],
+        last_error: str,
+    ) -> None:
+        if self.bank_db is None:
+            return
+        self.bank_db.upsert_craft_sync_state(
+            source=source,
+            checksum=checksum,
+            status=status,
+            items_count=items_count,
+            inserted_count=inserted_count,
+            updated_count=updated_count,
+            deactivated_count=deactivated_count,
+            last_attempt_at=last_attempt_at,
+            last_success_at=last_success_at,
+            last_error=last_error,
+        )
+
+    def craft_get_sync_state(self) -> Optional[Dict]:
+        if self.bank_db is None:
+            return None
+        return self.bank_db.get_craft_sync_state()
+
     # Ticket helpers
     def ticket_get_config(self, guild_id: int) -> Optional[TicketConfig]:
         return self.ticket_configs.get(int(guild_id))
