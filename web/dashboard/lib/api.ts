@@ -212,11 +212,17 @@ export type CraftLocationBonusDTO = {
 
 export type CraftSimulationRequestDTO = {
   item_id: string;
+  enchantment_level: number;
   quantity: number;
   category_mastery_level: number;
   item_specializations: Record<string, number>;
   location_key: string;
+  city_key?: string;
+  hideout_biome_key?: string;
+  hideout_territory_level?: number;
+  hideout_zone_quality?: number;
   available_focus: number;
+  use_focus: boolean;
 };
 
 export type CraftMaterialBreakdownDTO = {

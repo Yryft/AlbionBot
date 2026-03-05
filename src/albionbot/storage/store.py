@@ -187,6 +187,7 @@ class Store:
         self.ticket_records: Dict[str, TicketRecord] = {}
         self.ticket_messages: Dict[str, List[TicketMessageSnapshot]] = {}
         self.ticket_by_user: Dict[int, Dict[int, Dict[TicketRecordStatus, Set[str]]]] = {}
+        self.dashboard_user_profiles: Dict[int, Dict[str, Dict]] = {}
         self._last_state_fingerprint: str = ""
 
         self.load()
@@ -346,6 +347,24 @@ class Store:
                 },
             )
 
+        self.dashboard_user_profiles = {}
+        raw_profiles = raw.get("dashboard_user_profiles", {})
+        if isinstance(raw_profiles, dict):
+            for user_id_str, profile_map in raw_profiles.items():
+                try:
+                    user_id = int(user_id_str)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(profile_map, dict):
+                    continue
+                normalized: Dict[str, Dict] = {}
+                for profile_key, profile_value in profile_map.items():
+                    if isinstance(profile_value, dict):
+                        normalized[str(profile_key)] = dict(profile_value)
+                if normalized:
+                    self.dashboard_user_profiles[user_id] = normalized
+
+
     def _load_bank_legacy_from_raw(self, raw: Dict) -> None:
         self.bank_balances = {}
         self.bank_actions = {}
@@ -495,7 +514,7 @@ class Store:
         self.ticket_by_user[gid][uid][record.status].add(record.ticket_id)
 
     def _serialize_runtime_state(self) -> Dict:
-        raw = {"templates": {}, "raids": {}, "guild_permissions": {}, "guild_user_permissions": {}, "raid_commands": {}, "tickets": {"configs": {}, "records": {}, "messages": {}, "by_user": {}}}
+        raw = {"templates": {}, "raids": {}, "guild_permissions": {}, "guild_user_permissions": {}, "raid_commands": {}, "tickets": {"configs": {}, "records": {}, "messages": {}, "by_user": {}}, "dashboard_user_profiles": {}}
         for name, t in self.templates.items():
             raw["templates"][name] = {
                 "name": t.name,
@@ -602,7 +621,27 @@ class Store:
                     "closed": sorted(grouped["closed"]),
                     "deleted": sorted(grouped["deleted"]),
                 }
+
+        for user_id, profile_map in self.dashboard_user_profiles.items():
+            raw["dashboard_user_profiles"][str(user_id)] = {}
+            for profile_key, profile_value in profile_map.items():
+                if isinstance(profile_value, dict):
+                    raw["dashboard_user_profiles"][str(user_id)][str(profile_key)] = dict(profile_value)
         return raw
+
+
+    def get_dashboard_user_profile(self, user_id: int, profile_key: str) -> Optional[Dict]:
+        profiles = self.dashboard_user_profiles.get(int(user_id), {})
+        value = profiles.get(str(profile_key))
+        return dict(value) if isinstance(value, dict) else None
+
+    def set_dashboard_user_profile(self, user_id: int, profile_key: str, payload: Dict) -> None:
+        uid = int(user_id)
+        key = str(profile_key)
+        if uid not in self.dashboard_user_profiles:
+            self.dashboard_user_profiles[uid] = {}
+        self.dashboard_user_profiles[uid][key] = dict(payload or {})
+        self.save()
 
     def get_permission_role_ids(self, guild_id: int, permission_key: str) -> List[int]:
         return list(self.guild_permissions.get(guild_id, {}).get(permission_key, []))

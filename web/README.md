@@ -89,6 +89,12 @@ export DISCORD_OAUTH_REDIRECT_URI=http://localhost:8000/auth/discord/callback
 
 Ensuite, dans le portail Discord Developer:
 
+Session utilisateur dashboard:
+- persistance des sessions backend sur disque via `DASHBOARD_SESSIONS_PATH` (défaut `data/dashboard_sessions.json`),
+- expiration glissante tant que l'utilisateur reste actif,
+- reprise automatique sur même machine (IP + user-agent) sur `/auth/discord/login` sans repasser par Discord tant que la session n'est pas expirée et qu'il ne se déconnecte pas.
+
+
 1. Crée une application puis un lien OAuth2.
 2. Dans **OAuth2 > Redirects**, ajoute exactement la valeur de `DISCORD_OAUTH_REDIRECT_URI`.
 3. Active les scopes `identify`, `guilds`, `guilds.members.read`.
@@ -196,13 +202,21 @@ Le dashboard propose désormais un flux complet de simulation de rentabilité:
 - récapitulatif des coûts/revenus: matériaux, focus implicite (si valorisé), brut/net, profit et marge.
 
 API associée:
-- `POST /api/craft/simulate`: calcule les quantités brutes/nettes et le focus,
+- `POST /api/craft/simulate`: calcule les quantités brutes/nettes et le focus (`enchantment_level` explicite, 0..4, localisation détaillée par ville/HO).
 - `POST /api/craft/profitability`: agrège les prix d'entrée et retourne un breakdown ligne par ligne + KPI de rentabilité.
+- `GET/PUT /api/user/preferences/craft`: persistance des préférences utilisateur (spés, item, localisation, prix) entre sessions.
 
 
 ## Formule détaillée de focus (version agrégée)
 
 Le endpoint `POST /api/craft/simulate` consomme:
+- `item_id` (ID de base, sans suffixe enchantement recommandé)
+- `enchantment_level` (0..4, résolu en `item_id@N` côté backend)
+- `location_key` (`none|city|hideout`)
+- `city_key` (optionnel, requis pour mode `city`)
+- `hideout_biome_key` (optionnel, ex: `mountain|forest|swamp|highland|steppe`, mode `hideout`)
+- `hideout_territory_level` (optionnel `1..9`, mode `hideout`)
+- `hideout_zone_quality` (optionnel `1..6`, mode `hideout`)
 - `category_mastery_level` (0..100)
 - `item_specializations` (`{ item_id: level }`, chaque level borné 0..100)
 

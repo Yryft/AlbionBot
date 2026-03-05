@@ -331,13 +331,39 @@ class CraftFocusCostEntryDTO(BaseModel):
 
 class CraftSimulationRequestDTO(BaseModel):
     item_id: str
+    enchantment_level: int = Field(default=0, ge=0, le=4)
     quantity: int = Field(gt=0, le=100000)
     category_mastery_level: int = Field(ge=0, le=100)
     item_specializations: dict[str, int] = Field(default_factory=dict)
     location_key: str = Field(default="none", min_length=1)
+    city_key: str | None = None
+    hideout_biome_key: str | None = None
+    hideout_territory_level: int | None = Field(default=None, ge=1, le=9)
+    hideout_zone_quality: int | None = Field(default=None, ge=1, le=6)
     available_focus: int = Field(ge=0)
     use_focus: bool = True
 
+
+
+
+class CraftUserPreferencesDTO(BaseModel):
+    item_id: str | None = None
+    enchantment_level: int = Field(default=0, ge=0, le=4)
+    quantity: int = Field(default=1, ge=1, le=100000)
+    category_mastery_level: int = Field(default=0, ge=0, le=100)
+    target_specialization_level: int = Field(default=0, ge=0, le=100)
+    location_key: str = Field(default="none", min_length=1)
+    city_key: str | None = None
+    hideout_biome_key: str | None = None
+    hideout_territory_level: int | None = Field(default=None, ge=1, le=9)
+    hideout_zone_quality: int | None = Field(default=None, ge=1, le=6)
+    available_focus: int = Field(default=0, ge=0)
+    use_focus: bool = True
+    tax_rate: float = Field(default=6.5, ge=0.0, le=100.0)
+    focus_unit_price: float = Field(default=0.0, ge=0.0)
+    journal_unit_price: float = Field(default=0.0, ge=0.0)
+    sale_unit_price: float = Field(default=0.0, ge=0.0)
+    pricing_mode: str = Field(default="manual", min_length=1)
 
 class CraftSimulationMaterialDTO(BaseModel):
     item_id: str

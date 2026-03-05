@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+import pytest
 
 import web.backend.app as backend_app
+from web.backend.albion_provider import AlbionProviderError
 
 
 async def _fake_item_detail(self, item_id: str):
     return {
-        "item": {"id": item_id, "name": "Test Item", "craftable": True},
+        "item": {"id": item_id, "name": "Test Item", "category": "nature_staff", "craftable": True},
         "recipe": [{"item_id": "T4_BAR", "item_name": "Bar", "quantity": 2}],
         "metadata": {"base_focus_cost": 100},
     }
@@ -17,6 +19,8 @@ async def _fake_catalog_snapshot(self):
     return (
         [
             {"id": "ITEM_TEST", "name": "Test Item", "craftable": True},
+            {"id": "ITEM_TEST@2", "name": "Test Item .2", "craftable": True},
+            {"id": "ITEM_TEST@3", "name": "Test Item .3", "craftable": True},
             {"id": "T4_BAR", "name": "Bar", "craftable": False},
         ],
         {"ITEM_TEST": [{"item_id": "T4_BAR", "item_name": "Bar", "quantity": 2}]},
@@ -107,7 +111,7 @@ def test_craft_profitability_validates_payload(monkeypatch, tmp_path):
 
 async def _fake_item_detail_missing_focus(self, item_id: str):
     return {
-        "item": {"id": item_id, "name": "Test Item", "craftable": True},
+        "item": {"id": item_id, "name": "Test Item", "category": "nature_staff", "craftable": True},
         "recipe": [{"item_id": "T4_BAR", "item_name": "Bar", "quantity": 2}],
         "metadata": {},
     }
@@ -136,3 +140,198 @@ def test_craft_simulate_errors_when_focus_cost_missing(monkeypatch, tmp_path):
     assert response.status_code == 400
     data = response.json()
     assert data["detail"]["code"] == "missing_focus_cost"
+
+
+async def _fake_item_detail_with_enchant(self, item_id: str):
+    if item_id != "ITEM_TEST@2":
+        raise AlbionProviderError("item_not_found", "missing variant")
+    return {
+        "item": {"id": item_id, "name": "Test Item .2", "category": "nature_staff", "craftable": True},
+        "recipe": [{"item_id": "T4_BAR", "item_name": "Bar", "quantity": 2}],
+        "metadata": {"base_focus_cost": 100},
+    }
+
+
+def test_craft_simulate_accepts_valid_enchantment_level(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATA_PATH", str(tmp_path / "state.json"))
+    monkeypatch.setenv("BANK_SQLITE_PATH", str(tmp_path / "bank.sqlite3"))
+    monkeypatch.setattr(backend_app.AlbionProviderService, "get_item_detail", _fake_item_detail_with_enchant)
+    monkeypatch.setattr(backend_app.AlbionProviderService, "get_catalog_snapshot", _fake_catalog_snapshot)
+    client = TestClient(backend_app.create_app())
+
+    response = client.post(
+        "/api/craft/simulate",
+        json={
+            "item_id": "ITEM_TEST",
+            "enchantment_level": 2,
+            "quantity": 10,
+            "category_mastery_level": 0,
+            "item_specializations": {"ITEM_TEST": 0},
+            "location_key": "none",
+            "available_focus": 0,
+            "use_focus": False,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["item_id"] == "ITEM_TEST@2"
+
+
+def test_craft_simulate_rejects_invalid_enchantment_level(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+
+    response = client.post(
+        "/api/craft/simulate",
+        json={
+            "item_id": "ITEM_TEST",
+            "enchantment_level": 9,
+            "quantity": 10,
+            "category_mastery_level": 0,
+            "item_specializations": {"ITEM_TEST": 0},
+            "location_key": "none",
+            "available_focus": 0,
+            "use_focus": False,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+async def _fake_item_detail_variant_fallback(self, item_id: str):
+    if item_id == "ITEM_TEST@3":
+        raise AlbionProviderError("item_detail_unreachable", "variant unavailable")
+    if item_id == "ITEM_TEST":
+        return {
+            "item": {"id": item_id, "name": "Test Item", "category": "nature_staff", "craftable": True},
+            "recipe": [{"item_id": "T4_BAR", "item_name": "Bar", "quantity": 2}],
+            "metadata": {"base_focus_cost": 100},
+        }
+    raise AlbionProviderError("item_not_found", "missing")
+
+
+def test_craft_simulate_fallbacks_to_base_item_when_variant_detail_unavailable(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATA_PATH", str(tmp_path / "state.json"))
+    monkeypatch.setenv("BANK_SQLITE_PATH", str(tmp_path / "bank.sqlite3"))
+    monkeypatch.setattr(backend_app.AlbionProviderService, "get_item_detail", _fake_item_detail_variant_fallback)
+    monkeypatch.setattr(backend_app.AlbionProviderService, "get_catalog_snapshot", _fake_catalog_snapshot)
+    client = TestClient(backend_app.create_app())
+
+    response = client.post(
+        "/api/craft/simulate",
+        json={
+            "item_id": "ITEM_TEST",
+            "enchantment_level": 3,
+            "quantity": 10,
+            "category_mastery_level": 0,
+            "item_specializations": {"ITEM_TEST": 0},
+            "location_key": "none",
+            "available_focus": 0,
+            "use_focus": False,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["item_id"] == "ITEM_TEST"
+
+
+def test_craft_simulate_applies_city_bonus_only_on_matching_city_category(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+
+    response = client.post(
+        "/api/craft/simulate",
+        json={
+            "item_id": "ITEM_TEST",
+            "enchantment_level": 0,
+            "quantity": 10,
+            "category_mastery_level": 0,
+            "item_specializations": {"ITEM_TEST": 0},
+            "location_key": "city",
+            "city_key": "lymhurst",
+            "available_focus": 0,
+            "use_focus": False,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["applied_yields"]["location_return_rate_bonus"] == 0.15
+
+    mismatch_response = client.post(
+        "/api/craft/simulate",
+        json={
+            "item_id": "ITEM_TEST",
+            "enchantment_level": 0,
+            "quantity": 10,
+            "category_mastery_level": 0,
+            "item_specializations": {"ITEM_TEST": 0},
+            "location_key": "city",
+            "city_key": "martlock",
+            "available_focus": 0,
+            "use_focus": False,
+        },
+    )
+    assert mismatch_response.status_code == 200
+    assert mismatch_response.json()["applied_yields"]["location_return_rate_bonus"] == 0.0
+
+
+def test_craft_simulate_applies_hideout_level_and_quality_bonus(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+
+    response = client.post(
+        "/api/craft/simulate",
+        json={
+            "item_id": "ITEM_TEST",
+            "enchantment_level": 0,
+            "quantity": 10,
+            "category_mastery_level": 0,
+            "item_specializations": {"ITEM_TEST": 0},
+            "location_key": "hideout",
+            "hideout_biome_key": "mountain",
+            "hideout_territory_level": 9,
+            "hideout_zone_quality": 6,
+            "available_focus": 0,
+            "use_focus": False,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["applied_yields"]["hideout_return_rate_bonus"] == pytest.approx(0.285)
+
+
+def test_craft_simulate_applies_hideout_biome_activity_bonus_on_match(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+
+    response = client.post(
+        "/api/craft/simulate",
+        json={
+            "item_id": "ITEM_TEST",
+            "enchantment_level": 0,
+            "quantity": 10,
+            "category_mastery_level": 0,
+            "item_specializations": {"ITEM_TEST": 0},
+            "location_key": "hideout",
+            "hideout_biome_key": "forest",
+            "hideout_territory_level": 9,
+            "hideout_zone_quality": 6,
+            "available_focus": 0,
+            "use_focus": False,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["applied_yields"]["location_return_rate_bonus"] == pytest.approx(0.15)
+
+    mismatch_response = client.post(
+        "/api/craft/simulate",
+        json={
+            "item_id": "ITEM_TEST",
+            "enchantment_level": 0,
+            "quantity": 10,
+            "category_mastery_level": 0,
+            "item_specializations": {"ITEM_TEST": 0},
+            "location_key": "hideout",
+            "hideout_biome_key": "mountain",
+            "hideout_territory_level": 9,
+            "hideout_zone_quality": 6,
+            "available_focus": 0,
+            "use_focus": False,
+        },
+    )
+    assert mismatch_response.status_code == 200
+    assert mismatch_response.json()["applied_yields"]["location_return_rate_bonus"] == pytest.approx(0.0)

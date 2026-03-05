@@ -259,6 +259,12 @@ Les 3 services doivent avoir des variables cohérentes (URL backend, CORS, OAuth
    - Va sur le frontend, clique “Login Discord”.
    - Tu dois être redirigé vers Discord, puis revenir sur le frontend avec `?logged_in=1`.
    - Vérifie aussi l'endpoint `GET /me` (doit retourner l'utilisateur connecté).
+   - Si la session/cookies existent déjà sur la même machine (IP + user-agent), `/auth/discord/login` propose une reprise et évite un nouveau passage OAuth (`?resumed=1`).
+
+Session dashboard:
+- persistance disque des sessions (`DASHBOARD_SESSIONS_PATH`, défaut `data/dashboard_sessions.json`),
+- expiration glissante (tant que l'utilisateur reste actif, la session est prolongée),
+- session détruite à la déconnexion (`POST /auth/logout`) ou à expiration TTL.
 
 6) **Erreurs fréquentes**
    - `OAuth Discord non configuré` → une variable `DISCORD_OAUTH_*` manque côté backend.
@@ -361,6 +367,7 @@ Comportement:
 - endpoint admin d'invalidation manuelle `POST /api/admin/craft/cache/invalidate?guild_id=<id>` (admin Discord + CSRF),
 - source de vérité persistante du focus craft via table SQL `craft_focus_costs`, hydratée dans `metadata.base_focus_cost` lors de `GET /api/craft/items/{item_id}`,
 - simulation craft durcie: `POST /api/craft/simulate` renvoie une erreur explicite `missing_focus_cost` si le coût focus n'est pas configuré (suppression du fallback implicite),
+- convention d'ID enchanté unifiée en suffixe `@N` (ex: `T4_BAG@2`) et nouveau champ API `enchantment_level` (0..4), résolu en `item_id` final avant `get_item_detail` avec fallback automatique sur l'item de base si la variante n'a pas de détail,
 - maintenance focus cost via endpoint admin `POST /api/admin/craft/focus-costs?guild_id=<id>` (bulk upsert) et script `python web/backend/scripts/upsert_focus_costs.py --input <csv|json>`,
 - fallback automatique: en cas d'échec réseau, l'API continue à servir la dernière version DB/snapshot et conserve `last_success_at`,
 - exposition du statut de synchro via `GET /api/craft/metadata` et `GET /api/admin/craft/sync-status?guild_id=<id>`,
@@ -387,9 +394,13 @@ Le backend dashboard expose maintenant `POST /api/craft/simulate` avec un module
 
 Clés `location_key` supportées actuellement:
 - `none`
-- `city`
-- `hideout`
-- `hideout_quality`
+- `city` (+ `city_key`)
+- `hideout` (+ `hideout_biome_key`, `hideout_territory_level`, `hideout_zone_quality`)
+
+Détail localisation craft:
+- **City**: bonus de retour appliqué seulement si la catégorie de l'item cible correspond à la spécialisation de la ville (mapping backend centralisé),
+- **Hideout**: bonus de retour calculé depuis biome + niveau de territoire (`1..9`) + qualité de zone (`1..6`) via lookup O(1),
+- Focus bonus conserve `+25%` pour `city`/`hideout`.
 
 
 
@@ -397,6 +408,7 @@ Clés `location_key` supportées actuellement:
 - Endpoint backend `POST /api/craft/profitability` pour simuler la rentabilité à partir du résultat craft (`/api/craft/simulate`) + prix d'entrée utilisateur.
 - Retour détaillé pour l'UI: coûts par matériau, coût focus implicite, coût livre d'imbuer, revenu brut/net, profit et marge (%).
 - Front dashboard mis à jour avec formulaire de prix unitaires et récapitulatif financier complet.
+- Préférences utilisateur persistantes (item cible, spés, localisation, prix): `GET/PUT /api/user/preferences/craft` (lié au compte Discord connecté).
 
 ## Formule focus agrégée (catégorie + spécialisations)
 
