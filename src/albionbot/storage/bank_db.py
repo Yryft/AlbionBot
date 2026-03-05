@@ -194,6 +194,18 @@ class BankDB:
                 );
                 """
             )
+            self._exec(
+                """
+                CREATE TABLE IF NOT EXISTS craft_focus_costs (
+                    item_id TEXT PRIMARY KEY,
+                    tier INTEGER NULL,
+                    enchant INTEGER NULL,
+                    base_focus_cost INTEGER NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'manual',
+                    updated_at INTEGER NOT NULL
+                );
+                """
+            )
         else:
             self._exec(
                 """
@@ -275,6 +287,18 @@ class BankDB:
                     last_success_at INTEGER NULL,
                     last_attempt_at INTEGER NOT NULL,
                     last_error TEXT NOT NULL DEFAULT ''
+                );
+                """
+            )
+            self._exec(
+                """
+                CREATE TABLE IF NOT EXISTS craft_focus_costs (
+                    item_id TEXT PRIMARY KEY,
+                    tier INTEGER NULL,
+                    enchant INTEGER NULL,
+                    base_focus_cost INTEGER NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'manual',
+                    updated_at INTEGER NOT NULL
                 );
                 """
             )
@@ -789,6 +813,57 @@ class BankDB:
     def get_craft_sync_state(self) -> Optional[dict[str, Any]]:
         return self._fetchone(
             "SELECT sync_key, source, checksum, status, items_count, inserted_count, updated_count, deactivated_count, last_success_at, last_attempt_at, last_error FROM craft_sync_state WHERE sync_key = 'items_txt';"
+        )
+
+    def get_craft_focus_cost(self, item_id: str) -> Optional[dict[str, Any]]:
+        return self._fetchone(
+            "SELECT item_id, tier, enchant, base_focus_cost, source, updated_at FROM craft_focus_costs WHERE item_id = ?;"
+            if self.kind == "sqlite"
+            else "SELECT item_id, tier, enchant, base_focus_cost, source, updated_at FROM craft_focus_costs WHERE item_id = %s;",
+            (str(item_id),),
+        )
+
+    def list_craft_focus_costs(self, limit: int = 500) -> List[dict[str, Any]]:
+        resolved_limit = max(1, min(int(limit), 5000))
+        return self._fetchall(
+            "SELECT item_id, tier, enchant, base_focus_cost, source, updated_at FROM craft_focus_costs ORDER BY updated_at DESC, item_id ASC LIMIT ?;"
+            if self.kind == "sqlite"
+            else "SELECT item_id, tier, enchant, base_focus_cost, source, updated_at FROM craft_focus_costs ORDER BY updated_at DESC, item_id ASC LIMIT %s;",
+            (resolved_limit,),
+        )
+
+    def upsert_craft_focus_cost(self, *, item_id: str, base_focus_cost: int, tier: Optional[int] = None, enchant: Optional[int] = None, source: str = "manual") -> None:
+        now = int(time.time())
+        if self.kind == "postgres":
+            self._exec(
+                """
+                INSERT INTO craft_focus_costs(item_id, tier, enchant, base_focus_cost, source, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (item_id)
+                DO UPDATE SET
+                    tier = EXCLUDED.tier,
+                    enchant = EXCLUDED.enchant,
+                    base_focus_cost = EXCLUDED.base_focus_cost,
+                    source = EXCLUDED.source,
+                    updated_at = EXCLUDED.updated_at;
+                """,
+                (str(item_id), tier, enchant, int(base_focus_cost), str(source or "manual"), now),
+            )
+            return
+
+        self._exec(
+            """
+            INSERT INTO craft_focus_costs(item_id, tier, enchant, base_focus_cost, source, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(item_id)
+            DO UPDATE SET
+                tier = excluded.tier,
+                enchant = excluded.enchant,
+                base_focus_cost = excluded.base_focus_cost,
+                source = excluded.source,
+                updated_at = excluded.updated_at;
+            """,
+            (str(item_id), tier, enchant, int(base_focus_cost), str(source or "manual"), now),
         )
 
     def is_empty(self) -> bool:

@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 
+from albionbot.storage.store import Store
+
 from web.backend.albion_provider import (
     AO_BIN_DUMPS_ITEMS_LIST_URL,
     TOOLS4ALBION_ITEM_DETAILS_URL_TEMPLATE,
@@ -164,3 +166,23 @@ def test_albion_provider_normalizes_list_payload_detail(tmp_path, monkeypatch):
     detail = _run(provider.get_item_detail("T6_CAPE"))
     assert detail["item"]["name"] == "Master's Cape"
     assert detail["recipe"][0]["item_id"] == "T6_CLOTH"
+
+
+def test_albion_provider_hydrates_focus_cost_metadata_from_store(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    store = Store(path=str(tmp_path / "state.json"), bank_sqlite_path=str(tmp_path / "bank.sqlite3"))
+    store.craft_upsert_focus_cost(item_id="T4_BAG", base_focus_cost=222, source="manual_test")
+
+    provider = AlbionProviderService(store=store)
+    provider._items_cache = [
+        {"id": "T4_BAG", "name": "T4_BAG", "tier": 4, "enchant": 0, "icon": "https://icons/T4_BAG.png", "category": "unknown", "craftable": True}
+    ]
+    provider._last_refresh_ts = 9999999999
+    provider._recipes_cache = {"T4_BAG": [{"item_id": "T4_CLOTH", "item_name": "Cloth", "quantity": 2}]}
+
+    detail = _run(provider.get_item_detail("T4_BAG"))
+    assert detail["metadata"]["base_focus_cost"] == 222
+    assert detail["metadata"]["base_focus_cost_source"] == "manual_test"

@@ -55,6 +55,8 @@ from .schemas import (
     CraftSimulationResultDTO,
     CraftProfitabilityRequestDTO,
     CraftProfitabilityResultDTO,
+    CraftFocusCostBulkUpsertRequestDTO,
+    CraftFocusCostEntryDTO,
 )
 from .command_bus import (
     AuditLogger,
@@ -415,6 +417,38 @@ def create_app() -> FastAPI:
             ) from exc
 
 
+    @app.get("/api/admin/craft/focus-costs", response_model=list[CraftFocusCostEntryDTO])
+    async def list_craft_focus_costs(guild_id: str, request: Request, limit: int = 500):
+        resolved_guild_id = parse_discord_id(guild_id, "guild_id")
+        ensure_guild_admin(request, resolved_guild_id)
+        rows = store.craft_list_focus_costs(limit=limit)
+        return [
+            {
+                "item_id": str(row.get("item_id", "")),
+                "base_focus_cost": int(row.get("base_focus_cost", 0) or 0),
+                "tier": (int(row["tier"]) if row.get("tier") is not None else None),
+                "enchant": (int(row["enchant"]) if row.get("enchant") is not None else None),
+                "source": str(row.get("source", "manual")),
+                "updated_at": int(row.get("updated_at", 0) or 0),
+            }
+            for row in rows
+        ]
+
+    @app.post("/api/admin/craft/focus-costs")
+    async def upsert_craft_focus_costs(payload: CraftFocusCostBulkUpsertRequestDTO, guild_id: str, request: Request):
+        resolved_guild_id = parse_discord_id(guild_id, "guild_id")
+        ensure_csrf_for_mutation(request)
+        ensure_guild_admin(request, resolved_guild_id)
+        for entry in payload.entries:
+            store.craft_upsert_focus_cost(
+                item_id=entry.item_id,
+                base_focus_cost=entry.base_focus_cost,
+                tier=entry.tier,
+                enchant=entry.enchant,
+                source=entry.source,
+            )
+        return {"ok": True, "updated": len(payload.entries)}
+
     @app.get("/api/craft/metadata")
     async def craft_metadata():
         return {
@@ -447,13 +481,35 @@ def create_app() -> FastAPI:
             names_by_item_id = {row["id"]: row.get("name", row["id"]) for row in items}
             craftable_by_item_id = {row["id"]: bool(row.get("craftable", False)) for row in items}
 
+            raw_focus_cost = item_detail.get("metadata", {}).get("base_focus_cost")
+            if raw_focus_cost is None:
+                raise CraftSimulationError(
+                    "missing_focus_cost",
+                    "Coût focus introuvable pour cet item.",
+                    details={"item_id": payload.item_id},
+                )
+            try:
+                base_focus_cost = int(raw_focus_cost)
+            except (TypeError, ValueError) as exc:
+                raise CraftSimulationError(
+                    "invalid_focus_cost",
+                    "Coût focus invalide pour cet item.",
+                    details={"item_id": payload.item_id, "raw_value": raw_focus_cost},
+                ) from exc
+            if base_focus_cost <= 0:
+                raise CraftSimulationError(
+                    "invalid_focus_cost",
+                    "Coût focus invalide pour cet item.",
+                    details={"item_id": payload.item_id, "raw_value": raw_focus_cost},
+                )
+
             simulation = simulate_crafting(
                 simulation_input=CraftSimulationInput(
                     quantity=payload.quantity,
                     mastery_level=payload.mastery_level,
                     specialization_level=payload.specialization_level,
                     available_focus=payload.available_focus,
-                    base_focus_cost=int(item_detail.get("metadata", {}).get("base_focus_cost", 100)),
+                    base_focus_cost=base_focus_cost,
                     use_focus=payload.use_focus,
                     yields=FocusYieldConfig(
                         base_return_rate=0.152,

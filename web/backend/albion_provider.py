@@ -334,6 +334,38 @@ class AlbionProviderService:
         item = self._normalize_item({**item_row, "id": item_id})
         return item, recipe
 
+
+    @staticmethod
+    def _extract_base_focus_cost(payload: dict[str, Any]) -> int | None:
+        candidates = (
+            payload.get("base_focus_cost"),
+            payload.get("BaseFocusCost"),
+            payload.get("focus_cost"),
+            payload.get("FocusCost"),
+            payload.get("focus"),
+            payload.get("item", {}).get("base_focus_cost") if isinstance(payload.get("item"), dict) else None,
+            payload.get("item", {}).get("FocusCost") if isinstance(payload.get("item"), dict) else None,
+        )
+        for value in candidates:
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError):
+                continue
+            if parsed > 0:
+                return parsed
+        return None
+
+    def _resolve_focus_cost_metadata(self, item: dict[str, Any]) -> tuple[int | None, str]:
+        if self.store is None:
+            return None, "unavailable"
+        row = self.store.craft_get_focus_cost(str(item.get("id", "")))
+        if row is None:
+            return None, "missing"
+        try:
+            return int(row.get("base_focus_cost")), str(row.get("source") or "manual")
+        except (TypeError, ValueError):
+            return None, "invalid"
+
     @staticmethod
     def _merge_items(primary: list[dict[str, Any]], secondary: list[dict[str, Any]]) -> list[dict[str, Any]]:
         by_id: dict[str, dict[str, Any]] = {str(row.get("id", "")).strip(): row for row in primary if str(row.get("id", "")).strip()}
@@ -474,6 +506,17 @@ class AlbionProviderService:
                 self._recipes_cache[key] = normalized_recipe
                 self._items_cache = self._merge_items([normalized_item], self._items_cache)
                 self._save_snapshot()
+                extracted_focus_cost = self._extract_base_focus_cost(detail_payload)
+                if extracted_focus_cost is not None and self.store is not None:
+                    self.store.craft_upsert_focus_cost(
+                        item_id=key,
+                        base_focus_cost=extracted_focus_cost,
+                        tier=self._to_int(item.get("tier"), 0),
+                        enchant=self._to_int(item.get("enchant"), 0),
+                        source="albion_provider",
+                    )
+
+        base_focus_cost, base_focus_cost_source = self._resolve_focus_cost_metadata(item)
 
         return {
             "item": item,
@@ -484,5 +527,7 @@ class AlbionProviderService:
                 "has_fallback_snapshot": self.snapshot_path.exists(),
                 "last_sync_error": self._last_sync_error,
                 "sync_status": self.get_sync_status(),
+                "base_focus_cost": base_focus_cost,
+                "base_focus_cost_source": base_focus_cost_source,
             },
         }

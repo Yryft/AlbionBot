@@ -359,6 +359,9 @@ Comportement:
 - persistance de métadonnées de synchro (`source`, `checksum`, date de tentative/réussite, compteurs, erreur) dans `craft_sync_state`,
 - `GET /api/craft/items` lit désormais en priorité depuis `craft_items_index` (fallback mémoire/snapshot si nécessaire),
 - endpoint admin d'invalidation manuelle `POST /api/admin/craft/cache/invalidate?guild_id=<id>` (admin Discord + CSRF),
+- source de vérité persistante du focus craft via table SQL `craft_focus_costs`, hydratée dans `metadata.base_focus_cost` lors de `GET /api/craft/items/{item_id}`,
+- simulation craft durcie: `POST /api/craft/simulate` renvoie une erreur explicite `missing_focus_cost` si le coût focus n'est pas configuré (suppression du fallback implicite),
+- maintenance focus cost via endpoint admin `POST /api/admin/craft/focus-costs?guild_id=<id>` (bulk upsert) et script `python web/backend/scripts/upsert_focus_costs.py --input <csv|json>`,
 - fallback automatique: en cas d'échec réseau, l'API continue à servir la dernière version DB/snapshot et conserve `last_success_at`,
 - exposition du statut de synchro via `GET /api/craft/metadata` et `GET /api/admin/craft/sync-status?guild_id=<id>`,
 - récupération paresseuse du détail d'un item via le template Tools4Albion intégré (`{item_id}`) si la recette n'est pas encore en cache.
