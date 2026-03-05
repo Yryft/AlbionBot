@@ -944,6 +944,35 @@ class Store:
             return None
         return self.bank_db.get_craft_sync_state()
 
+    def craft_get_focus_cost(self, item_id: str) -> Optional[Dict]:
+        if self.bank_db is None:
+            return None
+        return self.bank_db.get_craft_focus_cost(item_id)
+
+    def craft_list_focus_costs(self, limit: int = 500) -> List[Dict]:
+        if self.bank_db is None:
+            return []
+        return self.bank_db.list_craft_focus_costs(limit=limit)
+
+    def craft_upsert_focus_cost(
+        self,
+        *,
+        item_id: str,
+        base_focus_cost: int,
+        tier: Optional[int] = None,
+        enchant: Optional[int] = None,
+        source: str = "manual",
+    ) -> None:
+        if self.bank_db is None:
+            return
+        self.bank_db.upsert_craft_focus_cost(
+            item_id=item_id,
+            base_focus_cost=base_focus_cost,
+            tier=tier,
+            enchant=enchant,
+            source=source,
+        )
+
     # Ticket helpers
     def ticket_get_config(self, guild_id: int) -> Optional[TicketConfig]:
         return self.ticket_configs.get(int(guild_id))

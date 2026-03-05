@@ -307,6 +307,28 @@ class CraftItemDetailDTO(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+
+
+class CraftFocusCostUpsertEntryDTO(BaseModel):
+    item_id: str = Field(min_length=1)
+    base_focus_cost: int = Field(gt=0)
+    tier: int | None = None
+    enchant: int | None = None
+    source: str = Field(default="manual", min_length=1)
+
+
+class CraftFocusCostBulkUpsertRequestDTO(BaseModel):
+    entries: List[CraftFocusCostUpsertEntryDTO] = Field(default_factory=list, min_length=1, max_length=1000)
+
+
+class CraftFocusCostEntryDTO(BaseModel):
+    item_id: str
+    base_focus_cost: int
+    tier: int | None = None
+    enchant: int | None = None
+    source: str
+    updated_at: int
+
 class CraftSimulationRequestDTO(BaseModel):
     item_id: str
     quantity: int = Field(gt=0, le=100000)

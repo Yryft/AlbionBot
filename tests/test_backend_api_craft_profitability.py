@@ -103,3 +103,36 @@ def test_craft_profitability_validates_payload(monkeypatch, tmp_path):
     )
 
     assert response.status_code == 422
+
+
+async def _fake_item_detail_missing_focus(self, item_id: str):
+    return {
+        "item": {"id": item_id, "name": "Test Item", "craftable": True},
+        "recipe": [{"item_id": "T4_BAR", "item_name": "Bar", "quantity": 2}],
+        "metadata": {},
+    }
+
+
+def test_craft_simulate_errors_when_focus_cost_missing(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATA_PATH", str(tmp_path / "state.json"))
+    monkeypatch.setenv("BANK_SQLITE_PATH", str(tmp_path / "bank.sqlite3"))
+    monkeypatch.setattr(backend_app.AlbionProviderService, "get_item_detail", _fake_item_detail_missing_focus)
+    monkeypatch.setattr(backend_app.AlbionProviderService, "get_catalog_snapshot", _fake_catalog_snapshot)
+    client = TestClient(backend_app.create_app())
+
+    response = client.post(
+        "/api/craft/simulate",
+        json={
+            "item_id": "ITEM_TEST",
+            "quantity": 10,
+            "mastery_level": 0,
+            "specialization_level": 0,
+            "location_key": "none",
+            "available_focus": 0,
+            "use_focus": False,
+        },
+    )
+
+    assert response.status_code == 400
+    data = response.json()
+    assert data["detail"]["code"] == "missing_focus_cost"

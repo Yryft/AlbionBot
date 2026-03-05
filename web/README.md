@@ -173,6 +173,11 @@ Variables d'environnement associées:
 - `ALBION_CACHE_SNAPSHOT_PATH` (snapshot persistant warm start/fallback),
 - `ALBION_SYNC_INTERVAL_SECONDS` (job de sync périodique, défaut 24h).
 
+Source de vérité focus cost:
+- table SQL `craft_focus_costs` (persistante) utilisée par `GET /api/craft/items/{item_id}` et `POST /api/craft/simulate`,
+- en simulation, absence de `base_focus_cost` => erreur explicite `missing_focus_cost` (plus de fallback silencieux),
+- maintenance via endpoint admin `POST /api/admin/craft/focus-costs?guild_id=<id>` (admin + CSRF) ou script `python web/backend/scripts/upsert_focus_costs.py --input <fichier.csv|json>`.
+
 
 Endpoints provider intégrés en dur:
 - index/autocomplete via dump `ao-bin-dumps` (`https://raw.githubusercontent.com/ao-data/ao-bin-dumps/master/formatted/items.txt`),
