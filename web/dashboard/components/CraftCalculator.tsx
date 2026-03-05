@@ -6,6 +6,7 @@ type CraftItem = {
   id: string;
   name: string;
   tier: number;
+  enchant: number;
   category: string;
   craftable: boolean;
 };
@@ -59,7 +60,12 @@ export default function CraftCalculator() {
   const [quantity, setQuantity] = useState(1);
   const [categoryMasteryLevel, setCategoryMasteryLevel] = useState(0);
   const [targetSpecializationLevel, setTargetSpecializationLevel] = useState(0);
+  const [enchantmentLevel, setEnchantmentLevel] = useState(0);
   const [locationKey, setLocationKey] = useState('city');
+  const [cityKey, setCityKey] = useState('lymhurst');
+  const [hideoutBiomeKey, setHideoutBiomeKey] = useState('mountain');
+  const [hideoutTerritoryLevel, setHideoutTerritoryLevel] = useState(9);
+  const [hideoutZoneQuality, setHideoutZoneQuality] = useState(1);
   const [availableFocus, setAvailableFocus] = useState(30000);
   const [useFocus, setUseFocus] = useState(true);
   const [taxRate, setTaxRate] = useState(6.5);
@@ -72,6 +78,7 @@ export default function CraftCalculator() {
   const [simulation, setSimulation] = useState<SimulationResponse | null>(null);
   const [profitability, setProfitability] = useState<ProfitabilityResponse | null>(null);
   const [error, setError] = useState('');
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -93,11 +100,94 @@ export default function CraftCalculator() {
     return () => controller.abort();
   }, []);
 
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`${API_BASE}/api/user/preferences/craft`, { credentials: 'include', signal: controller.signal })
+      .then(async (r) => {
+        if (!r.ok) return null;
+        return (await r.json()) as Record<string, unknown>;
+      })
+      .then((prefs) => {
+        if (!prefs) return;
+        if (typeof prefs.item_id === 'string') setSelectedItemId(prefs.item_id);
+        if (typeof prefs.enchantment_level === 'number') setEnchantmentLevel(Math.max(0, Math.min(4, Math.floor(prefs.enchantment_level))));
+        if (typeof prefs.quantity === 'number') setQuantity(Math.max(1, Math.floor(prefs.quantity)));
+        if (typeof prefs.category_mastery_level === 'number') setCategoryMasteryLevel(Math.max(0, Math.min(100, Math.floor(prefs.category_mastery_level))));
+        if (typeof prefs.target_specialization_level === 'number') setTargetSpecializationLevel(Math.max(0, Math.min(100, Math.floor(prefs.target_specialization_level))));
+        if (typeof prefs.location_key === 'string') setLocationKey(prefs.location_key);
+        if (typeof prefs.city_key === 'string') setCityKey(prefs.city_key);
+        if (typeof prefs.hideout_biome_key === 'string') setHideoutBiomeKey(prefs.hideout_biome_key);
+        if (typeof prefs.hideout_territory_level === 'number') setHideoutTerritoryLevel(Math.max(1, Math.min(9, Math.floor(prefs.hideout_territory_level))));
+        if (typeof prefs.hideout_zone_quality === 'number') setHideoutZoneQuality(Math.max(1, Math.min(6, Math.floor(prefs.hideout_zone_quality))));
+        if (typeof prefs.available_focus === 'number') setAvailableFocus(Math.max(0, Math.floor(prefs.available_focus)));
+        if (typeof prefs.use_focus === 'boolean') setUseFocus(prefs.use_focus);
+        if (typeof prefs.tax_rate === 'number') setTaxRate(Math.max(0, prefs.tax_rate));
+        if (typeof prefs.focus_unit_price === 'number') setFocusUnitPrice(Math.max(0, prefs.focus_unit_price));
+        if (typeof prefs.journal_unit_price === 'number') setJournalUnitPrice(Math.max(0, prefs.journal_unit_price));
+        if (typeof prefs.sale_unit_price === 'number') setSaleUnitPrice(Math.max(0, prefs.sale_unit_price));
+        if (prefs.pricing_mode === 'manual' || prefs.pricing_mode === 'prefilled') setPricingMode(prefs.pricing_mode);
+      })
+      .finally(() => setPrefsLoaded(true))
+      .catch(() => setPrefsLoaded(true));
+
+    return () => controller.abort();
+  }, []);
+
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return items;
-    return items.filter((item) => `${item.name} ${item.id} T${item.tier}`.toLowerCase().includes(q));
+    return items.filter((item) => `${item.name} ${item.id} T${item.tier} @${item.enchant}`.toLowerCase().includes(q));
   }, [items, search]);
+
+  const availableEnchantments = useMemo(() => {
+    const selected = items.find((row) => row.id === selectedItemId);
+    if (!selected) return [0];
+    const baseId = selected.id.split("@")[0];
+    const levels = new Set<number>([0]);
+    for (const row of items) {
+      if (row.id.split("@")[0] === baseId) levels.add(Number(row.enchant) || 0);
+    }
+    return Array.from(levels).sort((a, b) => a - b);
+  }, [items, selectedItemId]);
+
+  useEffect(() => {
+    if (!availableEnchantments.includes(enchantmentLevel)) {
+      setEnchantmentLevel(availableEnchantments[0] ?? 0);
+    }
+  }, [availableEnchantments, enchantmentLevel]);
+
+
+  useEffect(() => {
+    if (!prefsLoaded) return;
+    const timer = setTimeout(() => {
+      fetch(`${API_BASE}/api/user/preferences/craft`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          item_id: selectedItemId || null,
+          enchantment_level: enchantmentLevel,
+          quantity,
+          category_mastery_level: categoryMasteryLevel,
+          target_specialization_level: targetSpecializationLevel,
+          location_key: locationKey,
+          city_key: cityKey,
+          hideout_biome_key: hideoutBiomeKey,
+          hideout_territory_level: hideoutTerritoryLevel,
+          hideout_zone_quality: hideoutZoneQuality,
+          available_focus: availableFocus,
+          use_focus: useFocus,
+          tax_rate: taxRate,
+          focus_unit_price: focusUnitPrice,
+          journal_unit_price: journalUnitPrice,
+          sale_unit_price: saleUnitPrice,
+          pricing_mode: pricingMode,
+        }),
+      }).catch(() => undefined);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [prefsLoaded, selectedItemId, enchantmentLevel, quantity, categoryMasteryLevel, targetSpecializationLevel, locationKey, cityKey, hideoutBiomeKey, hideoutTerritoryLevel, hideoutZoneQuality, availableFocus, useFocus, taxRate, focusUnitPrice, journalUnitPrice, saleUnitPrice, pricingMode]);
 
   useEffect(() => {
     if (!selectedItemId) return;
@@ -109,10 +199,15 @@ export default function CraftCalculator() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           item_id: selectedItemId,
+          enchantment_level: enchantmentLevel,
           quantity,
           category_mastery_level: categoryMasteryLevel,
           item_specializations: { [selectedItemId]: targetSpecializationLevel },
           location_key: locationKey,
+          city_key: cityKey,
+          hideout_biome_key: hideoutBiomeKey,
+          hideout_territory_level: hideoutTerritoryLevel,
+          hideout_zone_quality: hideoutZoneQuality,
           available_focus: availableFocus,
           use_focus: useFocus,
         }),
@@ -154,7 +249,7 @@ export default function CraftCalculator() {
       setProfitability(null);
       setError('Simulation indisponible. Vérifie la configuration API/provider.');
     });
-  }, [selectedItemId, quantity, categoryMasteryLevel, targetSpecializationLevel, locationKey, availableFocus, useFocus, pricingMode, materialPrices, journalUnitPrice, saleUnitPrice, taxRate, focusUnitPrice]);
+  }, [selectedItemId, enchantmentLevel, quantity, categoryMasteryLevel, targetSpecializationLevel, locationKey, cityKey, hideoutBiomeKey, hideoutTerritoryLevel, hideoutZoneQuality, availableFocus, useFocus, pricingMode, materialPrices, journalUnitPrice, saleUnitPrice, taxRate, focusUnitPrice]);
 
   const marketPrefillAvailable = Object.keys(marketPriceHints).length > 0;
 
@@ -169,13 +264,21 @@ export default function CraftCalculator() {
           Item
           <select value={selectedItemId} onChange={(e) => setSelectedItemId(e.target.value)}>
             {filteredItems.map((item) => (
-              <option key={item.id} value={item.id}>{item.name} · T{item.tier} · {item.category}</option>
+              <option key={item.id} value={item.id}>{item.name} · T{item.tier} · @{item.enchant} · {item.category}</option>
             ))}
           </select>
         </label>
         <label>
           Quantité
           <input type="number" min={1} value={quantity} onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))} />
+        </label>
+        <label>
+          Enchantement
+          <select value={enchantmentLevel} onChange={(e) => setEnchantmentLevel(Number(e.target.value) || 0)}>
+            {availableEnchantments.map((level) => (
+              <option key={level} value={level}>.{level} (@{level})</option>
+            ))}
+          </select>
         </label>
         <label>
           Mode prix
@@ -192,11 +295,58 @@ export default function CraftCalculator() {
         <label>Location
           <select value={locationKey} onChange={(e) => setLocationKey(e.target.value)}>
             <option value="none">Sans bonus</option>
-            <option value="city">Ville</option>
-            <option value="hideout">Hideout</option>
-            <option value="hideout_quality">Hideout qualité</option>
+            <option value="city">Ville (bonus de ville/catégorie)</option>
+            <option value="hideout">Hideout (niveau + qualité map)</option>
           </select>
         </label>
+        {locationKey === 'city' && (
+          <label>Ville
+            <select value={cityKey} onChange={(e) => setCityKey(e.target.value)}>
+              <option value="bridgewatch">Bridgewatch</option>
+              <option value="martlock">Martlock</option>
+              <option value="fort_sterling">Fort Sterling</option>
+              <option value="thetford">Thetford</option>
+              <option value="lymhurst">Lymhurst</option>
+              <option value="caerleon">Caerleon</option>
+            </select>
+          </label>
+        )}
+        {locationKey === 'hideout' && (
+          <>
+            <label>Biome
+              <select value={hideoutBiomeKey} onChange={(e) => setHideoutBiomeKey(e.target.value)}>
+                <option value="mountain">Mountain</option>
+                <option value="forest">Forest</option>
+                <option value="swamp">Swamp</option>
+                <option value="highland">Highland</option>
+                <option value="steppe">Steppe</option>
+              </select>
+            </label>
+            <label>Qualité zone
+              <select value={hideoutZoneQuality} onChange={(e) => setHideoutZoneQuality(Number(e.target.value) || 1)}>
+                <option value={1}>Q1</option>
+                <option value={2}>Q2</option>
+                <option value={3}>Q3</option>
+                <option value={4}>Q4</option>
+                <option value={5}>Q5</option>
+                <option value={6}>Q6</option>
+              </select>
+            </label>
+            <label>Niveau territoire
+              <select value={hideoutTerritoryLevel} onChange={(e) => setHideoutTerritoryLevel(Number(e.target.value) || 1)}>
+                <option value={1}>Niv 1</option>
+                <option value={2}>Niv 2</option>
+                <option value={3}>Niv 3</option>
+                <option value={4}>Niv 4</option>
+                <option value={5}>Niv 5</option>
+                <option value={6}>Niv 6</option>
+                <option value={7}>Niv 7</option>
+                <option value={8}>Niv 8</option>
+                <option value={9}>Niv 9</option>
+              </select>
+            </label>
+          </>
+        )}
         <label>Focus dispo <input type="number" min={0} value={availableFocus} onChange={(e) => setAvailableFocus(Math.max(0, Number(e.target.value) || 0))} /></label>
         <label>Taxe marché (%) <input type="number" min={0} max={20} step={0.1} value={taxRate} onChange={(e) => setTaxRate(Math.max(0, Number(e.target.value) || 0))} /></label>
         <label>Prix focus unitaire <input type="number" min={0} value={focusUnitPrice} onChange={(e) => setFocusUnitPrice(Math.max(0, Number(e.target.value) || 0))} /></label>

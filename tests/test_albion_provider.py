@@ -197,3 +197,27 @@ def test_albion_provider_infers_weapon_category_from_item_id(tmp_path, monkeypat
     rows = provider._parse_items_list_text("T4_2H_HOLYSTAFF\n")
 
     assert rows[0]["category"] == "holy_staff"
+
+
+def test_albion_provider_normalizes_enchanted_item_id_suffix(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    provider = AlbionProviderService()
+    item_id, enchant = provider.normalize_enchanted_item_id("T4_BAG", 2)
+
+    assert item_id == "T4_BAG@2"
+    assert enchant == 2
+
+
+def test_albion_provider_parses_enchanted_suffix_from_item_id(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    provider = AlbionProviderService()
+    base_item_id, enchant = provider.split_enchanted_item_id("T5_CAPE@3")
+
+    assert base_item_id == "T5_CAPE"
+    assert enchant == 3

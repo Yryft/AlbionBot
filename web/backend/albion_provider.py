@@ -199,13 +199,15 @@ class AlbionProviderService:
         return inferred
 
     def _normalize_item(self, row: dict[str, Any]) -> dict[str, Any]:
-        item_id = str(
+        raw_item_id = str(
             row.get("id")
             or row.get("item_id")
             or row.get("ItemTypeId")
             or row.get("UniqueName")
             or ""
         ).strip()
+        parsed_enchant = self._to_int(row.get("enchant") or row.get("EnchantmentLevel") or row.get("enchantment") or 0)
+        item_id, enchant = self.normalize_enchanted_item_id(raw_item_id, parsed_enchant)
         name = str(
             row.get("name")
             or row.get("localized_name")
@@ -215,7 +217,6 @@ class AlbionProviderService:
             or item_id
         ).strip()
         tier = self._to_int(row.get("tier") or row.get("Tier") or 0)
-        enchant = self._to_int(row.get("enchant") or row.get("EnchantmentLevel") or row.get("enchantment") or 0)
         category = self._normalize_category(str(row.get("category") or row.get("Category") or "unknown"), item_id)
         craftable = self._to_bool(row.get("craftable") if "craftable" in row else row.get("Craftable"), default=True)
         if not item_id:
@@ -229,6 +230,33 @@ class AlbionProviderService:
             "category": category,
             "craftable": craftable,
         }
+
+    @staticmethod
+    def split_enchanted_item_id(item_id: str) -> tuple[str, int]:
+        raw = str(item_id or "").strip()
+        if not raw:
+            return "", 0
+        if "@" in raw:
+            base, _, suffix = raw.rpartition("@")
+            try:
+                enchant = int(suffix)
+            except (TypeError, ValueError):
+                return raw, 0
+            return base or raw, max(0, enchant)
+        return raw, 0
+
+    @classmethod
+    def normalize_enchanted_item_id(cls, item_id: str, enchantment_level: int = 0) -> tuple[str, int]:
+        base_item_id, suffix_enchant = cls.split_enchanted_item_id(item_id)
+        resolved_enchant = max(0, int(enchantment_level if enchantment_level is not None else suffix_enchant))
+        if resolved_enchant <= 0:
+            return base_item_id, 0
+        return f"{base_item_id}@{resolved_enchant}", resolved_enchant
+
+    async def resolve_item_id_for_enchantment(self, item_id: str, enchantment_level: int) -> str:
+        normalized_base_item_id, _ = self.normalize_enchanted_item_id(item_id, 0)
+        resolved_item_id, _ = self.normalize_enchanted_item_id(normalized_base_item_id, enchantment_level)
+        return resolved_item_id
 
     def _parse_items_list_text(self, payload: str) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []

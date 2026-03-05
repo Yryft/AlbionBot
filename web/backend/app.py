@@ -57,6 +57,7 @@ from .schemas import (
     CraftProfitabilityResultDTO,
     CraftFocusCostBulkUpsertRequestDTO,
     CraftFocusCostEntryDTO,
+    CraftUserPreferencesDTO,
 )
 from .command_bus import (
     AuditLogger,
@@ -80,12 +81,84 @@ OAUTH_REQUIRED_ENV_VARS = (
 )
 
 
-CRAFT_LOCATION_BONUSES = {
+CRAFT_LOCATION_BASE_BONUSES = {
     "none": {"location_return_rate_bonus": 0.0, "hideout_return_rate_bonus": 0.0, "focus_return_rate_bonus": 0.0, "additional_return_rate_bonus": 0.0},
-    "city": {"location_return_rate_bonus": 0.15, "hideout_return_rate_bonus": 0.0, "focus_return_rate_bonus": 0.25, "additional_return_rate_bonus": 0.0},
-    "hideout": {"location_return_rate_bonus": 0.0, "hideout_return_rate_bonus": 0.28, "focus_return_rate_bonus": 0.25, "additional_return_rate_bonus": 0.0},
-    "hideout_quality": {"location_return_rate_bonus": 0.0, "hideout_return_rate_bonus": 0.28, "focus_return_rate_bonus": 0.25, "additional_return_rate_bonus": 0.03},
+    "city": {"location_return_rate_bonus": 0.0, "hideout_return_rate_bonus": 0.0, "focus_return_rate_bonus": 0.25, "additional_return_rate_bonus": 0.0},
+    "hideout": {"location_return_rate_bonus": 0.0, "hideout_return_rate_bonus": 0.0, "focus_return_rate_bonus": 0.25, "additional_return_rate_bonus": 0.0},
 }
+
+CITY_CATEGORY_BONUSES = {
+    "bridgewatch": {"leather_armor", "bow", "spear"},
+    "martlock": {"plate_armor", "hammer", "mace"},
+    "fort_sterling": {"cloth_armor", "frost_staff", "holy_staff"},
+    "thetford": {"cursed_staff", "dagger"},
+    "lymhurst": {"nature_staff", "arcane_staff"},
+    "caerleon": set(),
+}
+CITY_RETURN_RATE_BONUS_WHEN_MATCH = 0.15
+
+HIDEOUT_TERRITORY_LEVEL_RETURN_RATE_BONUS = {
+    1: 0.22,
+    2: 0.225,
+    3: 0.23,
+    4: 0.235,
+    5: 0.24,
+    6: 0.245,
+    7: 0.25,
+    8: 0.255,
+    9: 0.26,
+}
+HIDEOUT_ZONE_QUALITY_RETURN_RATE_BONUS = {
+    1: 0.0,
+    2: 0.005,
+    3: 0.010,
+    4: 0.015,
+    5: 0.020,
+    6: 0.025,
+}
+
+HIDEOUT_BIOME_CATEGORY_BONUSES = {
+    "mountain": {"frost_staff", "holy_staff", "plate_armor"},
+    "forest": {"nature_staff", "bow", "leather_armor"},
+    "swamp": {"cursed_staff", "dagger", "cloth_armor"},
+    "highland": {"spear", "axe", "mace"},
+    "steppe": {"crossbow", "sword", "hammer"},
+}
+
+
+def _resolve_craft_location_bonuses(*, location_key: str, item_category: str, city_key: str | None = None, hideout_biome_key: str | None = None, hideout_territory_level: int | None = None, hideout_zone_quality: int | None = None) -> dict[str, float]:
+    mode = str(location_key or "none").strip().lower()
+    if mode not in CRAFT_LOCATION_BASE_BONUSES:
+        raise CraftSimulationError("invalid_location", "location_key inconnu", details={"location_key": location_key})
+
+    bonuses = dict(CRAFT_LOCATION_BASE_BONUSES[mode])
+    normalized_category = str(item_category or "").strip().lower()
+
+    if mode == "city":
+        normalized_city = str(city_key or "").strip().lower()
+        city_categories = CITY_CATEGORY_BONUSES.get(normalized_city)
+        if city_categories is None:
+            raise CraftSimulationError("invalid_location", "city_key inconnu", details={"city_key": city_key})
+        bonuses["location_return_rate_bonus"] = CITY_RETURN_RATE_BONUS_WHEN_MATCH if normalized_category in city_categories else 0.0
+
+    if mode == "hideout":
+        territory_level = int(hideout_territory_level if hideout_territory_level is not None else 1)
+        zone_quality = int(hideout_zone_quality if hideout_zone_quality is not None else 1)
+        biome_key = str(hideout_biome_key or "").strip().lower()
+        if territory_level not in HIDEOUT_TERRITORY_LEVEL_RETURN_RATE_BONUS:
+            raise CraftSimulationError("invalid_location", "hideout_territory_level inconnu", details={"hideout_territory_level": hideout_territory_level})
+        if zone_quality not in HIDEOUT_ZONE_QUALITY_RETURN_RATE_BONUS:
+            raise CraftSimulationError("invalid_location", "hideout_zone_quality inconnu", details={"hideout_zone_quality": hideout_zone_quality})
+        if biome_key and biome_key not in HIDEOUT_BIOME_CATEGORY_BONUSES:
+            raise CraftSimulationError("invalid_location", "hideout_biome_key inconnu", details={"hideout_biome_key": hideout_biome_key})
+        bonuses["hideout_return_rate_bonus"] = (
+            HIDEOUT_TERRITORY_LEVEL_RETURN_RATE_BONUS[territory_level] + HIDEOUT_ZONE_QUALITY_RETURN_RATE_BONUS[zone_quality]
+        )
+        if biome_key:
+            bonuses["location_return_rate_bonus"] = CITY_RETURN_RATE_BONUS_WHEN_MATCH if normalized_category in HIDEOUT_BIOME_CATEGORY_BONUSES[biome_key] else 0.0
+
+    return bonuses
+
 
 
 def _missing_oauth_env_vars() -> list[str]:
@@ -254,9 +327,23 @@ def create_app() -> FastAPI:
         return {"ok": True}
 
     @app.get("/auth/discord/login")
-    def auth_discord_login():
+    def auth_discord_login(request: Request):
         if oauth_service is None:
             raise _oauth_not_configured_error()
+
+        existing_session_id = request.cookies.get("albion_dash_session", "")
+        if existing_session_id:
+            existing_session = oauth_service.sessions.get(existing_session_id)
+            if existing_session is not None:
+                request_ip = str((request.client.host if request.client else "") or "")
+                request_ua = str(request.headers.get("user-agent", "") or "")
+                if existing_session.last_ip == request_ip and existing_session.last_user_agent == request_ua:
+                    try:
+                        oauth_service.ensure_valid_session(existing_session)
+                        return RedirectResponse(f"{post_login_redirect}?resumed=1", status_code=302)
+                    except HTTPException:
+                        pass
+
         state = secrets.token_urlsafe(24)
         login_url = oauth_service.create_login_url(state)
         redirect = RedirectResponse(login_url, status_code=302)
@@ -296,6 +383,8 @@ def create_app() -> FastAPI:
             token_expires_in=expires_in,
             user=user,
             guilds=user_guilds,
+            ip_address=str((request.client.host if request.client else "") or ""),
+            user_agent=str(request.headers.get("user-agent", "") or ""),
         )
 
         redirect = RedirectResponse(f"{post_login_redirect}?logged_in=1", status_code=302)
@@ -314,10 +403,11 @@ def create_app() -> FastAPI:
         return response
 
     @app.get("/me", response_model=MeDTO)
-    def me(request: Request):
+    def me(request: Request, response: Response):
         if oauth_service is None:
             raise _oauth_not_configured_error()
         session = require_session(request, oauth_service)
+        set_session_cookies(response, session, secure=secure_cookies, same_site=cookie_samesite)
         bot_guild_map = service.get_bot_guild_map()
         shared_guilds = []
         for guild in session.guilds:
@@ -361,6 +451,25 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=403, detail="Guild non autorisée")
         session.selected_guild_id = resolved_guild_id
         return {"ok": True, "selected_guild_id": str(resolved_guild_id)}
+
+    @app.get("/api/user/preferences/craft", response_model=CraftUserPreferencesDTO)
+    def get_craft_user_preferences(request: Request):
+        if oauth_service is None:
+            raise _oauth_not_configured_error()
+        session = require_session(request, oauth_service)
+        row = store.get_dashboard_user_profile(int(session.user.get("id", "0") or "0"), "craft")
+        if not isinstance(row, dict):
+            return CraftUserPreferencesDTO()
+        return CraftUserPreferencesDTO(**row)
+
+    @app.put("/api/user/preferences/craft", response_model=CraftUserPreferencesDTO)
+    def put_craft_user_preferences(payload: CraftUserPreferencesDTO, request: Request):
+        session = ensure_csrf_for_mutation(request)
+        user_id = int(session.user.get("id", "0") or "0")
+        if user_id <= 0:
+            raise HTTPException(status_code=400, detail="Utilisateur invalide")
+        store.set_dashboard_user_profile(user_id, "craft", payload.model_dump())
+        return payload
 
     @app.get("/api/guilds")
     def list_guilds():
@@ -468,14 +577,29 @@ def create_app() -> FastAPI:
     @app.post("/api/craft/simulate", response_model=CraftSimulationResultDTO)
     async def simulate_craft(payload: CraftSimulationRequestDTO):
         try:
-            item_detail = await albion_provider.get_item_detail(payload.item_id)
+            base_item_id, _ = albion_provider.split_enchanted_item_id(payload.item_id)
+            resolved_item_id = await albion_provider.resolve_item_id_for_enchantment(base_item_id, payload.enchantment_level)
+            try:
+                item_detail = await albion_provider.get_item_detail(resolved_item_id)
+            except AlbionProviderError as exc:
+                if payload.enchantment_level > 0 and exc.code in {"item_not_found", "item_detail_unreachable"}:
+                    item_detail = await albion_provider.get_item_detail(base_item_id)
+                    resolved_item_id = base_item_id
+                else:
+                    raise
+
             item = item_detail["item"]
             if not item.get("craftable", False):
                 raise CraftSimulationError("item_not_craftable", "L'item cible n'est pas craftable")
 
-            location = CRAFT_LOCATION_BONUSES.get(payload.location_key)
-            if location is None:
-                raise CraftSimulationError("invalid_location", "location_key inconnu", details={"location_key": payload.location_key})
+            location = _resolve_craft_location_bonuses(
+                location_key=payload.location_key,
+                item_category=str(item.get("category", "")),
+                city_key=payload.city_key,
+                hideout_biome_key=payload.hideout_biome_key,
+                hideout_territory_level=payload.hideout_territory_level,
+                hideout_zone_quality=payload.hideout_zone_quality,
+            )
 
             items, recipes = await albion_provider.get_catalog_snapshot()
             names_by_item_id = {row["id"]: row.get("name", row["id"]) for row in items}
@@ -490,15 +614,15 @@ def create_app() -> FastAPI:
                     raise CraftSimulationError(
                         "invalid_focus_cost",
                         "Coût focus invalide pour cet item.",
-                        details={"item_id": payload.item_id, "raw_value": raw_focus_cost},
+                        details={"item_id": resolved_item_id, "raw_value": raw_focus_cost},
                     ) from exc
                 if parsed_focus_cost <= 0:
                     raise CraftSimulationError(
                         "invalid_focus_cost",
                         "Coût focus invalide pour cet item.",
-                        details={"item_id": payload.item_id, "raw_value": raw_focus_cost},
+                        details={"item_id": resolved_item_id, "raw_value": raw_focus_cost},
                     )
-                base_focus_cost_by_item_id[payload.item_id] = parsed_focus_cost
+                base_focus_cost_by_item_id[resolved_item_id] = parsed_focus_cost
 
             if store is not None:
                 for candidate_id in recipes.keys():
@@ -514,12 +638,15 @@ def create_app() -> FastAPI:
                     if row_focus_cost > 0:
                         base_focus_cost_by_item_id[candidate_id] = row_focus_cost
 
+            specialization_by_item_id = dict(payload.item_specializations)
+            specialization_by_item_id.setdefault(resolved_item_id, specialization_by_item_id.get(base_item_id, 0))
+
             simulation = simulate_crafting(
                 simulation_input=CraftSimulationInput(
-                    item_id=payload.item_id,
+                    item_id=resolved_item_id,
                     quantity=payload.quantity,
                     category_mastery_level=payload.category_mastery_level,
-                    item_specializations=payload.item_specializations,
+                    item_specializations=specialization_by_item_id,
                     available_focus=payload.available_focus,
                     base_focus_cost_by_item_id=base_focus_cost_by_item_id,
                     item_category_by_item_id={row["id"]: str(row.get("category", "")) for row in items},
@@ -539,7 +666,7 @@ def create_app() -> FastAPI:
             )
 
             return {
-                "item_id": payload.item_id,
+                "item_id": resolved_item_id,
                 "focus_efficiency": simulation.focus_efficiency,
                 "focus_per_item": simulation.focus_per_item,
                 "total_focus": simulation.total_focus,
