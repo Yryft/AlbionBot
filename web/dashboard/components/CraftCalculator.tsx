@@ -197,6 +197,21 @@ export default function CraftCalculator() {
     return items.filter((item) => `${item.name} ${item.id} T${item.tier} @${item.enchant}`.toLowerCase().includes(q));
   }, [items, search]);
 
+  const hasValidSelectedItem = filteredItems.some((item) => item.id === selectedItemId);
+
+  useEffect(() => {
+    if (filteredItems.length === 0) {
+      setSimulation(null);
+      setProfitability(null);
+      setError('Aucun item correspondant');
+      return;
+    }
+
+    if (!hasValidSelectedItem) {
+      setSelectedItemId(filteredItems[0].id);
+    }
+  }, [filteredItems, hasValidSelectedItem]);
+
   const availableEnchantments = useMemo(() => {
     const selected = items.find((row) => row.id === selectedItemId);
     if (!selected) return [0];
@@ -247,7 +262,7 @@ export default function CraftCalculator() {
   }, [prefsLoaded, selectedItemId, enchantmentLevel, quantity, categoryMasteryLevel, targetSpecializationLevel, locationKey, cityKey, hideoutBiomeKey, hideoutTerritoryLevel, hideoutZoneQuality, availableFocus, useFocus, taxRate, focusUnitPrice, journalUnitPrice, saleUnitPrice, pricingMode]);
 
   useEffect(() => {
-    if (!selectedItemId) return;
+    if (!hasValidSelectedItem) return;
     setError('');
 
     async function run() {
@@ -310,7 +325,7 @@ export default function CraftCalculator() {
       setProfitability(null);
       setError(resolveCraftApiErrorMessage(caughtError));
     });
-  }, [selectedItemId, enchantmentLevel, quantity, categoryMasteryLevel, targetSpecializationLevel, locationKey, cityKey, hideoutBiomeKey, hideoutTerritoryLevel, hideoutZoneQuality, availableFocus, useFocus, pricingMode, materialPrices, journalUnitPrice, saleUnitPrice, taxRate, focusUnitPrice]);
+  }, [hasValidSelectedItem, selectedItemId, enchantmentLevel, quantity, categoryMasteryLevel, targetSpecializationLevel, locationKey, cityKey, hideoutBiomeKey, hideoutTerritoryLevel, hideoutZoneQuality, availableFocus, useFocus, pricingMode, materialPrices, journalUnitPrice, saleUnitPrice, taxRate, focusUnitPrice]);
 
   const marketPrefillAvailable = Object.keys(marketPriceHints).length > 0;
 
@@ -321,9 +336,10 @@ export default function CraftCalculator() {
           Rechercher un item
           <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ex: cleric, sword, T6..." />
         </label>
+        {filteredItems.length === 0 && <p className="muted">Aucun item correspondant</p>}
         <label>
           Item
-          <select value={selectedItemId} onChange={(e) => setSelectedItemId(e.target.value)}>
+          <select value={selectedItemId} onChange={(e) => setSelectedItemId(e.target.value)} disabled={!hasValidSelectedItem}>
             {filteredItems.map((item) => (
               <option key={item.id} value={item.id}>{item.name} · T{item.tier} · @{item.enchant} · {item.category}</option>
             ))}
