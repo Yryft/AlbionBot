@@ -164,13 +164,19 @@ Nouveaux endpoints backend:
 - `POST /api/admin/craft/cache/invalidate?guild_id=<id>`: invalidation manuelle cache (admin serveur + CSRF).
 
 Variables d'environnement associées:
-- `ALBION_PROVIDER_URL` (source catalogue/recettes),
+- `ALBION_PROVIDER_URL` (source catalogue/recettes, optionnelle),
+- `ALBION_ITEMS_LIST_URL` (source IDs item pour autocomplete massif, défaut `ao-bin-dumps`),
+- `ALBION_ITEM_DETAILS_URL_TEMPLATE` (URL template de détail item `{item_id}` pour recette/icone à la demande, typiquement l'API Tools4Albion),
 - `ALBION_PROVIDER_TIMEOUT_SECONDS` (timeout HTTP),
 - `ALBION_ICON_BASE_URL` (mapping icônes),
 - `ALBION_CACHE_MEMORY_TTL_SECONDS` (TTL cache mémoire),
 - `ALBION_CACHE_SNAPSHOT_PATH` (snapshot persistant warm start/fallback),
 - `ALBION_SYNC_INTERVAL_SECONDS` (job de sync périodique).
 
+
+Stratégie conseillée:
+- index/autocomplete via dump `ao-bin-dumps` (`items.txt`),
+- détails/recettes à la demande via endpoint item de Tools4Albion (template `{item_id}`).
 
 ## Calculateur craft & rentabilité
 

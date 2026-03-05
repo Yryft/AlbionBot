@@ -61,3 +61,100 @@ def test_albion_provider_fallback_snapshot_when_sync_fails(tmp_path, monkeypatch
 
     rows = _run(provider.search_items("planks", 5))
     assert rows[0]["id"] == "T4_PLANKS"
+
+
+def test_albion_provider_merges_items_list_source(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_ITEMS_LIST_URL", "https://provider.example/items.txt")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    provider = AlbionProviderService()
+
+    async def fake_fetch_items_list():
+        return [
+            {"id": "T4_BAG", "name": "T4_BAG", "tier": 0, "enchant": 0, "icon": "https://icons/T4_BAG.png", "category": "unknown", "craftable": True},
+            {"id": "T5_CAPE", "name": "T5_CAPE", "tier": 0, "enchant": 0, "icon": "https://icons/T5_CAPE.png", "category": "unknown", "craftable": True},
+        ]
+
+    monkeypatch.setattr(provider, "_fetch_items_list", fake_fetch_items_list)
+    _run(provider.refresh(force=True))
+
+    rows = _run(provider.search_items("cape", 10))
+    assert len(rows) == 1
+    assert rows[0]["id"] == "T5_CAPE"
+
+
+def test_albion_provider_fetches_item_detail_on_demand(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_ITEMS_LIST_URL", "")
+    monkeypatch.setenv("ALBION_ITEM_DETAILS_URL_TEMPLATE", "https://provider.example/items/{item_id}")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    provider = AlbionProviderService()
+    provider._items_cache = [
+        {"id": "T4_BAG", "name": "T4_BAG", "tier": 0, "enchant": 0, "icon": "https://icons/T4_BAG.png", "category": "unknown", "craftable": True}
+    ]
+
+    async def fake_fetch_item_detail(item_id: str):
+        assert item_id == "T4_BAG"
+        return {
+            "item": {"name": "Adept's Bag", "tier": 4, "enchant": 0, "category": "bag", "craftable": True},
+            "recipe": [{"item_id": "T4_CLOTH", "item_name": "Simple Cloth", "quantity": 8}],
+        }
+
+    monkeypatch.setattr(provider, "_fetch_item_detail", fake_fetch_item_detail)
+
+    detail = _run(provider.get_item_detail("T4_BAG"))
+    assert detail["item"]["name"] == "Adept's Bag"
+    assert detail["recipe"][0]["item_id"] == "T4_CLOTH"
+
+
+
+def test_albion_provider_errors_when_no_source_and_no_cache(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_ITEMS_LIST_URL", "")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    provider = AlbionProviderService()
+
+    try:
+        _run(provider.refresh(force=True))
+        assert False, "refresh should fail when no source is configured"
+    except AlbionProviderError as exc:
+        assert exc.code == "provider_not_configured"
+
+
+def test_albion_provider_normalizes_list_payload_detail(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_ITEMS_LIST_URL", "")
+    monkeypatch.setenv("ALBION_ITEM_DETAILS_URL_TEMPLATE", "https://provider.example/items/{item_id}")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    provider = AlbionProviderService()
+    provider._items_cache = [
+        {"id": "T6_CAPE", "name": "T6_CAPE", "tier": 0, "enchant": 0, "icon": "https://icons/T6_CAPE.png", "category": "unknown", "craftable": True}
+    ]
+
+    async def fake_fetch_item_detail(item_id: str):
+        assert item_id == "T6_CAPE"
+        return {
+            "item": {
+                "ItemTypeId": "T6_CAPE",
+                "LocalizedName": "Master's Cape",
+                "Icon": "https://icons/T6_CAPE.png",
+                "Tier": 6,
+            },
+            "CraftingRequirements": [
+                {"ItemTypeId": "T6_CLOTH", "LocalizedName": "Master's Cloth", "Count": 8}
+            ],
+        }
+
+    monkeypatch.setattr(provider, "_fetch_item_detail", fake_fetch_item_detail)
+
+    detail = _run(provider.get_item_detail("T6_CAPE"))
+    assert detail["item"]["name"] == "Master's Cape"
+    assert detail["recipe"][0]["item_id"] == "T6_CLOTH"

@@ -347,7 +347,9 @@ Le backend dashboard expose désormais des endpoints de lecture craft (`/api/cra
 
 | Variable | Obligatoire | Rôle |
 |---|---:|---|
-| `ALBION_PROVIDER_URL` | ✅ | Endpoint JSON du provider Albion (catalogue + recettes) |
+| `ALBION_PROVIDER_URL` | optionnel | Endpoint JSON du provider Albion (catalogue + recettes) |
+| `ALBION_ITEMS_LIST_URL` | optionnel | Source texte des IDs item (défaut: dump `ao-bin-dumps`) pour enrichir l’autocomplete |
+| `ALBION_ITEM_DETAILS_URL_TEMPLATE` | optionnel | Template URL détail item (ex: endpoint Tools4Albion avec `{item_id}`) utilisé si recette absente du cache |
 | `ALBION_PROVIDER_TIMEOUT_SECONDS` | optionnel | Timeout HTTP provider (défaut: `8`) |
 | `ALBION_ICON_BASE_URL` | optionnel | Base URL de rendu des icônes item (défaut: `https://render.albiononline.com/v1/item`) |
 | `ALBION_CACHE_MEMORY_TTL_SECONDS` | optionnel | TTL cache mémoire pour requêtes fréquentes (défaut: `300`) |
@@ -359,6 +361,13 @@ Comportement:
 - snapshot disque rechargé au démarrage,
 - endpoint admin d'invalidation manuelle `POST /api/admin/craft/cache/invalidate?guild_id=<id>` (admin Discord + CSRF),
 - fallback automatique sur le dernier snapshot valide en cas d'échec du provider externe.
+- fusion des sources possible: catalogue/recettes via `ALBION_PROVIDER_URL` + liste massive d'items via `ALBION_ITEMS_LIST_URL` pour améliorer l'autocomplete.
+- récupération paresseuse du détail d'un item via `ALBION_ITEM_DETAILS_URL_TEMPLATE` si la recette n'est pas encore en cache.
+
+Exemple de stratégie recommandée:
+- `ALBION_ITEMS_LIST_URL` -> `https://raw.githubusercontent.com/broderickhyman/ao-bin-dumps/master/formatted/items.txt` (index massif pour autocomplete),
+- `ALBION_ITEM_DETAILS_URL_TEMPLATE` -> endpoint item unitaire de l'API Tools4Albion (`{item_id}`) pour charger recette/metadata au besoin.
+
 
 ### Simulation craft (backend domain)
 
