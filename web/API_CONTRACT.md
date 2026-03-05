@@ -28,7 +28,7 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
 - `GuildPermissionBindingDTO`: `{ permission_key, role_ids[], user_ids[] }` pour configurer les permissions bot par rôle et membre.
 - `CraftItemDTO`: `{ id, name, tier, enchant, icon, category, craftable }`
 - `CraftLocationBonusDTO`: `{ location_key, location_name, is_hideout, return_rate_bonus, focus_bonus, craft_fee }`
-- `CraftSimulationRequestDTO`: `{ item_id, quantity, mastery_level, specialization_level, location_key, available_focus }`
+- `CraftSimulationRequestDTO`: `{ item_id, quantity, category_mastery_level, item_specializations, location_key, available_focus, use_focus }`
 - `CraftSimulationResultDTO`: `{ item_id, focus_efficiency, focus_per_item, total_focus, items_craftable_with_available_focus, base_materials[], intermediate_materials[], applied_yields }`
   - `base_materials[]`: `{ item_id, item_name, gross_quantity, net_quantity }` (matériaux bruts non craftables)
   - `intermediate_materials[]`: `{ item_id, item_name, gross_quantity, net_quantity }` (intermédiaires craftables)
@@ -56,11 +56,15 @@ Le backend conserve des entiers en interne si nécessaire, puis convertit explic
 ### Formules & hypothèses craft simulation
 
 - Validation stricte:
-  - `quantity > 0`, `0 <= mastery_level <= 100`, `0 <= specialization_level <= 100`, `available_focus >= 0`, `location_key` connu.
+  - `quantity > 0`, `0 <= category_mastery_level <= 100`, chaque niveau de `item_specializations` borné `0..100`, `available_focus >= 0`, `location_key` connu.
   - l'item cible doit être `craftable=true`.
-- Efficacité focus: `focus_efficiency = min(0.5, mastery_level*0.002 + specialization_level*0.003)`.
-- Coût focus unitaire: `focus_per_item = ceil(base_focus_cost * (1 - focus_efficiency))` (min 1).
-- Coût focus total: `total_focus = focus_per_item * quantity`.
+- Efficacité focus cible: `focus_efficiency_target = min(0.5, category_mastery_level*0.002 + specialization_item_cible*0.003)`.
+- Coût focus unitaire cible: `focus_per_item = ceil(base_focus_cost_target * (1 - focus_efficiency_target))` (min 1).
+- Coût focus total agrégé: somme du focus cible + intermédiaires craftables ayant un focus cost connu.
+  - pour chaque intermédiaire: `eff = min(0.5, category_mastery_appliquée*0.002 + specialization_intermediaire*0.003)`
+  - `category_mastery_appliquée = category_mastery_level` uniquement si l'intermédiaire est dans la même catégorie que l'item cible, sinon `0`.
+  - `focus_intermediaire = ceil(base_focus_cost_intermediaire * (1 - eff)) * quantite_intermediaire`.
+
 - Rendement total: `total_return_rate = clamp(base + location + hideout + bonus + (focus_bonus si use_focus), 0, 0.95)`.
 - Matériaux nets: `net_quantity = ceil(gross_quantity * (1 - total_return_rate))`.
 - Multi-étapes:

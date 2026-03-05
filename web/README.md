@@ -199,3 +199,31 @@ API associée:
 - `POST /api/craft/simulate`: calcule les quantités brutes/nettes et le focus,
 - `POST /api/craft/profitability`: agrège les prix d'entrée et retourne un breakdown ligne par ligne + KPI de rentabilité.
 
+
+## Formule détaillée de focus (version agrégée)
+
+Le endpoint `POST /api/craft/simulate` consomme:
+- `category_mastery_level` (0..100)
+- `item_specializations` (`{ item_id: level }`, chaque level borné 0..100)
+
+Formule appliquée:
+
+- `eff(item) = min(0.5, mastery_cat_appliquee(item)*0.002 + spec_item(item)*0.003)`
+- `focus_unit(item) = ceil(base_focus_cost(item) * (1 - eff(item)))` (min 1)
+- `total_focus = focus_cible + somme(focus_intermediaires_craftables_avec_focus_cost)`
+
+Règle `mastery_cat_appliquee(item)`:
+- item cible: `category_mastery_level`
+- intermédiaire craftable:
+  - même catégorie que la cible: `category_mastery_level`
+  - catégorie différente: `0`
+
+### Exemple chiffré
+- Cible: `base_focus_cost=100`, `category_mastery=100`, `spec=100`.
+  - `eff=0.5` ⇒ `focus_unit=50`.
+- Intermédiaire craftable: `base_focus_cost=60`, même catégorie, `spec=50`, quantité `20`.
+  - `eff= min(0.5, 100*0.002 + 50*0.003)=0.35`
+  - `focus_unit=ceil(60*0.65)=39`
+  - `focus_intermediaire=39*20=780`
+- Si quantité cible `10`: `focus_cible=50*10=500`
+- `total_focus=500+780=1280`

@@ -170,6 +170,34 @@ class AlbionProviderService:
             return False
         return default
 
+
+    @staticmethod
+    def _infer_category_from_item_id(item_id: str) -> str:
+        normalized = item_id.upper()
+        category_markers = (
+            ("holy_staff", "_2H_HOLYSTAFF"),
+            ("fire_staff", "_2H_FIRESTAFF"),
+            ("frost_staff", "_2H_FROSTSTAFF"),
+            ("arcane_staff", "_2H_ARCANESTAFF"),
+            ("cursed_staff", "_2H_CURSEDSTAFF"),
+            ("nature_staff", "_2H_NATURESTAFF"),
+            ("sword", "_2H_CLAYMORE"),
+            ("sword", "_2H_DUALSWORD"),
+            ("sword", "_2H_CLEAVER_HELL"),
+            ("sword", "_MAIN_SWORD"),
+        )
+        for category, marker in category_markers:
+            if marker in normalized:
+                return category
+        return "unknown"
+
+    def _normalize_category(self, category: str, item_id: str) -> str:
+        normalized = str(category or "").strip().lower()
+        if normalized and normalized != "unknown":
+            return normalized
+        inferred = self._infer_category_from_item_id(item_id)
+        return inferred
+
     def _normalize_item(self, row: dict[str, Any]) -> dict[str, Any]:
         item_id = str(
             row.get("id")
@@ -188,7 +216,7 @@ class AlbionProviderService:
         ).strip()
         tier = self._to_int(row.get("tier") or row.get("Tier") or 0)
         enchant = self._to_int(row.get("enchant") or row.get("EnchantmentLevel") or row.get("enchantment") or 0)
-        category = str(row.get("category") or row.get("Category") or "unknown")
+        category = self._normalize_category(str(row.get("category") or row.get("Category") or "unknown"), item_id)
         craftable = self._to_bool(row.get("craftable") if "craftable" in row else row.get("Craftable"), default=True)
         if not item_id:
             raise AlbionProviderError("provider_invalid_payload", "Item provider sans identifiant")
@@ -218,7 +246,7 @@ class AlbionProviderService:
                     "tier": 0,
                     "enchant": 0,
                     "icon": self._item_icon(item_id),
-                    "category": "unknown",
+                    "category": self._normalize_category("unknown", item_id),
                     "craftable": True,
                 }
             )
