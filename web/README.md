@@ -187,6 +187,7 @@ Source de vérité focus cost:
 
 Endpoints provider intégrés en dur:
 - index/autocomplete via dump `ao-bin-dumps` (`https://raw.githubusercontent.com/ao-data/ao-bin-dumps/master/formatted/items.txt`),
+- parsing strict des lignes `items.txt`: suppression d'un préfixe humain `1234:` puis extraction explicite des IDs Albion (`T...` / `UNIQUE_...`, suffixe `@n` accepté), avec rejet des lignes invalides (debug log),
 - détails/recettes à la demande via `https://www.tools4albion.com/api_info.php?item_id={item_id}`.
 
 Stockage/sync:

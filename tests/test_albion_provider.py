@@ -199,6 +199,70 @@ def test_albion_provider_infers_weapon_category_from_item_id(tmp_path, monkeypat
     assert rows[0]["category"] == "holy_staff"
 
 
+def test_albion_provider_parses_prefixed_item_id_from_items_list(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    provider = AlbionProviderService()
+    rows = provider._parse_items_list_text("1001: T6_HIDE_LEVEL1@1\n")
+
+    assert len(rows) == 1
+    assert rows[0]["id"] == "T6_HIDE_LEVEL1@1"
+
+
+def test_albion_provider_keeps_normal_items_list_line_unchanged(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    provider = AlbionProviderService()
+    rows = provider._parse_items_list_text("T5_CAPE\n")
+
+    assert len(rows) == 1
+    assert rows[0]["id"] == "T5_CAPE"
+
+
+def test_albion_provider_ignores_invalid_items_list_line(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    provider = AlbionProviderService()
+    rows = provider._parse_items_list_text("1001: not-an-item\n")
+
+    assert rows == []
+
+
+def test_albion_provider_search_returns_clean_item_id_for_detail_fetch(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    provider = AlbionProviderService()
+
+    async def fake_fetch_items_list():
+        return provider._parse_items_list_text("1001: T6_HIDE_LEVEL1@1\n")
+
+    async def fake_fetch_item_detail(item_id: str):
+        assert item_id == "T6_HIDE_LEVEL1@1"
+        return {
+            "item": {"ItemTypeId": item_id, "LocalizedName": "Hide"},
+            "recipe": [{"item_id": "T6_HIDE", "item_name": "Hide", "quantity": 1}],
+        }
+
+    monkeypatch.setattr(provider, "_fetch_items_list", fake_fetch_items_list)
+    monkeypatch.setattr(provider, "_fetch_item_detail", fake_fetch_item_detail)
+
+    _run(provider.refresh(force=True))
+    rows = _run(provider.search_items("HIDE_LEVEL1", 10))
+
+    assert rows[0]["id"] == "T6_HIDE_LEVEL1@1"
+
+    detail = _run(provider.get_item_detail(rows[0]["id"]))
+    assert detail["recipe"][0]["item_id"] == "T6_HIDE"
+
+
 def test_albion_provider_normalizes_enchanted_item_id_suffix(tmp_path, monkeypatch):
     snapshot = tmp_path / "albion_snapshot.json"
     monkeypatch.setenv("ALBION_PROVIDER_URL", "")

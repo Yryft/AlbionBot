@@ -6,6 +6,7 @@ import logging
 import os
 import time
 import hashlib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 AO_BIN_DUMPS_ITEMS_LIST_URL = "https://raw.githubusercontent.com/ao-data/ao-bin-dumps/master/formatted/items.txt"
 TOOLS4ALBION_ITEM_DETAILS_URL_TEMPLATE = "https://www.tools4albion.com/api_info.php?item_id={item_id}"
+ITEMS_LIST_LINE_PREFIX_PATTERN = re.compile(r"^\s*\d+\s*:\s*")
+ITEMS_LIST_TOKEN_PATTERN = re.compile(r'\b((?:T\d+_[A-Z0-9_]+|UNIQUE_[A-Z0-9_]+)(?:@\d+)?)\b')
 
 
 @dataclass(frozen=True)
@@ -261,12 +264,15 @@ class AlbionProviderService:
     def _parse_items_list_text(self, payload: str) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for raw_line in payload.splitlines():
-            line = raw_line.strip()
+            cleaned_line = ITEMS_LIST_LINE_PREFIX_PATTERN.sub("", raw_line)
+            line = cleaned_line.strip()
             if not line or line.startswith("#") or line.startswith("//"):
                 continue
-            item_id = line.split(";", 1)[0].split(",", 1)[0].strip().strip('"')
-            if not item_id:
+            match = ITEMS_LIST_TOKEN_PATTERN.search(line)
+            if not match:
+                logger.debug("Ignoring invalid items list line: %r", raw_line)
                 continue
+            item_id = match.group(1)
             rows.append(
                 {
                     "id": item_id,
