@@ -13,6 +13,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+AO_BIN_DUMPS_ITEMS_LIST_URL = "https://raw.githubusercontent.com/broderickhyman/ao-bin-dumps/master/formatted/items.txt"
+TOOLS4ALBION_ITEM_DETAILS_URL_TEMPLATE = "https://www.tools4albion.com/api_info.php?item_id={item_id}"
+
 
 @dataclass(frozen=True)
 class CraftItem:
@@ -49,11 +52,8 @@ class AlbionProviderError(RuntimeError):
 class AlbionProviderService:
     def __init__(self) -> None:
         self.provider_url = os.getenv("ALBION_PROVIDER_URL", "").strip()
-        self.items_list_url = os.getenv(
-            "ALBION_ITEMS_LIST_URL",
-            "https://raw.githubusercontent.com/broderickhyman/ao-bin-dumps/master/formatted/items.txt",
-        ).strip()
-        self.item_details_url_template = os.getenv("ALBION_ITEM_DETAILS_URL_TEMPLATE", "").strip()
+        self.items_list_url = AO_BIN_DUMPS_ITEMS_LIST_URL
+        self.item_details_url_template = TOOLS4ALBION_ITEM_DETAILS_URL_TEMPLATE
         self.icon_base_url = os.getenv("ALBION_ICON_BASE_URL", "https://render.albiononline.com/v1/item").strip().rstrip("/")
         self.timeout_s = float(os.getenv("ALBION_PROVIDER_TIMEOUT_SECONDS", "8"))
         self.memory_ttl_s = int(os.getenv("ALBION_CACHE_MEMORY_TTL_SECONDS", "300"))
