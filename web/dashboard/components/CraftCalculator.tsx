@@ -57,8 +57,8 @@ export default function CraftCalculator() {
   const [search, setSearch] = useState('');
   const [selectedItemId, setSelectedItemId] = useState('');
   const [quantity, setQuantity] = useState(1);
-  const [masteryLevel, setMasteryLevel] = useState(0);
-  const [specializationLevel, setSpecializationLevel] = useState(0);
+  const [categoryMasteryLevel, setCategoryMasteryLevel] = useState(0);
+  const [targetSpecializationLevel, setTargetSpecializationLevel] = useState(0);
   const [locationKey, setLocationKey] = useState('city');
   const [availableFocus, setAvailableFocus] = useState(30000);
   const [useFocus, setUseFocus] = useState(true);
@@ -110,8 +110,8 @@ export default function CraftCalculator() {
         body: JSON.stringify({
           item_id: selectedItemId,
           quantity,
-          mastery_level: masteryLevel,
-          specialization_level: specializationLevel,
+          category_mastery_level: categoryMasteryLevel,
+          item_specializations: { [selectedItemId]: targetSpecializationLevel },
           location_key: locationKey,
           available_focus: availableFocus,
           use_focus: useFocus,
@@ -154,7 +154,7 @@ export default function CraftCalculator() {
       setProfitability(null);
       setError('Simulation indisponible. Vérifie la configuration API/provider.');
     });
-  }, [selectedItemId, quantity, masteryLevel, specializationLevel, locationKey, availableFocus, useFocus, pricingMode, materialPrices, journalUnitPrice, saleUnitPrice, taxRate, focusUnitPrice]);
+  }, [selectedItemId, quantity, categoryMasteryLevel, targetSpecializationLevel, locationKey, availableFocus, useFocus, pricingMode, materialPrices, journalUnitPrice, saleUnitPrice, taxRate, focusUnitPrice]);
 
   const marketPrefillAvailable = Object.keys(marketPriceHints).length > 0;
 
@@ -187,8 +187,8 @@ export default function CraftCalculator() {
       </div>
 
       <div className="craft-controls craft-bonus-grid">
-        <label>Mastery <input type="number" min={0} max={100} value={masteryLevel} onChange={(e) => setMasteryLevel(Math.max(0, Number(e.target.value) || 0))} /></label>
-        <label>Specialization <input type="number" min={0} max={100} value={specializationLevel} onChange={(e) => setSpecializationLevel(Math.max(0, Number(e.target.value) || 0))} /></label>
+        <label>Mastery catégorie <input type="number" min={0} max={100} value={categoryMasteryLevel} onChange={(e) => setCategoryMasteryLevel(Math.max(0, Number(e.target.value) || 0))} /></label>
+        <label>Spécialisation item cible <input type="number" min={0} max={100} value={targetSpecializationLevel} onChange={(e) => setTargetSpecializationLevel(Math.max(0, Number(e.target.value) || 0))} /></label>
         <label>Location
           <select value={locationKey} onChange={(e) => setLocationKey(e.target.value)}>
             <option value="none">Sans bonus</option>

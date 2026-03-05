@@ -24,11 +24,13 @@ class FocusYieldConfig:
 
 @dataclass(frozen=True)
 class CraftSimulationInput:
+    item_id: str
     quantity: int
-    mastery_level: int
-    specialization_level: int
+    category_mastery_level: int
+    item_specializations: dict[str, int]
     available_focus: int
-    base_focus_cost: int
+    base_focus_cost_by_item_id: dict[str, int]
+    item_category_by_item_id: dict[str, str]
     use_focus: bool
     yields: FocusYieldConfig
 
@@ -61,6 +63,14 @@ def calculate_focus_efficiency(mastery_level: int, specialization_level: int) ->
     _validate_level(mastery_level, "mastery_level")
     _validate_level(specialization_level, "specialization_level")
     efficiency = (mastery_level * 0.002) + (specialization_level * 0.003)
+    return min(0.5, max(0.0, efficiency))
+
+
+def calculate_aggregated_focus_efficiency(category_mastery_level: int, item_specialization_level: int) -> float:
+    """Retourne une efficacité [0, 0.5] agrégée catégorie + spécialisation item."""
+    _validate_level(category_mastery_level, "category_mastery_level")
+    _validate_level(item_specialization_level, "item_specialization_level")
+    efficiency = (category_mastery_level * 0.002) + (item_specialization_level * 0.003)
     return min(0.5, max(0.0, efficiency))
 
 
@@ -114,20 +124,11 @@ def simulate_crafting(
     craftable_by_item_id: Dict[str, bool],
     names_by_item_id: Dict[str, str],
 ) -> CraftSimulationResult:
-    _validate_level(simulation_input.mastery_level, "mastery_level")
-    _validate_level(simulation_input.specialization_level, "specialization_level")
+    _validate_level(simulation_input.category_mastery_level, "category_mastery_level")
+    for item_id, specialization in simulation_input.item_specializations.items():
+        _validate_level(specialization, f"item_specializations[{item_id}]")
     if simulation_input.available_focus < 0:
         raise CraftSimulationError("invalid_available_focus", "Le focus disponible ne peut pas être négatif")
-
-    focus_efficiency = calculate_focus_efficiency(
-        simulation_input.mastery_level,
-        simulation_input.specialization_level,
-    )
-    focus_per_item, total_focus = calculate_focus_costs(
-        simulation_input.quantity,
-        simulation_input.base_focus_cost,
-        focus_efficiency,
-    )
 
     base_totals, intermediate_totals = expand_materials(
         recipe=recipe,
@@ -137,6 +138,44 @@ def simulate_crafting(
         names_by_item_id=names_by_item_id,
     )
 
+    target_category = simulation_input.item_category_by_item_id.get(simulation_input.item_id, "")
+    target_specialization = simulation_input.item_specializations.get(simulation_input.item_id, 0)
+    target_efficiency = calculate_aggregated_focus_efficiency(
+        simulation_input.category_mastery_level,
+        target_specialization,
+    )
+    target_base_focus_cost = simulation_input.base_focus_cost_by_item_id.get(simulation_input.item_id)
+    if target_base_focus_cost is None or int(target_base_focus_cost) <= 0:
+        raise CraftSimulationError(
+            "missing_focus_cost",
+            "Coût focus introuvable pour l'item cible.",
+            details={"item_id": simulation_input.item_id},
+        )
+
+    focus_per_item, total_focus = calculate_focus_costs(
+        simulation_input.quantity,
+        int(target_base_focus_cost),
+        target_efficiency,
+    )
+
+    if simulation_input.use_focus:
+        for intermediate_item_id, gross_quantity in intermediate_totals.items():
+            intermediate_base_cost = simulation_input.base_focus_cost_by_item_id.get(intermediate_item_id)
+            if intermediate_base_cost is None or int(intermediate_base_cost) <= 0:
+                continue
+            intermediate_category = simulation_input.item_category_by_item_id.get(intermediate_item_id, "")
+            category_mastery = simulation_input.category_mastery_level if intermediate_category == target_category else 0
+            efficiency = calculate_aggregated_focus_efficiency(
+                category_mastery,
+                simulation_input.item_specializations.get(intermediate_item_id, 0),
+            )
+            _, intermediate_total_focus = calculate_focus_costs(
+                quantity=gross_quantity,
+                base_focus_cost=int(intermediate_base_cost),
+                focus_efficiency=efficiency,
+            )
+            total_focus += intermediate_total_focus
+
     total_return_rate = _compute_total_return_rate(simulation_input.yields, simulation_input.use_focus)
 
     base_materials = _to_material_rows(base_totals, names_by_item_id, total_return_rate)
@@ -145,7 +184,7 @@ def simulate_crafting(
     items_with_focus = simulation_input.quantity if not simulation_input.use_focus else simulation_input.available_focus // focus_per_item
 
     return CraftSimulationResult(
-        focus_efficiency=focus_efficiency,
+        focus_efficiency=target_efficiency,
         focus_per_item=focus_per_item,
         total_focus=total_focus,
         items_craftable_with_available_focus=max(0, items_with_focus),

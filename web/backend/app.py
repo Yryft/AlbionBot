@@ -481,35 +481,48 @@ def create_app() -> FastAPI:
             names_by_item_id = {row["id"]: row.get("name", row["id"]) for row in items}
             craftable_by_item_id = {row["id"]: bool(row.get("craftable", False)) for row in items}
 
+            base_focus_cost_by_item_id: dict[str, int] = {}
             raw_focus_cost = item_detail.get("metadata", {}).get("base_focus_cost")
-            if raw_focus_cost is None:
-                raise CraftSimulationError(
-                    "missing_focus_cost",
-                    "Coût focus introuvable pour cet item.",
-                    details={"item_id": payload.item_id},
-                )
-            try:
-                base_focus_cost = int(raw_focus_cost)
-            except (TypeError, ValueError) as exc:
-                raise CraftSimulationError(
-                    "invalid_focus_cost",
-                    "Coût focus invalide pour cet item.",
-                    details={"item_id": payload.item_id, "raw_value": raw_focus_cost},
-                ) from exc
-            if base_focus_cost <= 0:
-                raise CraftSimulationError(
-                    "invalid_focus_cost",
-                    "Coût focus invalide pour cet item.",
-                    details={"item_id": payload.item_id, "raw_value": raw_focus_cost},
-                )
+            if raw_focus_cost is not None:
+                try:
+                    parsed_focus_cost = int(raw_focus_cost)
+                except (TypeError, ValueError) as exc:
+                    raise CraftSimulationError(
+                        "invalid_focus_cost",
+                        "Coût focus invalide pour cet item.",
+                        details={"item_id": payload.item_id, "raw_value": raw_focus_cost},
+                    ) from exc
+                if parsed_focus_cost <= 0:
+                    raise CraftSimulationError(
+                        "invalid_focus_cost",
+                        "Coût focus invalide pour cet item.",
+                        details={"item_id": payload.item_id, "raw_value": raw_focus_cost},
+                    )
+                base_focus_cost_by_item_id[payload.item_id] = parsed_focus_cost
+
+            if store is not None:
+                for candidate_id in recipes.keys():
+                    if candidate_id in base_focus_cost_by_item_id:
+                        continue
+                    row = store.craft_get_focus_cost(candidate_id)
+                    if row is None:
+                        continue
+                    try:
+                        row_focus_cost = int(row.get("base_focus_cost", 0))
+                    except (TypeError, ValueError):
+                        continue
+                    if row_focus_cost > 0:
+                        base_focus_cost_by_item_id[candidate_id] = row_focus_cost
 
             simulation = simulate_crafting(
                 simulation_input=CraftSimulationInput(
+                    item_id=payload.item_id,
                     quantity=payload.quantity,
-                    mastery_level=payload.mastery_level,
-                    specialization_level=payload.specialization_level,
+                    category_mastery_level=payload.category_mastery_level,
+                    item_specializations=payload.item_specializations,
                     available_focus=payload.available_focus,
-                    base_focus_cost=base_focus_cost,
+                    base_focus_cost_by_item_id=base_focus_cost_by_item_id,
+                    item_category_by_item_id={row["id"]: str(row.get("category", "")) for row in items},
                     use_focus=payload.use_focus,
                     yields=FocusYieldConfig(
                         base_return_rate=0.152,

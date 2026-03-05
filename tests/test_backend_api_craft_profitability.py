@@ -40,8 +40,8 @@ def test_craft_profitability_returns_line_breakdown_and_totals(monkeypatch, tmp_
         json={
             "item_id": "ITEM_TEST",
             "quantity": 10,
-            "mastery_level": 0,
-            "specialization_level": 0,
+            "category_mastery_level": 0,
+            "item_specializations": {"ITEM_TEST": 0},
             "location_key": "none",
             "available_focus": 0,
             "use_focus": False,
@@ -125,8 +125,8 @@ def test_craft_simulate_errors_when_focus_cost_missing(monkeypatch, tmp_path):
         json={
             "item_id": "ITEM_TEST",
             "quantity": 10,
-            "mastery_level": 0,
-            "specialization_level": 0,
+            "category_mastery_level": 0,
+            "item_specializations": {"ITEM_TEST": 0},
             "location_key": "none",
             "available_focus": 0,
             "use_focus": False,

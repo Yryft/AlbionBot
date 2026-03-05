@@ -332,8 +332,8 @@ class CraftFocusCostEntryDTO(BaseModel):
 class CraftSimulationRequestDTO(BaseModel):
     item_id: str
     quantity: int = Field(gt=0, le=100000)
-    mastery_level: int = Field(ge=0, le=100)
-    specialization_level: int = Field(ge=0, le=100)
+    category_mastery_level: int = Field(ge=0, le=100)
+    item_specializations: dict[str, int] = Field(default_factory=dict)
     location_key: str = Field(default="none", min_length=1)
     available_focus: int = Field(ge=0)
     use_focus: bool = True

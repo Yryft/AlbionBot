@@ -213,8 +213,8 @@ export type CraftLocationBonusDTO = {
 export type CraftSimulationRequestDTO = {
   item_id: string;
   quantity: number;
-  mastery_level: number;
-  specialization_level: number;
+  category_mastery_level: number;
+  item_specializations: Record<string, number>;
   location_key: string;
   available_focus: number;
 };

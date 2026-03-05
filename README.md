@@ -397,3 +397,26 @@ Clés `location_key` supportées actuellement:
 - Endpoint backend `POST /api/craft/profitability` pour simuler la rentabilité à partir du résultat craft (`/api/craft/simulate`) + prix d'entrée utilisateur.
 - Retour détaillé pour l'UI: coûts par matériau, coût focus implicite, coût livre d'imbuer, revenu brut/net, profit et marge (%).
 - Front dashboard mis à jour avec formulaire de prix unitaires et récapitulatif financier complet.
+
+## Formule focus agrégée (catégorie + spécialisations)
+
+Le calculateur craft utilise désormais:
+
+1. **Efficacité focus item**
+   - `eff(item) = min(0.5, category_mastery_appliquee(item)*0.002 + specialization(item)*0.003)`
+2. **Focus unitaire item**
+   - `focus_unit(item) = ceil(base_focus_cost(item) * (1 - eff(item)))`, minimum `1`.
+3. **Focus total simulation**
+   - `focus_total = focus_cible + somme(focus_intermediaires_craftables_avec_focus_cost)`.
+   - Pour les intermédiaires d'une **autre catégorie** que l'item cible, `category_mastery_appliquee = 0`.
+
+### Exemple 1 (item unique)
+- `category_mastery_level = 50`, `specialization_cible = 80`, `base_focus_cost = 100`.
+- `eff = min(0.5, 50*0.002 + 80*0.003) = min(0.5, 0.34) = 0.34`.
+- `focus_unit = ceil(100 * 0.66) = 66`.
+
+### Exemple 2 (intermédiaire sans spécialisation renseignée)
+- Item cible holy staff, intermédiaire `T4_PLANK` sans entrée dans `item_specializations`.
+- Spécialisation intermédiaire par défaut `0`.
+- Si `T4_PLANK` n'est pas dans la même catégorie que l'item cible, maîtrise catégorie appliquée `0`.
+- Donc `eff(T4_PLANK)=0`, focus intermédiaire plein (coût brut).

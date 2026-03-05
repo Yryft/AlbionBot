@@ -186,3 +186,14 @@ def test_albion_provider_hydrates_focus_cost_metadata_from_store(tmp_path, monke
     detail = _run(provider.get_item_detail("T4_BAG"))
     assert detail["metadata"]["base_focus_cost"] == 222
     assert detail["metadata"]["base_focus_cost_source"] == "manual_test"
+
+
+def test_albion_provider_infers_weapon_category_from_item_id(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    provider = AlbionProviderService()
+    rows = provider._parse_items_list_text("T4_2H_HOLYSTAFF\n")
+
+    assert rows[0]["category"] == "holy_staff"
