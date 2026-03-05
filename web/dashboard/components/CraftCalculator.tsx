@@ -51,7 +51,64 @@ type ProfitabilityResponse = {
   margin_pct: number;
 };
 
+type ApiErrorDetail = {
+  code?: string;
+  message?: string;
+  details?: unknown;
+};
+
+class ApiRequestError extends Error {
+  status: number;
+  detail: ApiErrorDetail;
+
+  constructor(status: number, detail: ApiErrorDetail, fallbackMessage: string) {
+    super(detail.message || fallbackMessage);
+    this.name = 'ApiRequestError';
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+
+async function readApiError(response: Response, fallbackMessage: string) {
+  let detail: ApiErrorDetail = {};
+  try {
+    const payload: unknown = await response.json();
+    if (payload && typeof payload === 'object' && 'detail' in payload) {
+      const candidate = (payload as { detail?: unknown }).detail;
+      if (candidate && typeof candidate === 'object') {
+        const parsed = candidate as Record<string, unknown>;
+        detail = {
+          code: typeof parsed.code === 'string' ? parsed.code : undefined,
+          message: typeof parsed.message === 'string' ? parsed.message : undefined,
+          details: parsed.details,
+        };
+      }
+    }
+  } catch {
+    detail = {};
+  }
+
+  throw new ApiRequestError(response.status, detail, fallbackMessage);
+}
+
+function resolveCraftApiErrorMessage(error: unknown) {
+  if (!(error instanceof ApiRequestError)) {
+    return 'Simulation indisponible. Vérifie la configuration API/provider.';
+  }
+
+  switch (error.detail.code) {
+    case 'item_not_found':
+      return "L'item sélectionné est introuvable. Vérifie l'ID et l'enchantement.";
+    case 'missing_focus_cost':
+      return 'Le coût du focus est manquant. Renseigne un prix de focus valide.';
+    case 'provider_unreachable':
+      return 'Le provider de marché est injoignable. Réessaie dans quelques instants.';
+    default:
+      return error.detail.message || error.message;
+  }
+}
 
 export default function CraftCalculator() {
   const [items, setItems] = useState<CraftItem[]>([]);
@@ -212,7 +269,9 @@ export default function CraftCalculator() {
           use_focus: useFocus,
         }),
       });
-      if (!simulationRes.ok) throw new Error('simulation_failed');
+      if (!simulationRes.ok) {
+        await readApiError(simulationRes, 'Échec de la simulation de craft.');
+      }
       const simulationPayload: SimulationResponse = await simulationRes.json();
       setSimulation(simulationPayload);
 
@@ -241,13 +300,15 @@ export default function CraftCalculator() {
           pricing_mode: pricingMode,
         }),
       });
-      if (!profitabilityRes.ok) throw new Error('profitability_failed');
+      if (!profitabilityRes.ok) {
+        await readApiError(profitabilityRes, 'Échec du calcul de rentabilité.');
+      }
       setProfitability(await profitabilityRes.json());
     }
 
-    run().catch(() => {
+    run().catch((caughtError: unknown) => {
       setProfitability(null);
-      setError('Simulation indisponible. Vérifie la configuration API/provider.');
+      setError(resolveCraftApiErrorMessage(caughtError));
     });
   }, [selectedItemId, enchantmentLevel, quantity, categoryMasteryLevel, targetSpecializationLevel, locationKey, cityKey, hideoutBiomeKey, hideoutTerritoryLevel, hideoutZoneQuality, availableFocus, useFocus, pricingMode, materialPrices, journalUnitPrice, saleUnitPrice, taxRate, focusUnitPrice]);
 

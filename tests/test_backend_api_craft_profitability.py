@@ -335,3 +335,32 @@ def test_craft_simulate_applies_hideout_biome_activity_bonus_on_match(monkeypatc
     )
     assert mismatch_response.status_code == 200
     assert mismatch_response.json()["applied_yields"]["location_return_rate_bonus"] == pytest.approx(0.0)
+
+async def _fake_item_detail_provider_unreachable(self, item_id: str):
+    raise AlbionProviderError("provider_unreachable", "Provider Albion indisponible")
+
+
+def test_craft_simulate_surfaces_provider_error_code_and_message(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATA_PATH", str(tmp_path / "state.json"))
+    monkeypatch.setenv("BANK_SQLITE_PATH", str(tmp_path / "bank.sqlite3"))
+    monkeypatch.setattr(backend_app.AlbionProviderService, "get_item_detail", _fake_item_detail_provider_unreachable)
+    monkeypatch.setattr(backend_app.AlbionProviderService, "get_catalog_snapshot", _fake_catalog_snapshot)
+    client = TestClient(backend_app.create_app())
+
+    response = client.post(
+        "/api/craft/simulate",
+        json={
+            "item_id": "ITEM_TEST",
+            "quantity": 10,
+            "category_mastery_level": 0,
+            "item_specializations": {"ITEM_TEST": 0},
+            "location_key": "none",
+            "available_focus": 0,
+            "use_focus": False,
+        },
+    )
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["detail"]["code"] == "provider_unreachable"
+    assert payload["detail"]["message"] == "Provider Albion indisponible"

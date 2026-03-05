@@ -143,6 +143,7 @@ En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` q
 - Client API dashboard enrichi pour le craft: nouveaux DTOs (`CraftItemDTO`, `CraftLocationBonusDTO`, `CraftSimulation*`, `CraftProfitability*`) et wrappers dédiés (`apiGetCraftItems`, `apiGetCraftLocationBonuses`, `apiPostCraftSimulation`, `apiPostCraftProfitability`) avec propagation uniforme des erreurs `ApiError`.
 - Calculateur craft & rentabilité: endpoint `POST /api/craft/profitability` (simulation + prix saisis) avec breakdown transparent par matériau (quantité, prix unitaire, coût ligne), mode de prix `manual|prefilled`, et agrégats (`coût matériaux`, `coût focus`, `revenu brut/net`, `profit`, `marge`).
 - Onglet craft durci côté frontend: si `GET /api/craft/items` renvoie une erreur (ex: `503`) ou un payload invalide, l'UI affiche désormais un message explicite au lieu de planter sur un `.map`.
+- Gestion d'erreurs craft enrichie côté frontend: les réponses FastAPI non-2xx lisent maintenant `detail.code`, `detail.message` et `detail.details`; les codes métier (`item_not_found`, `missing_focus_cost`, `provider_unreachable`) sont mappés vers des messages FR explicites dans le calculateur.
 
 ## Spec template (parse_comp_spec)
 
