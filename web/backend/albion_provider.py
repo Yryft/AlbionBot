@@ -5,15 +5,18 @@ import json
 import logging
 import os
 import time
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from albionbot.storage.store import Store
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
-AO_BIN_DUMPS_ITEMS_LIST_URL = "https://raw.githubusercontent.com/broderickhyman/ao-bin-dumps/master/formatted/items.txt"
+AO_BIN_DUMPS_ITEMS_LIST_URL = "https://raw.githubusercontent.com/ao-data/ao-bin-dumps/master/formatted/items.txt"
 TOOLS4ALBION_ITEM_DETAILS_URL_TEMPLATE = "https://www.tools4albion.com/api_info.php?item_id={item_id}"
 
 
@@ -50,15 +53,16 @@ class AlbionProviderError(RuntimeError):
 
 
 class AlbionProviderService:
-    def __init__(self) -> None:
+    def __init__(self, store: Store | None = None) -> None:
         self.provider_url = os.getenv("ALBION_PROVIDER_URL", "").strip()
         self.items_list_url = AO_BIN_DUMPS_ITEMS_LIST_URL
         self.item_details_url_template = TOOLS4ALBION_ITEM_DETAILS_URL_TEMPLATE
         self.icon_base_url = os.getenv("ALBION_ICON_BASE_URL", "https://render.albiononline.com/v1/item").strip().rstrip("/")
         self.timeout_s = float(os.getenv("ALBION_PROVIDER_TIMEOUT_SECONDS", "8"))
         self.memory_ttl_s = int(os.getenv("ALBION_CACHE_MEMORY_TTL_SECONDS", "300"))
-        self.sync_interval_s = int(os.getenv("ALBION_SYNC_INTERVAL_SECONDS", "1800"))
         self.snapshot_path = Path(os.getenv("ALBION_CACHE_SNAPSHOT_PATH", "data/albion_provider_snapshot.json").strip())
+        self.sync_interval_s = int(os.getenv("ALBION_SYNC_INTERVAL_SECONDS", "86400"))
+        self.store = store
 
         self._lock = asyncio.Lock()
         self._items_cache: list[dict[str, Any]] = []
@@ -66,6 +70,7 @@ class AlbionProviderService:
         self._last_refresh_ts = 0.0
         self._last_sync_error: str = ""
         self._load_snapshot()
+        self._load_items_from_db()
 
     @property
     def last_sync_error(self) -> str:
@@ -91,6 +96,51 @@ class AlbionProviderService:
             "recipes": self._recipes_cache,
         }
         self.snapshot_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+    def _load_items_from_db(self) -> None:
+        if self.store is None:
+            return
+        rows = self.store.craft_list_all_items(include_inactive=False)
+        if rows:
+            self._items_cache = [
+                {
+                    "id": str(row.get("item_id", "")),
+                    "name": str(row.get("name", "")),
+                    "tier": self._to_int(row.get("tier"), 0),
+                    "enchant": self._to_int(row.get("enchant"), 0),
+                    "icon": str(row.get("icon", "")),
+                    "category": str(row.get("category", "unknown")),
+                    "craftable": self._to_bool(row.get("craftable"), default=False),
+                }
+                for row in rows
+            ]
+
+    def get_sync_status(self) -> dict[str, Any]:
+        if self.store is None:
+            return {"status": "unavailable"}
+        row = self.store.craft_get_sync_state()
+        if row is None:
+            return {"status": "never_synced"}
+        return dict(row)
+
+    def _persist_sync_failure(self, source: str, checksum: str, error_message: str) -> None:
+        if self.store is None:
+            return
+        last = self.store.craft_get_sync_state() or {}
+        now = int(time.time())
+        self.store.craft_upsert_sync_state(
+            source=source,
+            checksum=checksum,
+            status="error",
+            items_count=int(last.get("items_count", 0) or 0),
+            inserted_count=0,
+            updated_count=0,
+            deactivated_count=0,
+            last_attempt_at=now,
+            last_success_at=(int(last["last_success_at"]) if last.get("last_success_at") is not None else None),
+            last_error=error_message,
+        )
 
     def _is_memory_cache_fresh(self) -> bool:
         return (time.time() - self._last_refresh_ts) < self.memory_ttl_s and bool(self._items_cache)
@@ -302,6 +352,7 @@ class AlbionProviderService:
             provider_items: list[dict[str, Any]] = []
             provider_recipes: dict[str, list[dict[str, Any]]] = {}
             errors: list[AlbionProviderError] = []
+            attempt_at = int(time.time())
 
             if self.provider_url:
                 try:
@@ -321,10 +372,16 @@ class AlbionProviderService:
                     logger.exception("Albion items list sync failed (%s): %s", exc.code, exc.message)
 
             merged_items = self._merge_items(provider_items, items_from_list)
+            source = self.items_list_url or self.provider_url or "unknown"
+            checksum = hashlib.sha256(json.dumps(merged_items, sort_keys=True).encode("utf-8")).hexdigest()
             if not merged_items:
+                self._load_items_from_db()
                 if self._items_cache:
+                    if errors:
+                        self._persist_sync_failure(source=source, checksum=checksum, error_message=errors[-1].message)
                     return
                 if errors:
+                    self._persist_sync_failure(source=source, checksum=checksum, error_message=errors[-1].message)
                     raise errors[-1]
                 raise AlbionProviderError("provider_not_configured", "Aucune source Albion configurée")
 
@@ -334,16 +391,62 @@ class AlbionProviderService:
             self._last_sync_error = ""
             self._save_snapshot()
 
+            if self.store is not None:
+                diff = self.store.craft_upsert_items_index(items=merged_items, source=source, checksum=checksum, synced_at=attempt_at)
+                self.store.craft_upsert_sync_state(
+                    source=source,
+                    checksum=checksum,
+                    status="ok",
+                    items_count=diff["items_count"],
+                    inserted_count=diff["inserted_count"],
+                    updated_count=diff["updated_count"],
+                    deactivated_count=diff["deactivated_count"],
+                    last_attempt_at=attempt_at,
+                    last_success_at=attempt_at,
+                    last_error="",
+                )
+
     async def invalidate(self) -> None:
         async with self._lock:
             self._last_refresh_ts = 0.0
 
     async def get_catalog_snapshot(self) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
         await self.refresh(force=False)
+        if self.store is not None:
+            rows = self.store.craft_list_all_items(include_inactive=False)
+            if rows:
+                items = [
+                    {
+                        "id": str(row.get("item_id", "")),
+                        "name": str(row.get("name", "")),
+                        "tier": self._to_int(row.get("tier"), 0),
+                        "enchant": self._to_int(row.get("enchant"), 0),
+                        "icon": str(row.get("icon", "")),
+                        "category": str(row.get("category", "unknown")),
+                        "craftable": self._to_bool(row.get("craftable"), default=False),
+                    }
+                    for row in rows
+                ]
+                self._items_cache = items
         return list(self._items_cache), dict(self._recipes_cache)
 
     async def search_items(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
         await self.refresh(force=False)
+        if self.store is not None:
+            rows = self.store.craft_search_items(query=query, limit=limit, include_inactive=False)
+            if rows:
+                return [
+                    {
+                        "id": str(row.get("item_id", "")),
+                        "name": str(row.get("name", "")),
+                        "tier": self._to_int(row.get("tier"), 0),
+                        "enchant": self._to_int(row.get("enchant"), 0),
+                        "icon": str(row.get("icon", "")),
+                        "category": str(row.get("category", "unknown")),
+                        "craftable": self._to_bool(row.get("craftable"), default=False),
+                    }
+                    for row in rows
+                ]
         q = query.strip().lower()
         rows = self._items_cache
         if q:
@@ -354,6 +457,10 @@ class AlbionProviderService:
         await self.refresh(force=False)
         key = item_id.strip()
         item = next((row for row in self._items_cache if row["id"] == key), None)
+        if item is None and self.store is not None:
+            stored_item = self.store.craft_get_item(key)
+            if stored_item is not None and bool(stored_item.get("active", True)):
+                item = {"id": str(stored_item.get("item_id", "")), "name": str(stored_item.get("name", "")), "tier": self._to_int(stored_item.get("tier"), 0), "enchant": self._to_int(stored_item.get("enchant"), 0), "icon": str(stored_item.get("icon", "")), "category": str(stored_item.get("category", "unknown")), "craftable": self._to_bool(stored_item.get("craftable"), default=False)}
         if item is None:
             raise AlbionProviderError("item_not_found", "Item introuvable")
 
@@ -376,5 +483,6 @@ class AlbionProviderService:
                 "snapshot_age_seconds": max(0, int(time.time() - self._last_refresh_ts)),
                 "has_fallback_snapshot": self.snapshot_path.exists(),
                 "last_sync_error": self._last_sync_error,
+                "sync_status": self.get_sync_status(),
             },
         }

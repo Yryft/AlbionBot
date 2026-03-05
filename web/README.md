@@ -162,6 +162,8 @@ Nouveaux endpoints backend:
 - `GET /api/craft/items?q=<texte>&limit=<n>`: recherche/autocomplete items craftables.
 - `GET /api/craft/items/{item_id}`: détail craft (recette + icône + métadonnées provider).
 - `POST /api/admin/craft/cache/invalidate?guild_id=<id>`: invalidation manuelle cache (admin serveur + CSRF).
+- `GET /api/craft/metadata`: statut de synchronisation (source/checksum/erreur).
+- `GET /api/admin/craft/sync-status?guild_id=<id>`: même statut pour administration serveur.
 
 Variables d'environnement associées:
 - `ALBION_PROVIDER_URL` (source catalogue/recettes, optionnelle),
@@ -169,12 +171,17 @@ Variables d'environnement associées:
 - `ALBION_ICON_BASE_URL` (mapping icônes),
 - `ALBION_CACHE_MEMORY_TTL_SECONDS` (TTL cache mémoire),
 - `ALBION_CACHE_SNAPSHOT_PATH` (snapshot persistant warm start/fallback),
-- `ALBION_SYNC_INTERVAL_SECONDS` (job de sync périodique).
+- `ALBION_SYNC_INTERVAL_SECONDS` (job de sync périodique, défaut 24h).
 
 
 Endpoints provider intégrés en dur:
-- index/autocomplete via dump `ao-bin-dumps` (`https://raw.githubusercontent.com/broderickhyman/ao-bin-dumps/master/formatted/items.txt`),
+- index/autocomplete via dump `ao-bin-dumps` (`https://raw.githubusercontent.com/ao-data/ao-bin-dumps/master/formatted/items.txt`),
 - détails/recettes à la demande via `https://www.tools4albion.com/api_info.php?item_id={item_id}`.
+
+Stockage/sync:
+- table SQL `craft_items_index` pour l'autocomplete (items actifs/inactifs + source/checksum + timestamps),
+- table SQL `craft_sync_state` pour le statut de la dernière tentative (`ok|error`, compteurs de diff, `last_success_at`, erreur),
+- fallback automatique sur la dernière version persistée en DB si la synchro distante échoue.
 
 ## Calculateur craft & rentabilité
 

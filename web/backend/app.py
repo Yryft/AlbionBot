@@ -168,7 +168,7 @@ def create_app() -> FastAPI:
         bank_sqlite_path=bank_sqlite_path,
     )
     service = DashboardService(store, bank_allow_negative=_env_bool("BANK_ALLOW_NEGATIVE", True))
-    albion_provider = AlbionProviderService()
+    albion_provider = AlbionProviderService(store=store)
     command_bus = CommandBus(rate_limiter=RateLimiter(), audit_logger=AuditLogger())
     oauth_service = _build_oauth_service()
     authorizer = DashboardAuthorizationService(store, oauth_service) if oauth_service is not None else None
@@ -413,6 +413,23 @@ def create_app() -> FastAPI:
                 status_code=status,
                 detail={"code": exc.code, "message": exc.message, "details": {"last_sync_error": albion_provider.last_sync_error}},
             ) from exc
+
+
+    @app.get("/api/craft/metadata")
+    async def craft_metadata():
+        return {
+            "sync": albion_provider.get_sync_status(),
+            "last_sync_error": albion_provider.last_sync_error,
+        }
+
+    @app.get("/api/admin/craft/sync-status")
+    async def admin_craft_sync_status(guild_id: str, request: Request):
+        resolved_guild_id = parse_discord_id(guild_id, "guild_id")
+        ensure_guild_admin(request, resolved_guild_id)
+        return {
+            "sync": albion_provider.get_sync_status(),
+            "last_sync_error": albion_provider.last_sync_error,
+        }
 
     @app.post("/api/craft/simulate", response_model=CraftSimulationResultDTO)
     async def simulate_craft(payload: CraftSimulationRequestDTO):

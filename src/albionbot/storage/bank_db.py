@@ -2,7 +2,7 @@ import os
 import time
 import sqlite3
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .store import BankAction
 
@@ -158,6 +158,42 @@ class BankDB:
                 );
                 """
             )
+            self._exec(
+                """
+                CREATE TABLE IF NOT EXISTS craft_items_index (
+                    item_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    tier INTEGER NOT NULL,
+                    enchant INTEGER NOT NULL,
+                    icon TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    craftable BOOLEAN NOT NULL,
+                    active BOOLEAN NOT NULL,
+                    source TEXT NOT NULL,
+                    checksum TEXT NOT NULL,
+                    first_seen_at INTEGER NOT NULL,
+                    last_seen_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                """
+            )
+            self._exec(
+                """
+                CREATE TABLE IF NOT EXISTS craft_sync_state (
+                    sync_key TEXT PRIMARY KEY,
+                    source TEXT NOT NULL,
+                    checksum TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    items_count INTEGER NOT NULL,
+                    inserted_count INTEGER NOT NULL,
+                    updated_count INTEGER NOT NULL,
+                    deactivated_count INTEGER NOT NULL,
+                    last_success_at INTEGER NULL,
+                    last_attempt_at INTEGER NOT NULL,
+                    last_error TEXT NOT NULL DEFAULT ''
+                );
+                """
+            )
         else:
             self._exec(
                 """
@@ -203,6 +239,42 @@ class BankDB:
                     key TEXT PRIMARY KEY,
                     value_json TEXT NOT NULL,
                     updated_at INTEGER NOT NULL
+                );
+                """
+            )
+            self._exec(
+                """
+                CREATE TABLE IF NOT EXISTS craft_items_index (
+                    item_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    tier INTEGER NOT NULL,
+                    enchant INTEGER NOT NULL,
+                    icon TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    craftable INTEGER NOT NULL,
+                    active INTEGER NOT NULL,
+                    source TEXT NOT NULL,
+                    checksum TEXT NOT NULL,
+                    first_seen_at INTEGER NOT NULL,
+                    last_seen_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                """
+            )
+            self._exec(
+                """
+                CREATE TABLE IF NOT EXISTS craft_sync_state (
+                    sync_key TEXT PRIMARY KEY,
+                    source TEXT NOT NULL,
+                    checksum TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    items_count INTEGER NOT NULL,
+                    inserted_count INTEGER NOT NULL,
+                    updated_count INTEGER NOT NULL,
+                    deactivated_count INTEGER NOT NULL,
+                    last_success_at INTEGER NULL,
+                    last_attempt_at INTEGER NOT NULL,
+                    last_error TEXT NOT NULL DEFAULT ''
                 );
                 """
             )
@@ -530,6 +602,194 @@ class BankDB:
                 """,
                 (str(key), str(value_json), now)
             )
+
+    def get_craft_items_index(self, query: str = "", limit: int = 20, include_inactive: bool = False) -> List[dict[str, Any]]:
+        q = f"%{query.strip().lower()}%"
+        resolved_limit = max(1, min(int(limit), 50))
+        active_clause = "" if include_inactive else "AND active = 1" if self.kind == "sqlite" else "AND active = TRUE"
+        rows = self._fetchall(
+            (
+                """
+                SELECT item_id, name, tier, enchant, icon, category, craftable, active, source, checksum, first_seen_at, last_seen_at, updated_at
+                FROM craft_items_index
+                WHERE (LOWER(name) LIKE ? OR LOWER(item_id) LIKE ?)
+                """
+                + active_clause
+                + " ORDER BY name ASC, item_id ASC LIMIT ?;"
+            )
+            if self.kind == "sqlite"
+            else (
+                """
+                SELECT item_id, name, tier, enchant, icon, category, craftable, active, source, checksum, first_seen_at, last_seen_at, updated_at
+                FROM craft_items_index
+                WHERE (LOWER(name) LIKE %s OR LOWER(item_id) LIKE %s)
+                """
+                + active_clause
+                + " ORDER BY name ASC, item_id ASC LIMIT %s;"
+            ),
+            (q, q, resolved_limit),
+        )
+        return rows
+
+    def list_all_craft_items_index(self, include_inactive: bool = False) -> List[dict[str, Any]]:
+        active_clause = "" if include_inactive else ("WHERE active = 1" if self.kind == "sqlite" else "WHERE active = TRUE")
+        return self._fetchall(
+            "SELECT item_id, name, tier, enchant, icon, category, craftable, active, source, checksum, first_seen_at, last_seen_at, updated_at FROM craft_items_index " + active_clause + " ORDER BY name ASC, item_id ASC;"
+        )
+
+    def get_craft_item_by_id(self, item_id: str) -> Optional[dict[str, Any]]:
+        return self._fetchone(
+            "SELECT item_id, name, tier, enchant, icon, category, craftable, active, source, checksum, first_seen_at, last_seen_at, updated_at FROM craft_items_index WHERE item_id = ?;"
+            if self.kind == "sqlite"
+            else "SELECT item_id, name, tier, enchant, icon, category, craftable, active, source, checksum, first_seen_at, last_seen_at, updated_at FROM craft_items_index WHERE item_id = %s;",
+            (str(item_id),),
+        )
+
+    def upsert_craft_items_index(self, items: List[dict[str, Any]], source: str, checksum: str, synced_at: int) -> dict[str, int]:
+        existing_rows = self._fetchall("SELECT item_id, name, tier, enchant, icon, category, craftable, active FROM craft_items_index;")
+        existing_by_id = {str(row["item_id"]): row for row in existing_rows}
+        incoming_ids = {str(item.get("id", "")).strip() for item in items if str(item.get("id", "")).strip()}
+
+        inserted = 0
+        updated = 0
+        for item in items:
+            item_id = str(item.get("id", "")).strip()
+            if not item_id:
+                continue
+            normalized = {
+                "name": str(item.get("name", item_id)),
+                "tier": int(item.get("tier", 0) or 0),
+                "enchant": int(item.get("enchant", 0) or 0),
+                "icon": str(item.get("icon", "")),
+                "category": str(item.get("category", "unknown")),
+                "craftable": bool(item.get("craftable", False)),
+            }
+            existing = existing_by_id.get(item_id)
+            if existing is None:
+                inserted += 1
+            else:
+                changed = any(
+                    [
+                        str(existing.get("name", "")) != normalized["name"],
+                        int(existing.get("tier", 0) or 0) != normalized["tier"],
+                        int(existing.get("enchant", 0) or 0) != normalized["enchant"],
+                        str(existing.get("icon", "")) != normalized["icon"],
+                        str(existing.get("category", "")) != normalized["category"],
+                        bool(existing.get("craftable", False)) != normalized["craftable"],
+                        not bool(existing.get("active", False)),
+                    ]
+                )
+                if changed:
+                    updated += 1
+
+            if self.kind == "postgres":
+                self._exec(
+                    """
+                    INSERT INTO craft_items_index(item_id, name, tier, enchant, icon, category, craftable, active, source, checksum, first_seen_at, last_seen_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s, %s, %s, %s)
+                    ON CONFLICT (item_id)
+                    DO UPDATE SET
+                        name = EXCLUDED.name,
+                        tier = EXCLUDED.tier,
+                        enchant = EXCLUDED.enchant,
+                        icon = EXCLUDED.icon,
+                        category = EXCLUDED.category,
+                        craftable = EXCLUDED.craftable,
+                        active = TRUE,
+                        source = EXCLUDED.source,
+                        checksum = EXCLUDED.checksum,
+                        last_seen_at = EXCLUDED.last_seen_at,
+                        updated_at = EXCLUDED.updated_at;
+                    """,
+                    (item_id, normalized["name"], normalized["tier"], normalized["enchant"], normalized["icon"], normalized["category"], normalized["craftable"], source, checksum, synced_at, synced_at, synced_at),
+                )
+            else:
+                self._exec(
+                    """
+                    INSERT INTO craft_items_index(item_id, name, tier, enchant, icon, category, craftable, active, source, checksum, first_seen_at, last_seen_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+                    ON CONFLICT(item_id)
+                    DO UPDATE SET
+                        name = excluded.name,
+                        tier = excluded.tier,
+                        enchant = excluded.enchant,
+                        icon = excluded.icon,
+                        category = excluded.category,
+                        craftable = excluded.craftable,
+                        active = 1,
+                        source = excluded.source,
+                        checksum = excluded.checksum,
+                        last_seen_at = excluded.last_seen_at,
+                        updated_at = excluded.updated_at;
+                    """,
+                    (item_id, normalized["name"], normalized["tier"], normalized["enchant"], normalized["icon"], normalized["category"], int(normalized["craftable"]), source, checksum, synced_at, synced_at, synced_at),
+                )
+
+        deactivated = 0
+        stale_ids = [item_id for item_id, row in existing_by_id.items() if item_id not in incoming_ids and bool(row.get("active", False))]
+        for item_id in stale_ids:
+            self._exec(
+                "UPDATE craft_items_index SET active = 0, updated_at = ? WHERE item_id = ?;"
+                if self.kind == "sqlite"
+                else "UPDATE craft_items_index SET active = FALSE, updated_at = %s WHERE item_id = %s;",
+                (synced_at, item_id),
+            )
+            deactivated += 1
+
+        return {
+            "items_count": len(incoming_ids),
+            "inserted_count": inserted,
+            "updated_count": updated,
+            "deactivated_count": deactivated,
+        }
+
+    def upsert_craft_sync_state(self, *, source: str, checksum: str, status: str, items_count: int, inserted_count: int, updated_count: int, deactivated_count: int, last_attempt_at: int, last_success_at: Optional[int], last_error: str) -> None:
+        if self.kind == "postgres":
+            self._exec(
+                """
+                INSERT INTO craft_sync_state(sync_key, source, checksum, status, items_count, inserted_count, updated_count, deactivated_count, last_success_at, last_attempt_at, last_error)
+                VALUES ('items_txt', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (sync_key)
+                DO UPDATE SET
+                    source = EXCLUDED.source,
+                    checksum = EXCLUDED.checksum,
+                    status = EXCLUDED.status,
+                    items_count = EXCLUDED.items_count,
+                    inserted_count = EXCLUDED.inserted_count,
+                    updated_count = EXCLUDED.updated_count,
+                    deactivated_count = EXCLUDED.deactivated_count,
+                    last_success_at = EXCLUDED.last_success_at,
+                    last_attempt_at = EXCLUDED.last_attempt_at,
+                    last_error = EXCLUDED.last_error;
+                """,
+                (source, checksum, status, int(items_count), int(inserted_count), int(updated_count), int(deactivated_count), last_success_at, int(last_attempt_at), str(last_error or "")),
+            )
+            return
+
+        self._exec(
+            """
+            INSERT INTO craft_sync_state(sync_key, source, checksum, status, items_count, inserted_count, updated_count, deactivated_count, last_success_at, last_attempt_at, last_error)
+            VALUES ('items_txt', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(sync_key)
+            DO UPDATE SET
+                source = excluded.source,
+                checksum = excluded.checksum,
+                status = excluded.status,
+                items_count = excluded.items_count,
+                inserted_count = excluded.inserted_count,
+                updated_count = excluded.updated_count,
+                deactivated_count = excluded.deactivated_count,
+                last_success_at = excluded.last_success_at,
+                last_attempt_at = excluded.last_attempt_at,
+                last_error = excluded.last_error;
+            """,
+            (source, checksum, status, int(items_count), int(inserted_count), int(updated_count), int(deactivated_count), last_success_at, int(last_attempt_at), str(last_error or "")),
+        )
+
+    def get_craft_sync_state(self) -> Optional[dict[str, Any]]:
+        return self._fetchone(
+            "SELECT sync_key, source, checksum, status, items_count, inserted_count, updated_count, deactivated_count, last_success_at, last_attempt_at, last_error FROM craft_sync_state WHERE sync_key = 'items_txt';"
+        )
 
     def is_empty(self) -> bool:
         row = self._fetchone(
