@@ -3,7 +3,12 @@ from __future__ import annotations
 import asyncio
 import json
 
-from web.backend.albion_provider import AlbionProviderError, AlbionProviderService
+from web.backend.albion_provider import (
+    AO_BIN_DUMPS_ITEMS_LIST_URL,
+    TOOLS4ALBION_ITEM_DETAILS_URL_TEMPLATE,
+    AlbionProviderError,
+    AlbionProviderService,
+)
 
 
 def _run(coro):
@@ -66,10 +71,10 @@ def test_albion_provider_fallback_snapshot_when_sync_fails(tmp_path, monkeypatch
 def test_albion_provider_merges_items_list_source(tmp_path, monkeypatch):
     snapshot = tmp_path / "albion_snapshot.json"
     monkeypatch.setenv("ALBION_PROVIDER_URL", "")
-    monkeypatch.setenv("ALBION_ITEMS_LIST_URL", "https://provider.example/items.txt")
     monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
 
     provider = AlbionProviderService()
+    assert provider.items_list_url == AO_BIN_DUMPS_ITEMS_LIST_URL
 
     async def fake_fetch_items_list():
         return [
@@ -88,11 +93,10 @@ def test_albion_provider_merges_items_list_source(tmp_path, monkeypatch):
 def test_albion_provider_fetches_item_detail_on_demand(tmp_path, monkeypatch):
     snapshot = tmp_path / "albion_snapshot.json"
     monkeypatch.setenv("ALBION_PROVIDER_URL", "")
-    monkeypatch.setenv("ALBION_ITEMS_LIST_URL", "")
-    monkeypatch.setenv("ALBION_ITEM_DETAILS_URL_TEMPLATE", "https://provider.example/items/{item_id}")
     monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
 
     provider = AlbionProviderService()
+    assert provider.item_details_url_template == TOOLS4ALBION_ITEM_DETAILS_URL_TEMPLATE
     provider._items_cache = [
         {"id": "T4_BAG", "name": "T4_BAG", "tier": 0, "enchant": 0, "icon": "https://icons/T4_BAG.png", "category": "unknown", "craftable": True}
     ]
@@ -115,23 +119,25 @@ def test_albion_provider_fetches_item_detail_on_demand(tmp_path, monkeypatch):
 def test_albion_provider_errors_when_no_source_and_no_cache(tmp_path, monkeypatch):
     snapshot = tmp_path / "albion_snapshot.json"
     monkeypatch.setenv("ALBION_PROVIDER_URL", "")
-    monkeypatch.setenv("ALBION_ITEMS_LIST_URL", "")
     monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
 
     provider = AlbionProviderService()
+
+    async def fail_fetch_items_list():
+        raise AlbionProviderError("items_list_unreachable", "network down")
+
+    monkeypatch.setattr(provider, "_fetch_items_list", fail_fetch_items_list)
 
     try:
         _run(provider.refresh(force=True))
         assert False, "refresh should fail when no source is configured"
     except AlbionProviderError as exc:
-        assert exc.code == "provider_not_configured"
+        assert exc.code == "items_list_unreachable"
 
 
 def test_albion_provider_normalizes_list_payload_detail(tmp_path, monkeypatch):
     snapshot = tmp_path / "albion_snapshot.json"
     monkeypatch.setenv("ALBION_PROVIDER_URL", "")
-    monkeypatch.setenv("ALBION_ITEMS_LIST_URL", "")
-    monkeypatch.setenv("ALBION_ITEM_DETAILS_URL_TEMPLATE", "https://provider.example/items/{item_id}")
     monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
 
     provider = AlbionProviderService()
