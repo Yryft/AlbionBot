@@ -179,7 +179,7 @@ def create_app() -> FastAPI:
     async def _run_albion_sync_loop() -> None:
         while True:
             try:
-                if albion_provider.provider_url:
+                if albion_provider.provider_url or albion_provider.items_list_url:
                     await albion_provider.refresh(force=True)
             except AlbionProviderError as exc:
                 logger.exception("Albion periodic sync failed (%s): %s", exc.code, exc.message)
