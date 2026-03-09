@@ -211,14 +211,17 @@ class AlbionProviderService:
         ).strip()
         parsed_enchant = self._to_int(row.get("enchant") or row.get("EnchantmentLevel") or row.get("enchantment") or 0)
         item_id, enchant = self.normalize_enchanted_item_id(raw_item_id, parsed_enchant)
-        name = str(
+        raw_name = (
             row.get("name")
             or row.get("localized_name")
             or row.get("item_name")
             or row.get("LocalizedName")
             or row.get("LocalizedNames")
             or item_id
-        ).strip()
+        )
+        name = str(raw_name).strip()
+        if not name:
+            name = item_id
         tier = self._to_int(row.get("tier") or row.get("Tier") or 0)
         category = self._normalize_category(str(row.get("category") or row.get("Category") or "unknown"), item_id)
         craftable = self._to_bool(row.get("craftable") if "craftable" in row else row.get("Craftable"), default=True)
@@ -268,18 +271,58 @@ class AlbionProviderService:
             line = cleaned_line.strip()
             if not line or line.startswith("#") or line.startswith("//"):
                 continue
+
+            if line.startswith("{") and line.endswith("}"):
+                try:
+                    parsed_json = json.loads(line)
+                    if isinstance(parsed_json, dict):
+                        rows.append(self._normalize_item(parsed_json))
+                        continue
+                except Exception:
+                    pass
+
             match = ITEMS_LIST_TOKEN_PATTERN.search(line)
             if not match:
                 logger.debug("Ignoring invalid items list line: %r", raw_line)
                 continue
+
             item_id = match.group(1)
+            _, enchant = self.split_enchanted_item_id(item_id)
+            tier_match = re.match(r"^T(\d+)_", item_id)
+            tier = self._to_int(tier_match.group(1), 0) if tier_match else 0
+
+            name = item_id
+            icon = self._item_icon(item_id)
+
+            tail = line[match.end():].strip()
+            if tail.startswith(":"):
+                colon_name = tail[1:].strip().strip('"')
+                if colon_name and not ITEMS_LIST_TOKEN_PATTERN.search(colon_name):
+                    name = colon_name
+
+            parts = [part.strip().strip('"') for part in re.split(r"[;\t,]", line) if part.strip()]
+            for part in parts:
+                if part == item_id:
+                    continue
+                if (part.startswith("http://") or part.startswith("https://")) and (".png" in part or ".webp" in part):
+                    icon = part
+                    continue
+                if ITEMS_LIST_TOKEN_PATTERN.search(part):
+                    continue
+                if part.isdigit():
+                    continue
+                if part.startswith(":"):
+                    part = part[1:].strip()
+                if name == item_id and part:
+                    name = part
+
             rows.append(
                 {
                     "id": item_id,
-                    "name": item_id,
-                    "tier": 0,
-                    "enchant": 0,
-                    "icon": self._item_icon(item_id),
+                    "name": name,
+                    "tier": tier,
+                    "enchant": enchant,
+                    "icon": icon,
                     "category": self._normalize_category("unknown", item_id),
                     "craftable": True,
                 }

@@ -241,6 +241,69 @@ textarea:disabled:hover {
   width: 100%;
 }
 
+
+.craft-autocomplete {
+  position: relative;
+}
+
+
+.craft-selected-item {
+  margin-top: 6px;
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #3b3d44;
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: #1e1f22;
+}
+
+.craft-selected-item img {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+}
+.craft-autocomplete-list {
+  position: absolute;
+  z-index: 15;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid #3b3d44;
+  border-radius: 8px;
+  background: #16181d;
+  padding: 6px;
+  display: grid;
+  gap: 6px;
+}
+
+.craft-autocomplete-option {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid #2f323b;
+  border-radius: 8px;
+  background: #1e1f22;
+  color: inherit;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.craft-autocomplete-option:hover {
+  border-color: #4b7bec;
+}
+
+.craft-autocomplete-option img {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+}
 .craft-bonus-grid {
   border: 1px solid #3b3d44;
   border-radius: 8px;

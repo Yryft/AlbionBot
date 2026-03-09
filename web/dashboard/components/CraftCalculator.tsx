@@ -46,6 +46,7 @@ type ProfitabilityResponse = {
   total_cost: number;
   gross_revenue: number;
   market_tax_amount: number;
+  station_fee_amount: number;
   net_revenue: number;
   profit: number;
   margin_pct: number;
@@ -113,6 +114,8 @@ function resolveCraftApiErrorMessage(error: unknown) {
 export default function CraftCalculator() {
   const [items, setItems] = useState<CraftItem[]>([]);
   const [search, setSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<CraftItem[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [categoryMasteryLevel, setCategoryMasteryLevel] = useState(0);
@@ -126,6 +129,7 @@ export default function CraftCalculator() {
   const [availableFocus, setAvailableFocus] = useState(30000);
   const [useFocus, setUseFocus] = useState(true);
   const [taxRate, setTaxRate] = useState(6.5);
+  const [stationFeeRate, setStationFeeRate] = useState(0);
   const [focusUnitPrice, setFocusUnitPrice] = useState(0);
   const [journalUnitPrice, setJournalUnitPrice] = useState(0);
   const [saleUnitPrice, setSaleUnitPrice] = useState(0);
@@ -139,24 +143,31 @@ export default function CraftCalculator() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`${API_BASE}/api/craft/items?q=&limit=25`, { signal: controller.signal })
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`items_${r.status}`);
-        const payload: unknown = await r.json();
-        if (!Array.isArray(payload)) throw new Error('items_invalid_payload');
-        return payload as CraftItem[];
-      })
-      .then((rows) => {
-        setItems(rows);
-        setSelectedItemId((prev) => (prev || rows.length === 0 ? prev : rows[0].id));
-      })
-      .catch(() => {
-        setItems([]);
-        setError('API craft indisponible (items). Réessaie dans quelques instants.');
-      });
-    return () => controller.abort();
-  }, []);
+    const timer = setTimeout(() => {
+      fetch(`${API_BASE}/api/craft/items?q=${encodeURIComponent(search.trim())}&limit=30`, { signal: controller.signal })
+        .then(async (r) => {
+          if (!r.ok) throw new Error(`items_${r.status}`);
+          const payload: unknown = await r.json();
+          if (!Array.isArray(payload)) throw new Error('items_invalid_payload');
+          return payload as CraftItem[];
+        })
+        .then((rows) => {
+          setItems(rows);
+          setSearchResults(rows);
+          setSelectedItemId((prev) => (prev || rows.length === 0 ? prev : rows[0].id));
+        })
+        .catch(() => {
+          setItems([]);
+          setSearchResults([]);
+          setError('API craft indisponible (items). Réessaie dans quelques instants.');
+        });
+    }, 180);
 
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [search]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -183,6 +194,7 @@ export default function CraftCalculator() {
         if (typeof prefs.focus_unit_price === 'number') setFocusUnitPrice(Math.max(0, prefs.focus_unit_price));
         if (typeof prefs.journal_unit_price === 'number') setJournalUnitPrice(Math.max(0, prefs.journal_unit_price));
         if (typeof prefs.sale_unit_price === 'number') setSaleUnitPrice(Math.max(0, prefs.sale_unit_price));
+        if (typeof prefs.station_fee_rate === 'number') setStationFeeRate(Math.max(0, prefs.station_fee_rate));
         if (prefs.pricing_mode === 'manual' || prefs.pricing_mode === 'prefilled') setPricingMode(prefs.pricing_mode);
       })
       .finally(() => setPrefsLoaded(true))
@@ -191,26 +203,20 @@ export default function CraftCalculator() {
     return () => controller.abort();
   }, []);
 
-  const filteredItems = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((item) => `${item.name} ${item.id} T${item.tier} @${item.enchant}`.toLowerCase().includes(q));
-  }, [items, search]);
-
-  const hasValidSelectedItem = filteredItems.some((item) => item.id === selectedItemId);
+  const hasValidSelectedItem = items.some((item) => item.id === selectedItemId);
 
   useEffect(() => {
-    if (filteredItems.length === 0) {
+    if (items.length === 0) {
       setSimulation(null);
       setProfitability(null);
-      setError('Aucun item correspondant');
+      if (search.trim()) setError('Aucun item correspondant');
       return;
     }
 
     if (!hasValidSelectedItem) {
-      setSelectedItemId(filteredItems[0].id);
+      setSelectedItemId(items[0].id);
     }
-  }, [filteredItems, hasValidSelectedItem]);
+  }, [items, hasValidSelectedItem, search]);
 
   const availableEnchantments = useMemo(() => {
     const selected = items.find((row) => row.id === selectedItemId);
@@ -254,12 +260,13 @@ export default function CraftCalculator() {
           focus_unit_price: focusUnitPrice,
           journal_unit_price: journalUnitPrice,
           sale_unit_price: saleUnitPrice,
+          station_fee_rate: stationFeeRate,
           pricing_mode: pricingMode,
         }),
       }).catch(() => undefined);
     }, 500);
     return () => clearTimeout(timer);
-  }, [prefsLoaded, selectedItemId, enchantmentLevel, quantity, categoryMasteryLevel, targetSpecializationLevel, locationKey, cityKey, hideoutBiomeKey, hideoutTerritoryLevel, hideoutZoneQuality, availableFocus, useFocus, taxRate, focusUnitPrice, journalUnitPrice, saleUnitPrice, pricingMode]);
+  }, [prefsLoaded, selectedItemId, enchantmentLevel, quantity, categoryMasteryLevel, targetSpecializationLevel, locationKey, cityKey, hideoutBiomeKey, hideoutTerritoryLevel, hideoutZoneQuality, availableFocus, useFocus, taxRate, focusUnitPrice, journalUnitPrice, saleUnitPrice, stationFeeRate, pricingMode]);
 
   useEffect(() => {
     if (!hasValidSelectedItem) return;
@@ -310,6 +317,7 @@ export default function CraftCalculator() {
           item_sale_unit_price: saleUnitPrice,
           crafted_quantity: quantity,
           market_tax_rate: taxRate,
+          station_fee_rate: stationFeeRate,
           focus_unit_price: focusUnitPrice,
           include_focus_cost: useFocus,
           pricing_mode: pricingMode,
@@ -325,25 +333,60 @@ export default function CraftCalculator() {
       setProfitability(null);
       setError(resolveCraftApiErrorMessage(caughtError));
     });
-  }, [hasValidSelectedItem, selectedItemId, enchantmentLevel, quantity, categoryMasteryLevel, targetSpecializationLevel, locationKey, cityKey, hideoutBiomeKey, hideoutTerritoryLevel, hideoutZoneQuality, availableFocus, useFocus, pricingMode, materialPrices, journalUnitPrice, saleUnitPrice, taxRate, focusUnitPrice]);
+  }, [hasValidSelectedItem, selectedItemId, enchantmentLevel, quantity, categoryMasteryLevel, targetSpecializationLevel, locationKey, cityKey, hideoutBiomeKey, hideoutTerritoryLevel, hideoutZoneQuality, availableFocus, useFocus, pricingMode, materialPrices, journalUnitPrice, saleUnitPrice, taxRate, stationFeeRate, focusUnitPrice]);
 
   const marketPrefillAvailable = Object.keys(marketPriceHints).length > 0;
 
   return (
     <div className="craft-calculator">
       <div className="craft-controls">
-        <label className="craft-search">
-          Rechercher un item
-          <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ex: cleric, sword, T6..." />
-        </label>
-        {filteredItems.length === 0 && <p className="muted">Aucun item correspondant</p>}
+        {searchResults.length === 0 && <p className="muted">Aucun item correspondant</p>}
         <label>
           Item
-          <select value={selectedItemId} onChange={(e) => setSelectedItemId(e.target.value)} disabled={!hasValidSelectedItem}>
-            {filteredItems.map((item) => (
-              <option key={item.id} value={item.id}>{item.name} · T{item.tier} · @{item.enchant} · {item.category}</option>
-            ))}
-          </select>
+          <div className="craft-autocomplete">
+            <input
+              type="search"
+              value={search}
+              onFocus={() => setSearchOpen(true)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setSearchOpen(true);
+              }}
+              placeholder="Nom ou ID (ex: Adept Broadsword, T4_MAIN_SWORD)"
+            />
+            {hasValidSelectedItem && (() => {
+              const selected = items.find((item) => item.id === selectedItemId);
+              if (!selected) return null;
+              return (
+                <div className="craft-selected-item">
+                  <img src={selected.icon} alt="" loading="lazy" />
+                  <span>{selected.name}</span>
+                  <span className="muted">{selected.id}</span>
+                </div>
+              );
+            })()}
+            {searchOpen && searchResults.length > 0 && (
+              <div className="craft-autocomplete-list">
+                {searchResults.slice(0, 20).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="craft-autocomplete-option"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      setSelectedItemId(item.id);
+                      setSearch(item.name);
+                      setSearchOpen(false);
+                    }}
+                  >
+                    <img src={item.icon} alt="" loading="lazy" />
+                    <span>{item.name}</span>
+                    <span className="muted">{item.id}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </label>
         <label>
           Quantité
@@ -429,6 +472,7 @@ export default function CraftCalculator() {
         <label>Prix focus unitaire <input type="number" min={0} value={focusUnitPrice} onChange={(e) => setFocusUnitPrice(Math.max(0, Number(e.target.value) || 0))} /></label>
         <label>Livre d'imbuer / unité <input type="number" min={0} value={journalUnitPrice} onChange={(e) => setJournalUnitPrice(Math.max(0, Number(e.target.value) || 0))} /></label>
         <label>Prix vente item / unité <input type="number" min={0} value={saleUnitPrice} onChange={(e) => setSaleUnitPrice(Math.max(0, Number(e.target.value) || 0))} /></label>
+        <label>Frais station (%) <input type="number" min={0} max={100} step={0.1} value={stationFeeRate} onChange={(e) => setStationFeeRate(Math.max(0, Number(e.target.value) || 0))} /></label>
         <label className="craft-checkbox"><input type="checkbox" checked={useFocus} onChange={(e) => setUseFocus(e.target.checked)} /> Valoriser le focus</label>
       </div>
 
@@ -471,6 +515,7 @@ export default function CraftCalculator() {
             <div><dt>Coût focus implicite</dt><dd>{Math.round(profitability?.focus_cost ?? 0).toLocaleString('fr-FR')}</dd></div>
             <div><dt>Coût livres d'imbuer</dt><dd>{Math.round(profitability?.imbuer_journal_cost ?? 0).toLocaleString('fr-FR')}</dd></div>
             <div><dt>Revenu brut</dt><dd>{Math.round(profitability?.gross_revenue ?? 0).toLocaleString('fr-FR')}</dd></div>
+            <div><dt>Frais station</dt><dd>{Math.round(profitability?.station_fee_amount ?? 0).toLocaleString('fr-FR')}</dd></div>
             <div><dt>Revenu net</dt><dd>{Math.round(profitability?.net_revenue ?? 0).toLocaleString('fr-FR')}</dd></div>
             <div className={(profitability?.profit ?? 0) >= 0 ? 'profit-positive' : 'profit-negative'}><dt>Profit</dt><dd>{Math.round(profitability?.profit ?? 0).toLocaleString('fr-FR')}</dd></div>
             <div><dt>Marge</dt><dd>{(profitability?.margin_pct ?? 0).toFixed(1)}%</dd></div>

@@ -719,9 +719,10 @@ def create_app() -> FastAPI:
             imbuer_journal_cost = float(payload.imbuer_journal_unit_price) * crafted_quantity
             gross_revenue = float(payload.item_sale_unit_price) * crafted_quantity
             market_tax_amount = gross_revenue * (float(payload.market_tax_rate) / 100.0)
+            station_fee_amount = gross_revenue * (float(payload.station_fee_rate) / 100.0)
             net_revenue = gross_revenue - market_tax_amount
 
-            total_cost = total_material_cost + focus_cost + imbuer_journal_cost
+            total_cost = total_material_cost + focus_cost + imbuer_journal_cost + station_fee_amount
             profit = net_revenue - total_cost
             margin_pct = (profit / net_revenue * 100.0) if net_revenue > 0 else 0.0
 
@@ -735,6 +736,7 @@ def create_app() -> FastAPI:
                 "total_cost": total_cost,
                 "gross_revenue": gross_revenue,
                 "market_tax_amount": market_tax_amount,
+                "station_fee_amount": station_fee_amount,
                 "net_revenue": net_revenue,
                 "profit": profit,
                 "margin_pct": margin_pct,

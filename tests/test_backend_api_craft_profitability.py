@@ -60,6 +60,7 @@ def test_craft_profitability_returns_line_breakdown_and_totals(monkeypatch, tmp_
         "item_sale_unit_price": 500,
         "crafted_quantity": 10,
         "market_tax_rate": 10,
+        "station_fee_rate": 5,
         "focus_unit_price": 2,
         "include_focus_cost": False,
         "pricing_mode": "manual",
@@ -76,7 +77,8 @@ def test_craft_profitability_returns_line_breakdown_and_totals(monkeypatch, tmp_
     assert data["gross_revenue"] == 5000
     assert data["market_tax_amount"] == 500
     assert data["net_revenue"] == 4500
-    assert data["profit"] == 2300
+    assert data["station_fee_amount"] == 250
+    assert data["profit"] == 2050
 
 
 def test_craft_profitability_validates_payload(monkeypatch, tmp_path):
@@ -100,6 +102,7 @@ def test_craft_profitability_validates_payload(monkeypatch, tmp_path):
             "item_sale_unit_price": 100,
             "crafted_quantity": 0,
             "market_tax_rate": 5,
+            "station_fee_rate": 0,
             "focus_unit_price": 0,
             "include_focus_cost": True,
             "pricing_mode": "manual",
