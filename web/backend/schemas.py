@@ -363,6 +363,7 @@ class CraftUserPreferencesDTO(BaseModel):
     focus_unit_price: float = Field(default=0.0, ge=0.0)
     journal_unit_price: float = Field(default=0.0, ge=0.0)
     sale_unit_price: float = Field(default=0.0, ge=0.0)
+    station_fee_rate: float = Field(default=0.0, ge=0.0, le=100.0)
     pricing_mode: str = Field(default="manual", min_length=1)
 
 class CraftSimulationMaterialDTO(BaseModel):
@@ -395,6 +396,7 @@ class CraftProfitabilityRequestDTO(BaseModel):
     item_sale_unit_price: float = Field(ge=0)
     crafted_quantity: int = Field(gt=0, le=100000)
     market_tax_rate: float = Field(default=0.0, ge=0.0, le=100.0)
+    station_fee_rate: float = Field(default=0.0, ge=0.0, le=100.0)
     focus_unit_price: float = Field(default=0.0, ge=0)
     include_focus_cost: bool = True
     pricing_mode: CraftProfitabilityPricingMode = CraftProfitabilityPricingMode.manual
@@ -419,6 +421,7 @@ class CraftProfitabilityResultDTO(BaseModel):
     total_cost: float
     gross_revenue: float
     market_tax_amount: float
+    station_fee_amount: float
     net_revenue: float
     profit: float
     margin_pct: float

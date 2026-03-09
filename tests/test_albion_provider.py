@@ -223,6 +223,48 @@ def test_albion_provider_keeps_normal_items_list_line_unchanged(tmp_path, monkey
     assert rows[0]["id"] == "T5_CAPE"
 
 
+
+
+
+
+def test_albion_provider_normalize_item_fallbacks_to_item_id_when_name_blank(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    provider = AlbionProviderService()
+    row = provider._normalize_item({"id": "T4_MAIN_SWORD", "name": "   "})
+
+    assert row["id"] == "T4_MAIN_SWORD"
+    assert row["name"] == "T4_MAIN_SWORD"
+def test_albion_provider_parses_items_list_with_trailing_colon_name(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    provider = AlbionProviderService()
+    rows = provider._parse_items_list_text("2066: T7_OFF_SHIELD_HELL@4 : Grandmaster's Caitiff Shield\n")
+
+    assert len(rows) == 1
+    assert rows[0]["id"] == "T7_OFF_SHIELD_HELL@4"
+    assert rows[0]["name"] == "Grandmaster's Caitiff Shield"
+    assert rows[0]["tier"] == 7
+    assert rows[0]["enchant"] == 4
+def test_albion_provider_parses_items_list_row_with_name_and_icon(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    provider = AlbionProviderService()
+    rows = provider._parse_items_list_text('1001: T4_MAIN_SWORD;Adept Broadsword;https://icons/T4_MAIN_SWORD.png\n')
+
+    assert len(rows) == 1
+    assert rows[0]["id"] == "T4_MAIN_SWORD"
+    assert rows[0]["name"] == "Adept Broadsword"
+    assert rows[0]["icon"] == "https://icons/T4_MAIN_SWORD.png"
+    assert rows[0]["tier"] == 4
+
+
 def test_albion_provider_ignores_invalid_items_list_line(tmp_path, monkeypatch):
     snapshot = tmp_path / "albion_snapshot.json"
     monkeypatch.setenv("ALBION_PROVIDER_URL", "")

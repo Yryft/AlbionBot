@@ -406,8 +406,10 @@ Détail localisation craft:
 
 ### Calculateur craft & rentabilité
 - Endpoint backend `POST /api/craft/profitability` pour simuler la rentabilité à partir du résultat craft (`/api/craft/simulate`) + prix d'entrée utilisateur.
-- Retour détaillé pour l'UI: coûts par matériau, coût focus implicite, coût livre d'imbuer, revenu brut/net, profit et marge (%).
-- Front dashboard mis à jour avec formulaire de prix unitaires et récapitulatif financier complet.
+- Retour détaillé pour l'UI: coûts par matériau, coût focus implicite, coût livre d'imbuer, **frais de station (%)**, revenu brut/net, profit et marge (%).
+- Front dashboard mis à jour avec formulaire de prix unitaires, frais de station et récapitulatif financier complet.
+- Sélection d'item améliorée: autocomplete intelligent (nom + ID) avec affichage des icônes, pour une sélection plus rapide et fiable.
+- Parsing `items.txt` renforcé côté backend (lignes préfixées, format `ID : NAME`, CSV/TSV simples, fallback JSON ligne) pour mieux hydrater `name`, `tier`, `enchant` et `icon`, avec fallback automatique `name = item_id` si le nom est vide.
 - Préférences utilisateur persistantes (item cible, spés, localisation, prix): `GET/PUT /api/user/preferences/craft` (lié au compte Discord connecté).
 
 ## Formule focus agrégée (catégorie + spécialisations)

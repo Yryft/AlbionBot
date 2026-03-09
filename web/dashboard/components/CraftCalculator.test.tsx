@@ -1,3 +1,4 @@
+import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -66,6 +67,7 @@ describe('CraftCalculator', () => {
           total_cost: 0,
           gross_revenue: 0,
           market_tax_amount: 0,
+          station_fee_amount: 0,
           net_revenue: 0,
           profit: 0,
           margin_pct: 0,
@@ -81,18 +83,16 @@ describe('CraftCalculator', () => {
     vi.restoreAllMocks();
   });
 
-  it('désactive le select et évite une nouvelle simulation quand la recherche ne retourne aucun item', async () => {
+  it('n'envoie pas de nouvelle simulation quand la recherche autocomplete ne retourne aucun item', async () => {
     render(<CraftCalculator />);
 
     await waitFor(() => expect(simulateCalls).toBeGreaterThan(0));
     const callsBeforeSearch = simulateCalls;
 
-    const searchInput = screen.getByPlaceholderText('Ex: cleric, sword, T6...');
+    const searchInput = screen.getByPlaceholderText('Nom ou ID (ex: Adept Broadsword, T4_MAIN_SWORD)');
     fireEvent.change(searchInput, { target: { value: 'item-introuvable' } });
 
     expect(await screen.findByText('Aucun item correspondant')).toBeInTheDocument();
-    expect(screen.getByLabelText('Item')).toBeDisabled();
-
     await waitFor(() => expect(simulateCalls).toBe(callsBeforeSearch));
   });
 });
