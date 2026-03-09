@@ -225,6 +225,37 @@ def _resolve_cookie_samesite() -> str:
     return "none"
 
 
+def _is_https_request(request: Request) -> bool:
+    forwarded_proto = str(request.headers.get("x-forwarded-proto", "") or "").split(",", 1)[0].strip().lower()
+    if forwarded_proto:
+        return forwarded_proto == "https"
+    return str(request.url.scheme or "").lower() == "https"
+
+
+def _resolve_cookie_policy_for_request(request: Request, *, default_secure: bool, default_samesite: str) -> tuple[bool, str]:
+    secure_configured = os.getenv("DASHBOARD_COOKIE_SECURE") is not None
+    samesite_configured = os.getenv("DASHBOARD_COOKIE_SAMESITE") is not None
+
+    secure = default_secure
+    same_site = default_samesite
+    request_is_https = _is_https_request(request)
+
+    # En auto-config, forcer des cookies compatibles HTTP local/non-TLS.
+    if not secure_configured and not request_is_https:
+        secure = False
+
+    # SameSite=None est invalide sans Secure côté navigateur.
+    if same_site == "none" and not secure:
+        if samesite_configured:
+            raise HTTPException(
+                status_code=500,
+                detail="Configuration cookies invalide: DASHBOARD_COOKIE_SAMESITE=none nécessite DASHBOARD_COOKIE_SECURE=true.",
+            )
+        same_site = "lax"
+
+    return secure, same_site
+
+
 def _env_bool(name: str, default: bool) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -295,8 +326,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    secure_cookies = _resolve_secure_cookies()
-    cookie_samesite = _resolve_cookie_samesite()
+    secure_cookies_default = _resolve_secure_cookies()
+    cookie_samesite_default = _resolve_cookie_samesite()
     post_login_redirect = os.getenv("DASHBOARD_POST_LOGIN_REDIRECT", "/").strip() or "/"
 
     def parse_discord_id(raw_id: str, field_name: str) -> int:
@@ -331,6 +362,12 @@ def create_app() -> FastAPI:
         if oauth_service is None:
             raise _oauth_not_configured_error()
 
+        secure_cookies, cookie_samesite = _resolve_cookie_policy_for_request(
+            request,
+            default_secure=secure_cookies_default,
+            default_samesite=cookie_samesite_default,
+        )
+
         existing_session_id = request.cookies.get("albion_dash_session", "")
         if existing_session_id and not force:
             existing_session = oauth_service.sessions.get(existing_session_id)
@@ -362,6 +399,11 @@ def create_app() -> FastAPI:
     def auth_discord_callback(request: Request, code: str = "", state: str = ""):
         if oauth_service is None:
             raise _oauth_not_configured_error()
+        secure_cookies, cookie_samesite = _resolve_cookie_policy_for_request(
+            request,
+            default_secure=secure_cookies_default,
+            default_samesite=cookie_samesite_default,
+        )
         state_cookie = request.cookies.get(STATE_COOKIE, "")
         if not state or state != state_cookie:
             raise HTTPException(status_code=400, detail="State OAuth invalide")
@@ -406,6 +448,11 @@ def create_app() -> FastAPI:
     def me(request: Request, response: Response):
         if oauth_service is None:
             raise _oauth_not_configured_error()
+        secure_cookies, cookie_samesite = _resolve_cookie_policy_for_request(
+            request,
+            default_secure=secure_cookies_default,
+            default_samesite=cookie_samesite_default,
+        )
         session = require_session(request, oauth_service)
         set_session_cookies(response, session, secure=secure_cookies, same_site=cookie_samesite)
         bot_guild_map = service.get_bot_guild_map()

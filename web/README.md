@@ -35,9 +35,10 @@ Variables utiles backend:
 - `DISCORD_OAUTH_CLIENT_ID`
 - `DISCORD_OAUTH_CLIENT_SECRET`
 - `DISCORD_OAUTH_REDIRECT_URI`
-- `DASHBOARD_COOKIE_SECURE` (`true` en prod)
+- `DASHBOARD_COOKIE_SECURE` (`true` en prod, optionnel en auto)
 - `DASHBOARD_COOKIE_SAMESITE` (`none` en prod cross-domain, `lax` en local)
 - `DASHBOARD_POST_LOGIN_REDIRECT` (URL frontend après login)
+- Politique cookies OAuth: en mode auto, le backend adapte `Secure`/`SameSite` au protocole de la requête (HTTP local => fallback `Secure=false`, `SameSite=lax`) pour éviter le blocage de connexion Discord.
 - `DISCORD_TOKEN` (requis pour récupérer members/channels/roles Discord et autocomplétions dashboard)
   - Sert aussi de **fallback** pour lire les rôles du membre connecté si le scope OAuth `guilds.members.read` échoue côté token utilisateur.
 
