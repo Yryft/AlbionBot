@@ -125,7 +125,7 @@ python -m albionbot
 | `DISCORD_OAUTH_CLIENT_SECRET` | ✅ (OAuth) | Client Secret Discord OAuth2 | `<SECRET>` |
 | `DISCORD_OAUTH_REDIRECT_URI` | ✅ (OAuth) | Callback backend exacte | `https://backend.up.railway.app/auth/discord/callback` |
 | `DISCORD_TOKEN` | ✅ | Token bot utilisé pour lire channels/membres/rôles Discord (autocomplétions dashboard) | `<SECRET>` |
-| `DASHBOARD_COOKIE_SECURE` | recommandé | `true` en prod HTTPS, `false` en local HTTP | `true` |
+| `DASHBOARD_COOKIE_SECURE` | recommandé | `true` en prod HTTPS, `false` en local HTTP (ou auto via proto requête) | `true` |
 | `DASHBOARD_POST_LOGIN_REDIRECT` | recommandé | URL frontend de retour après login | `https://frontend.up.railway.app/` |
 
 ### 3) Frontend dashboard (`web/dashboard`)
@@ -249,7 +249,8 @@ Les 3 services doivent avoir des variables cohérentes (URL backend, CORS, OAuth
    - `DISCORD_OAUTH_CLIENT_SECRET=<CLIENT_SECRET>`
    - `DISCORD_OAUTH_REDIRECT_URI=https://<ton-backend>/auth/discord/callback`
    - `DASHBOARD_POST_LOGIN_REDIRECT=https://<ton-frontend>/`
-   - `DASHBOARD_COOKIE_SECURE=true` (prod HTTPS)
+   - `DASHBOARD_COOKIE_SECURE=true` (prod HTTPS, optionnel en auto)
+   - En auto, le backend adapte Secure/SameSite selon le protocole de la requête (HTTP local => cookies compatibles).
 
 4) **Configurer le frontend**
    - `NEXT_PUBLIC_API_BASE_URL=https://<ton-backend>`
@@ -270,6 +271,7 @@ Session dashboard:
 6) **Erreurs fréquentes**
    - `OAuth Discord non configuré` → une variable `DISCORD_OAUTH_*` manque côté backend.
    - `State OAuth invalide` → cookie/state perdu (souvent domaine/protocole/cookies secure incohérents).
+   - `Configuration cookies invalide` → `DASHBOARD_COOKIE_SAMESITE=none` impose `DASHBOARD_COOKIE_SECURE=true`.
    - Redirect mismatch Discord → URL de callback non identique entre Discord Developer Portal et `DISCORD_OAUTH_REDIRECT_URI`.
 
 ### Railway — quoi mettre dans chaque variable (copier/coller)
