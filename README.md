@@ -260,6 +260,7 @@ Les 3 services doivent avoir des variables cohérentes (URL backend, CORS, OAuth
    - Tu dois être redirigé vers Discord, puis revenir sur le frontend avec `?logged_in=1`.
    - Vérifie aussi l'endpoint `GET /me` (doit retourner l'utilisateur connecté).
    - Si la session/cookies existent déjà sur la même machine (IP + user-agent), `/auth/discord/login` propose une reprise et évite un nouveau passage OAuth (`?resumed=1`).
+   - Si tu veux forcer une vraie redirection OAuth (ex: reprise bloquée), utilise `https://<ton-backend>/auth/discord/login?force=1`.
 
 Session dashboard:
 - persistance disque des sessions (`DASHBOARD_SESSIONS_PATH`, défaut `data/dashboard_sessions.json`),

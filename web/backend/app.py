@@ -327,12 +327,12 @@ def create_app() -> FastAPI:
         return {"ok": True}
 
     @app.get("/auth/discord/login")
-    def auth_discord_login(request: Request):
+    def auth_discord_login(request: Request, force: bool = False):
         if oauth_service is None:
             raise _oauth_not_configured_error()
 
         existing_session_id = request.cookies.get("albion_dash_session", "")
-        if existing_session_id:
+        if existing_session_id and not force:
             existing_session = oauth_service.sessions.get(existing_session_id)
             if existing_session is not None:
                 request_ip = str((request.client.host if request.client else "") or "")
