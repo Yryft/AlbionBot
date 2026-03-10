@@ -98,6 +98,8 @@ body { margin: 0; background: #1e1f22; color: #f2f3f5; }
 .tab.active { background: #4752c4; color: #ffffff; }
 .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
 
+.inline-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
 .session-actions { display: flex; gap: 10px; align-items: center; }
 .status-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
 .status-grid article, .panel { background: #2b2d31; border: 1px solid #3b3d44; border-radius: 10px; padding: 14px; }

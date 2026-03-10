@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import React, { FormEvent, useEffect, useMemo, useState } from 'react';
 import CraftCalculator from '../components/CraftCalculator';
 import {
   ApiOverviewDTO,
@@ -28,6 +28,8 @@ import {
 } from '../lib/api';
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+const discordLoginUrl = `${apiBase}/auth/discord/login`;
+const discordForceLoginUrl = `${apiBase}/auth/discord/login?force=1`;
 
 type TabKey = 'active' | 'raids' | 'balances' | 'tickets' | 'craft' | 'admin';
 type RaidSort = 'start_desc' | 'start_asc' | 'status';
@@ -706,13 +708,17 @@ export default function HomePage() {
             <section className={`auth-banner ${authBanner.tone}-banner`}>
               <strong>{authBanner.message}</strong>
               {authBanner.detail && <p>{authBanner.detail}</p>}
-              {authBanner.showRetry && <a className="discord-login" href={`${apiBase}/auth/discord/login`}>Réessayer la connexion Discord</a>}
+              {authBanner.showRetry && <a className="discord-login" href={discordLoginUrl}>Réessayer la connexion Discord</a>}
             </section>
           )}
           <section className="panel fade-in">
             <h2>Connecte-toi avec Discord</h2>
-            <p>Accède au dashboard pour prévisualiser tes actions avant confirmation, piloter les raids et gérer les permissions du bot sur ton serveur.</p>
-            <a className="discord-login" href={`${apiBase}/auth/discord/login`}>Se connecter avec Discord</a>
+            <p>Reprends rapidement ta session Discord existante ou force une nouvelle authentification si tu dois changer de compte.</p>
+            <p><strong>Continuer avec Discord</strong> tente de réutiliser la session active. <strong>Utiliser un autre compte</strong> force l'écran de connexion Discord.</p>
+            <div className="inline-actions">
+              <a className="discord-login" href={discordLoginUrl}>Continuer avec Discord</a>
+              <a className="discord-login control-secondary" href={discordForceLoginUrl}>Utiliser un autre compte</a>
+            </div>
           </section>
         </section>
       </main>
@@ -746,6 +752,7 @@ export default function HomePage() {
           <div className="session-actions">
             {currentUserAvatar && <img src={currentUserAvatar} alt="avatar" className="avatar user-avatar" />}
             <span>{state.me?.user.global_name || state.me?.user.username}</span>
+            <a className="discord-login control-secondary" href={discordForceLoginUrl}>Changer de compte</a>
             {state.me && <button type="button" onClick={() => void onLogout()}>Déconnexion</button>}
           </div>
         </header>
@@ -755,7 +762,7 @@ export default function HomePage() {
           <section className={`auth-banner ${authBanner.tone}-banner`}>
             <strong>{authBanner.message}</strong>
             {authBanner.detail && <p>{authBanner.detail}</p>}
-            {authBanner.showRetry && <a className="discord-login" href={`${apiBase}/auth/discord/login`}>Réessayer la connexion Discord</a>}
+            {authBanner.showRetry && <a className="discord-login" href={discordLoginUrl}>Réessayer la connexion Discord</a>}
           </section>
         )}
         <p className="info-banner">
