@@ -327,3 +327,39 @@ def test_albion_provider_parses_enchanted_suffix_from_item_id(tmp_path, monkeypa
 
     assert base_item_id == "T5_CAPE"
     assert enchant == 3
+
+
+def test_albion_provider_item_detail_empty_payload_is_item_not_found(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    provider = AlbionProviderService()
+
+    class _Response:
+        status_code = 200
+        text = ""
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            raise json.JSONDecodeError("Expecting value", "", 0)
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, endpoint: str):
+            return _Response()
+
+    monkeypatch.setattr("web.backend.albion_provider.httpx.AsyncClient", lambda timeout: _Client())
+
+    try:
+        _run(provider._fetch_item_detail("T4_BAG"))
+        assert False, "expected item_not_found when provider payload is empty"
+    except AlbionProviderError as exc:
+        assert exc.code == "item_not_found"

@@ -367,3 +367,53 @@ def test_craft_simulate_surfaces_provider_error_code_and_message(monkeypatch, tm
     payload = response.json()
     assert payload["detail"]["code"] == "provider_unreachable"
     assert payload["detail"]["message"] == "Provider Albion indisponible"
+
+
+def test_craft_simulate_uses_category_specializations_for_target_focus(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+
+    response = client.post(
+        "/api/craft/simulate",
+        json={
+            "item_id": "ITEM_TEST",
+            "quantity": 1,
+            "category_mastery_level": 0,
+            "category_specializations": {"ITEM_TEST": 100},
+            "item_specializations": {"ITEM_TEST": 0},
+            "location_key": "none",
+            "available_focus": 0,
+            "use_focus": False,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["focus_efficiency"] == pytest.approx(0.2)
+    assert data["focus_per_item"] == 80
+
+
+async def _fake_catalog_snapshot_specializations(self):
+    return (
+        [
+            {"id": "ITEM_TEST", "name": "Test Item", "craftable": True, "category": "nature_staff", "tier": 4, "icon": "https://icons/ITEM_TEST.png"},
+            {"id": "ITEM_OTHER", "name": "Other Item", "craftable": True, "category": "nature_staff", "tier": 7, "icon": "https://icons/ITEM_OTHER.png"},
+            {"id": "ITEM_OTHER@2", "name": "Other Item .2", "craftable": True, "category": "nature_staff", "tier": 7, "icon": "https://icons/ITEM_OTHER.png"},
+            {"id": "ITEM_DIFF_CAT", "name": "Diff", "craftable": True, "category": "axe", "tier": 5, "icon": "https://icons/ITEM_DIFF_CAT.png"},
+        ],
+        {},
+    )
+
+
+def test_craft_specializations_lists_category_items_without_tier_filter(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATA_PATH", str(tmp_path / "state.json"))
+    monkeypatch.setenv("BANK_SQLITE_PATH", str(tmp_path / "bank.sqlite3"))
+    monkeypatch.setattr(backend_app.AlbionProviderService, "get_item_detail", _fake_item_detail)
+    monkeypatch.setattr(backend_app.AlbionProviderService, "get_catalog_snapshot", _fake_catalog_snapshot_specializations)
+    client = TestClient(backend_app.create_app())
+
+    response = client.get("/api/craft/specializations/ITEM_TEST")
+    assert response.status_code == 200
+    rows = response.json()
+
+    assert [row["item_id"] for row in rows] == ["ITEM_OTHER", "ITEM_TEST"]
+    assert all(row["category"] == "nature_staff" for row in rows)
