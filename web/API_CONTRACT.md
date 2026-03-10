@@ -158,6 +158,13 @@ Les endpoints d'action sont pensés pour être protégés derrière une auth man
 
 - `GET /auth/discord/login`: redirige vers Discord (`identify guilds`)
 - `GET /auth/discord/callback`: callback OAuth2 sécurisé par `state`
+  - en cas d'erreur attendue OAuth, redirection vers `DASHBOARD_POST_LOGIN_REDIRECT` avec `auth_error=<code>`
+  - codes stables exposés au frontend:
+    - `state_invalid`: state OAuth absent/invalide
+    - `code_missing`: paramètre `code` absent
+    - `token_invalid`: échange/validation des tokens Discord impossible
+    - `oauth_denied`: autorisation refusée côté Discord (`error=access_denied`)
+    - `callback_failed`: erreur OAuth inattendue côté backend
 - `POST /auth/logout`: logout (CSRF requis via header `X-CSRF-Token`)
 - `GET /me`: profil Discord courant + guilds communes utilisateur/bot + guild sélectionnée
 - `POST /me/select-guild/{guild_id}`: met à jour la guild active (CSRF requis)
