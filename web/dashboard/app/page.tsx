@@ -42,6 +42,13 @@ type LoadState = {
   selectedTicket: TicketTranscriptDTO | null;
 };
 
+type AuthBanner = {
+  tone: 'success' | 'info' | 'error';
+  message: string;
+  detail?: string;
+  showRetry?: boolean;
+};
+
 const initialState: LoadState = {
   health: false,
   overview: null,
@@ -124,6 +131,7 @@ export default function HomePage() {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [raidMessagePreview, setRaidMessagePreview] = useState<RaidOpenPreviewDTO | null>(null);
   const [raidPreviewLoading, setRaidPreviewLoading] = useState(false);
+  const [authBanner, setAuthBanner] = useState<AuthBanner | null>(null);
 
 
   const [permissionBindings, setPermissionBindings] = useState<GuildPermissionBindingDTO[]>([]);
@@ -200,6 +208,44 @@ export default function HomePage() {
   }
 
   useEffect(() => { void loadDashboard(); }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const loggedIn = params.get('logged_in') === '1';
+    const resumed = params.get('resumed') === '1';
+    const authError = params.get('auth_error');
+
+    let nextBanner: AuthBanner | null = null;
+    if (authError) {
+      const errorMap: Record<string, string> = {
+        denied: "L'autorisation Discord a été refusée.",
+        state_mismatch: 'La vérification de sécurité OAuth a échoué. Relance la connexion.',
+        session_expired: 'La session a expiré pendant la connexion.',
+        callback_failed: 'Le retour OAuth Discord a échoué.',
+      };
+      nextBanner = {
+        tone: 'error',
+        message: 'Impossible de finaliser la connexion Discord.',
+        detail: errorMap[authError] ?? `Détail: ${authError}`,
+        showRetry: true,
+      };
+    } else if (resumed) {
+      nextBanner = { tone: 'info', message: 'Session reprise automatiquement' };
+    } else if (loggedIn) {
+      nextBanner = { tone: 'success', message: 'Connexion Discord réussie' };
+    }
+
+    if (nextBanner) {
+      setAuthBanner(nextBanner);
+      params.delete('logged_in');
+      params.delete('resumed');
+      params.delete('auth_error');
+      const query = params.toString();
+      const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+      window.history.replaceState({}, '', nextUrl);
+    }
+  }, []);
 
   useEffect(() => {
     if (!selectedGuildId || !selectedTicketId) {
@@ -656,6 +702,13 @@ export default function HomePage() {
               <p>Gestion centralisée des raids, tickets et balances Albion.</p>
             </div>
           </header>
+          {authBanner && (
+            <section className={`auth-banner ${authBanner.tone}-banner`}>
+              <strong>{authBanner.message}</strong>
+              {authBanner.detail && <p>{authBanner.detail}</p>}
+              {authBanner.showRetry && <a className="discord-login" href={`${apiBase}/auth/discord/login`}>Réessayer la connexion Discord</a>}
+            </section>
+          )}
           <section className="panel fade-in">
             <h2>Connecte-toi avec Discord</h2>
             <p>Accède au dashboard pour prévisualiser tes actions avant confirmation, piloter les raids et gérer les permissions du bot sur ton serveur.</p>
@@ -698,6 +751,13 @@ export default function HomePage() {
         </header>
 
         {error && <p className="error-banner">{error}</p>}
+        {authBanner && (
+          <section className={`auth-banner ${authBanner.tone}-banner`}>
+            <strong>{authBanner.message}</strong>
+            {authBanner.detail && <p>{authBanner.detail}</p>}
+            {authBanner.showRetry && <a className="discord-login" href={`${apiBase}/auth/discord/login`}>Réessayer la connexion Discord</a>}
+          </section>
+        )}
         <p className="info-banner">
           Les actions du dashboard pilotent le bot Discord: chaque changement demandé ici est synchronisé et exécuté côté bot.
         </p>
