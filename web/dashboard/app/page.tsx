@@ -142,6 +142,19 @@ export default function HomePage() {
   const [permissionRoleInputs, setPermissionRoleInputs] = useState<Record<string, string>>({});
   const [permissionUserInputs, setPermissionUserInputs] = useState<Record<string, string>>({});
 
+  async function ensureSessionAfterOAuth(): Promise<void> {
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      const me = await apiGetSafe<MeDTO>('/me');
+      if (me) {
+        if (me.csrf_token) setCsrfToken(me.csrf_token);
+        await loadDashboard(me.selected_guild_id ?? me.guilds?.[0]?.id ?? null);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, attempt * 350));
+    }
+    setError('Connexion Discord détectée, mais la session n\'est pas encore disponible. Recharge la page ou réessaie la connexion.');
+  }
+
 
   async function loadDashboard(guildId?: string | null) {
     setBusy(true);
@@ -249,6 +262,10 @@ export default function HomePage() {
       const query = params.toString();
       const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
       window.history.replaceState({}, '', nextUrl);
+    }
+
+    if ((loggedIn || resumed) && !authError) {
+      void ensureSessionAfterOAuth();
     }
   }, []);
 
@@ -741,6 +758,7 @@ export default function HomePage() {
               <p>Gestion centralisée des raids, tickets et balances Albion.</p>
             </div>
           </header>
+          {error && <p className="error-banner">{error}</p>}
           {authBanner && (
             <section className={`auth-banner ${authBanner.tone}-banner`}>
               <strong>{authBanner.message}</strong>

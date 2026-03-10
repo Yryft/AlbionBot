@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 import pathlib
 import sys
 import time
@@ -85,6 +86,30 @@ def test_session_manager_persists_sessions_to_disk(tmp_path):
     assert got.last_user_agent == "UA"
 
 
+
+
+
+def test_session_manager_concurrent_get_does_not_break_persistence(tmp_path):
+    path = tmp_path / "sessions.json"
+    mgr = SessionManager(session_ttl_seconds=3600, persistence_path=str(path))
+    created = mgr.create(
+        access_token="a",
+        refresh_token="r",
+        token_expires_in=3600,
+        user={"id": "42"},
+        guilds=[],
+        ip_address="1.2.3.4",
+        user_agent="UA",
+    )
+
+    def _read_session() -> bool:
+        return mgr.get(created.session_id) is not None
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda _: _read_session(), range(64)))
+
+    assert all(results)
+    assert path.exists()
 
 def test_craft_preferences_are_persisted_for_user(tmp_path, monkeypatch):
     client = _build_client(tmp_path, monkeypatch)

@@ -5,6 +5,8 @@ import json
 import secrets
 import time
 import urllib.parse
+import tempfile
+import threading
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -56,6 +58,7 @@ class SessionManager:
         self._sessions: Dict[str, SessionData] = {}
         self._session_ttl_seconds = session_ttl_seconds
         self._persistence_path = (persistence_path or os.getenv("DASHBOARD_SESSIONS_PATH", "data/dashboard_sessions.json")).strip()
+        self._lock = threading.RLock()
         self._load()
 
     def _serialize_session(self, session: SessionData) -> dict:
@@ -78,91 +81,111 @@ class SessionManager:
     def _save(self) -> None:
         if not self._persistence_path:
             return
-        os.makedirs(os.path.dirname(self._persistence_path) or ".", exist_ok=True)
-        payload = {
-            "sessions": [self._serialize_session(s) for s in self._sessions.values()]
-        }
-        tmp = self._persistence_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False)
-        os.replace(tmp, self._persistence_path)
+        with self._lock:
+            os.makedirs(os.path.dirname(self._persistence_path) or ".", exist_ok=True)
+            payload = {
+                "sessions": [self._serialize_session(s) for s in self._sessions.values()]
+            }
+            tmp_file = tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=os.path.dirname(self._persistence_path) or ".",
+                prefix="dashboard_sessions_",
+                suffix=".tmp",
+                delete=False,
+            )
+            tmp_path = tmp_file.name
+            try:
+                with tmp_file:
+                    json.dump(payload, tmp_file, ensure_ascii=False)
+                    tmp_file.flush()
+                    os.fsync(tmp_file.fileno())
+                os.replace(tmp_path, self._persistence_path)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
 
     def _load(self) -> None:
         if not self._persistence_path or not os.path.exists(self._persistence_path):
             return
-        try:
-            with open(self._persistence_path, "r", encoding="utf-8") as f:
-                payload = json.load(f)
-        except Exception:
-            return
-        now = int(time.time())
-        for row in payload.get("sessions", []):
+        with self._lock:
             try:
-                session = SessionData(
-                    session_id=str(row.get("session_id", "")),
-                    csrf_token=str(row.get("csrf_token", "")),
-                    created_at=int(row.get("created_at", now)),
-                    expires_at=int(row.get("expires_at", now)),
-                    access_token=str(row.get("access_token", "")),
-                    refresh_token=str(row.get("refresh_token", "")),
-                    token_expires_at=int(row.get("token_expires_at", now)),
-                    user=dict(row.get("user", {}) or {}),
-                    guilds=list(row.get("guilds", []) or []),
-                    selected_guild_id=(int(row["selected_guild_id"]) if row.get("selected_guild_id") is not None else None),
-                    cached_member_contexts=dict(row.get("cached_member_contexts", {}) or {}),
-                    last_ip=str(row.get("last_ip", "") or ""),
-                    last_user_agent=str(row.get("last_user_agent", "") or ""),
-                )
+                with open(self._persistence_path, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
             except Exception:
-                continue
-            if session.session_id and session.expires_at > now:
-                self._sessions[session.session_id] = session
+                return
+            now = int(time.time())
+            for row in payload.get("sessions", []):
+                try:
+                    session = SessionData(
+                        session_id=str(row.get("session_id", "")),
+                        csrf_token=str(row.get("csrf_token", "")),
+                        created_at=int(row.get("created_at", now)),
+                        expires_at=int(row.get("expires_at", now)),
+                        access_token=str(row.get("access_token", "")),
+                        refresh_token=str(row.get("refresh_token", "")),
+                        token_expires_at=int(row.get("token_expires_at", now)),
+                        user=dict(row.get("user", {}) or {}),
+                        guilds=list(row.get("guilds", []) or []),
+                        selected_guild_id=(int(row["selected_guild_id"]) if row.get("selected_guild_id") is not None else None),
+                        cached_member_contexts=dict(row.get("cached_member_contexts", {}) or {}),
+                        last_ip=str(row.get("last_ip", "") or ""),
+                        last_user_agent=str(row.get("last_user_agent", "") or ""),
+                    )
+                except Exception:
+                    continue
+                if session.session_id and session.expires_at > now:
+                    self._sessions[session.session_id] = session
 
     def create(self, access_token: str, refresh_token: str, token_expires_in: int, user: dict, guilds: List[dict], ip_address: str = "", user_agent: str = "") -> SessionData:
-        now = int(time.time())
-        session_id = secrets.token_urlsafe(32)
-        data = SessionData(
-            session_id=session_id,
-            csrf_token=secrets.token_urlsafe(24),
-            created_at=now,
-            expires_at=now + self._session_ttl_seconds,
-            access_token=access_token,
-            refresh_token=refresh_token,
-            token_expires_at=now + token_expires_in,
-            user=user,
-            guilds=guilds,
-            last_ip=str(ip_address or ""),
-            last_user_agent=str(user_agent or ""),
-        )
-        self._sessions[session_id] = data
-        self.cleanup()
-        self._save()
-        return data
+        with self._lock:
+            now = int(time.time())
+            session_id = secrets.token_urlsafe(32)
+            data = SessionData(
+                session_id=session_id,
+                csrf_token=secrets.token_urlsafe(24),
+                created_at=now,
+                expires_at=now + self._session_ttl_seconds,
+                access_token=access_token,
+                refresh_token=refresh_token,
+                token_expires_at=now + token_expires_in,
+                user=user,
+                guilds=guilds,
+                last_ip=str(ip_address or ""),
+                last_user_agent=str(user_agent or ""),
+            )
+            self._sessions[session_id] = data
+            self.cleanup()
+            self._save()
+            return data
 
     def get(self, session_id: str) -> Optional[SessionData]:
-        session = self._sessions.get(session_id)
-        if session is None:
-            return None
-        now = int(time.time())
-        if session.expires_at <= now:
-            self.delete(session_id)
-            return None
-        # sliding session timeout
-        session.expires_at = now + self._session_ttl_seconds
-        self._save()
-        return session
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                return None
+            now = int(time.time())
+            if session.expires_at <= now:
+                self.delete(session_id)
+                return None
+            # sliding session timeout
+            session.expires_at = now + self._session_ttl_seconds
+            self._save()
+            return session
 
     def delete(self, session_id: str) -> None:
-        self._sessions.pop(session_id, None)
-        self._save()
+        with self._lock:
+            self._sessions.pop(session_id, None)
+            self._save()
 
     def cleanup(self) -> None:
-        now = int(time.time())
-        expired = [sid for sid, sess in self._sessions.items() if sess.expires_at <= now]
-        for sid in expired:
-            self._sessions.pop(sid, None)
-        if expired:
-            self._save()
+        with self._lock:
+            now = int(time.time())
+            expired = [sid for sid, sess in self._sessions.items() if sess.expires_at <= now]
+            for sid in expired:
+                self._sessions.pop(sid, None)
+            if expired:
+                self._save()
 
 
 class DiscordOAuthService:
