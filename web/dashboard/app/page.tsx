@@ -24,6 +24,7 @@ import {
   apiGetSafe,
   apiPost,
   apiPut,
+  clearCsrfToken,
   setCsrfToken,
 } from '../lib/api';
 
@@ -49,6 +50,7 @@ type AuthBanner = {
   message: string;
   detail?: string;
   showRetry?: boolean;
+  retryAction?: 'login' | 'logout';
 };
 
 const initialState: LoadState = {
@@ -663,9 +665,43 @@ export default function HomePage() {
   }
 
   async function onLogout() {
-    await apiPost('/auth/logout');
-    setDiscordDirectory(null);
-    setState(initialState);
+    setBusy(true);
+    try {
+      await apiPost('/auth/logout');
+      clearCsrfToken();
+      setDiscordDirectory(null);
+      setState(initialState);
+      setAuthBanner({
+        tone: 'success',
+        message: 'Déconnexion réussie',
+        detail: "Tu es maintenant sur l'écran invité. Tu peux te reconnecter quand tu veux.",
+        showRetry: true,
+        retryAction: 'login',
+      });
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        clearCsrfToken();
+        setDiscordDirectory(null);
+        setState(initialState);
+        setAuthBanner({
+          tone: 'error',
+          message: 'Session expirée, reconnexion nécessaire',
+          detail: 'La session serveur a expiré, mais ta déconnexion locale a bien été appliquée.',
+          showRetry: true,
+          retryAction: 'login',
+        });
+        return;
+      }
+      setAuthBanner({
+        tone: 'error',
+        message: 'Impossible de terminer la déconnexion côté serveur',
+        detail: 'Tu peux continuer à utiliser le dashboard ou réessayer la déconnexion.',
+        showRetry: true,
+        retryAction: 'logout',
+      });
+    } finally {
+      setBusy(false);
+    }
   }
 
   const currentUserAvatar = state.me?.user.avatar ? `https://cdn.discordapp.com/avatars/${state.me.user.id}/${state.me.user.avatar}.png?size=64` : '';
@@ -709,7 +745,8 @@ export default function HomePage() {
             <section className={`auth-banner ${authBanner.tone}-banner`}>
               <strong>{authBanner.message}</strong>
               {authBanner.detail && <p>{authBanner.detail}</p>}
-              {authBanner.showRetry && <a className="discord-login" href={discordLoginUrl}>Réessayer la connexion Discord</a>}
+              {authBanner.showRetry && authBanner.retryAction !== 'logout' && <a className="discord-login" href={discordLoginUrl}>Réessayer la connexion Discord</a>}
+              {authBanner.showRetry && authBanner.retryAction === 'logout' && <button type="button" className="discord-login" onClick={() => void onLogout()}>Réessayer la déconnexion</button>}
             </section>
           )}
           <section className="panel fade-in">
@@ -763,7 +800,8 @@ export default function HomePage() {
           <section className={`auth-banner ${authBanner.tone}-banner`}>
             <strong>{authBanner.message}</strong>
             {authBanner.detail && <p>{authBanner.detail}</p>}
-            {authBanner.showRetry && <a className="discord-login" href={discordLoginUrl}>Réessayer la connexion Discord</a>}
+            {authBanner.showRetry && authBanner.retryAction !== 'logout' && <a className="discord-login" href={discordLoginUrl}>Réessayer la connexion Discord</a>}
+            {authBanner.showRetry && authBanner.retryAction === 'logout' && <button type="button" className="discord-login" onClick={() => void onLogout()}>Réessayer la déconnexion</button>}
           </section>
         )}
         <p className="info-banner">

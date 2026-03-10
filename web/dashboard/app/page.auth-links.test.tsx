@@ -9,12 +9,14 @@ vi.mock('../lib/api', () => {
   class ApiError extends Error {
     code?: string;
     details?: Record<string, unknown>;
+    status?: number;
 
-    constructor(message: string, payload?: { code?: string; details?: Record<string, unknown> }) {
+    constructor(message: string, payload?: { code?: string; details?: Record<string, unknown>; status?: number }) {
       super(message);
       this.name = 'ApiError';
       this.code = payload?.code;
       this.details = payload?.details;
+      this.status = payload?.status;
     }
   }
 
@@ -26,6 +28,7 @@ vi.mock('../lib/api', () => {
     apiPut: vi.fn(),
     apiDelete: vi.fn(),
     setCsrfToken: vi.fn(),
+    clearCsrfToken: vi.fn(),
   };
 });
 

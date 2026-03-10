@@ -116,6 +116,12 @@ En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` q
 - Auth Discord clarifiée côté UX: deux CTA distincts (`Continuer avec Discord` pour reprendre la session existante, `Utiliser un autre compte` pour forcer `?force=1`) + action `Changer de compte` dans le menu session connectée.
 
 - Bouton **Déconnexion** côté interface.
+- Déconnexion dashboard durcie: `onLogout` est protégé par `try/catch/finally` avec 3 comportements UX simples:
+  - succès: reset local + retour doux vers l'écran invité,
+  - erreur `401/403`: déconnexion locale forcée + purge du cache CSRF + message `Session expirée, reconnexion nécessaire`,
+  - autres erreurs: bannière non bloquante avec bouton **Réessayer la déconnexion**.
+- Client API dashboard: ajout du helper `clearCsrfToken()` pour purger explicitement le cache CSRF après logout/session expirée.
+- Tests frontend ciblés ajoutés sur les erreurs de logout API (`401/403` et erreur générique avec retry).
 - Actions raids alignées bot: ouverture, édition, fermeture explicite et gestion roster.
 - Endpoint `GET /api/guilds/{guild_id}/discord-directory` pour alimenter les autocomplétions (channels text/voice + membres).
 - Affichage des balances avec pseudo Discord quand disponible.
