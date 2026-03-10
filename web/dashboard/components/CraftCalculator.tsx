@@ -15,8 +15,19 @@ type SpecializationOption = {
   item_id: string;
   item_name: string;
   icon: string;
-  category: string;
   tier: number;
+};
+
+type SpecializationsPayload = {
+  category: string;
+  category_mastery_item_id: string;
+  category_mastery_icon: string;
+  items: SpecializationOption[];
+};
+
+type CategoryPreset = {
+  category_mastery_level: number;
+  item_specializations: Record<string, number>;
 };
 
 type MaterialRow = {
@@ -128,9 +139,9 @@ export default function CraftCalculator() {
   const [quantity, setQuantity] = useState(1);
   const [categoryMasteryLevel, setCategoryMasteryLevel] = useState(0);
   const [targetSpecializationLevel, setTargetSpecializationLevel] = useState(0);
-  const [categorySpecializations, setCategorySpecializations] = useState<Record<string, number>>({});
+  const [categoryPresets, setCategoryPresets] = useState<Record<string, CategoryPreset>>({});
   const [itemSpecializations, setItemSpecializations] = useState<Record<string, number>>({});
-  const [specializationOptions, setSpecializationOptions] = useState<SpecializationOption[]>([]);
+  const [specializations, setSpecializations] = useState<SpecializationsPayload | null>(null);
   const [enchantmentLevel, setEnchantmentLevel] = useState(0);
   const [locationKey, setLocationKey] = useState('city');
   const [cityKey, setCityKey] = useState('lymhurst');
@@ -213,6 +224,23 @@ export default function CraftCalculator() {
         if (typeof prefs.sale_unit_price === 'number') setSaleUnitPrice(Math.max(0, prefs.sale_unit_price));
         if (typeof prefs.station_fee_rate === 'number') setStationFeeRate(Math.max(0, prefs.station_fee_rate));
         if (prefs.pricing_mode === 'manual' || prefs.pricing_mode === 'prefilled') setPricingMode(prefs.pricing_mode);
+        if (prefs.category_presets && typeof prefs.category_presets === 'object') {
+          const raw = prefs.category_presets as Record<string, unknown>;
+          const next: Record<string, CategoryPreset> = {};
+          for (const [category, value] of Object.entries(raw)) {
+            if (!value || typeof value !== 'object') continue;
+            const row = value as Record<string, unknown>;
+            const mastery = typeof row.category_mastery_level === 'number' ? Math.max(0, Math.min(100, Math.floor(row.category_mastery_level))) : 0;
+            const specsRaw = row.item_specializations && typeof row.item_specializations === 'object' ? row.item_specializations as Record<string, unknown> : {};
+            const itemSpecs: Record<string, number> = {};
+            for (const [itemId, specValue] of Object.entries(specsRaw)) {
+              if (typeof specValue !== 'number') continue;
+              itemSpecs[itemId] = Math.max(0, Math.min(100, Math.floor(specValue)));
+            }
+            next[category] = { category_mastery_level: mastery, item_specializations: itemSpecs };
+          }
+          setCategoryPresets(next);
+        }
       })
       .finally(() => setPrefsLoaded(true))
       .catch(() => setPrefsLoaded(true));
@@ -248,39 +276,48 @@ export default function CraftCalculator() {
 
   useEffect(() => {
     if (!hasValidSelectedItem) {
-      setSpecializationOptions([]);
+      setSpecializations(null);
       return;
     }
     const controller = new AbortController();
     fetch(`${API_BASE}/api/craft/specializations/${encodeURIComponent(selectedItemId)}`, { signal: controller.signal })
       .then(async (r) => {
         if (!r.ok) throw new Error(`spec_${r.status}`);
-        return (await r.json()) as SpecializationOption[];
+        return (await r.json()) as SpecializationsPayload;
       })
-      .then((rows) => {
-        setSpecializationOptions(rows);
-        setCategorySpecializations((prev) => {
-          const next: Record<string, number> = {};
-          for (const row of rows) {
-            next[row.item_id] = Math.max(0, Math.min(100, Math.floor(prev[row.item_id] ?? 0)));
-          }
-          next[selectedItemId] = Math.max(0, Math.min(100, Math.floor(prev[selectedItemId] ?? categoryMasteryLevel)));
-          return next;
-        });
+      .then((payload) => {
+        setSpecializations(payload);
+        const preset = categoryPresets[payload.category];
+        setCategoryMasteryLevel(Math.max(0, Math.min(100, Math.floor(preset?.category_mastery_level ?? categoryMasteryLevel))));
         setItemSpecializations((prev) => {
           const next: Record<string, number> = {};
-          for (const row of rows) {
-            next[row.item_id] = Math.max(0, Math.min(100, Math.floor(prev[row.item_id] ?? 0)));
+          for (const row of payload.items) {
+            const fromPreset = preset?.item_specializations?.[row.item_id];
+            next[row.item_id] = Math.max(0, Math.min(100, Math.floor(fromPreset ?? prev[row.item_id] ?? 0)));
           }
-          next[selectedItemId] = Math.max(0, Math.min(100, Math.floor(prev[selectedItemId] ?? targetSpecializationLevel)));
+          next[selectedItemId] = Math.max(0, Math.min(100, Math.floor(next[selectedItemId] ?? preset?.item_specializations?.[selectedItemId] ?? targetSpecializationLevel)));
+          setTargetSpecializationLevel(next[selectedItemId] ?? 0);
           return next;
         });
       })
       .catch(() => {
-        setSpecializationOptions([]);
+        setSpecializations(null);
       });
     return () => controller.abort();
-  }, [hasValidSelectedItem, selectedItemId, categoryMasteryLevel, targetSpecializationLevel]);
+  }, [hasValidSelectedItem, selectedItemId, categoryPresets, categoryMasteryLevel, targetSpecializationLevel]);
+
+  useEffect(() => {
+    if (!specializations) return;
+    const category = specializations.category;
+    if (!category) return;
+    setCategoryPresets((prev) => ({
+      ...prev,
+      [category]: {
+        category_mastery_level: categoryMasteryLevel,
+        item_specializations: { ...itemSpecializations },
+      },
+    }));
+  }, [specializations, categoryMasteryLevel, itemSpecializations]);
 
   useEffect(() => {
     if (!availableEnchantments.includes(enchantmentLevel)) {
@@ -315,11 +352,12 @@ export default function CraftCalculator() {
           sale_unit_price: saleUnitPrice,
           station_fee_rate: stationFeeRate,
           pricing_mode: pricingMode,
+          category_presets: categoryPresets,
         }),
       }).catch(() => undefined);
     }, 500);
     return () => clearTimeout(timer);
-  }, [prefsLoaded, selectedItemId, enchantmentLevel, quantity, categoryMasteryLevel, targetSpecializationLevel, locationKey, cityKey, hideoutBiomeKey, hideoutTerritoryLevel, hideoutZoneQuality, availableFocus, useFocus, taxRate, focusUnitPrice, journalUnitPrice, saleUnitPrice, stationFeeRate, pricingMode]);
+  }, [prefsLoaded, selectedItemId, enchantmentLevel, quantity, categoryMasteryLevel, targetSpecializationLevel, locationKey, cityKey, hideoutBiomeKey, hideoutTerritoryLevel, hideoutZoneQuality, availableFocus, useFocus, taxRate, focusUnitPrice, journalUnitPrice, saleUnitPrice, stationFeeRate, pricingMode, categoryPresets]);
 
   useEffect(() => {
     if (!hasValidSelectedItem) return;
@@ -333,8 +371,8 @@ export default function CraftCalculator() {
           item_id: selectedItemId,
           enchantment_level: enchantmentLevel,
           quantity,
-          category_mastery_level: categorySpecializations[selectedItemId] ?? categoryMasteryLevel,
-          category_specializations: categorySpecializations,
+          category_mastery_level: categoryMasteryLevel,
+          category_specializations: {},
           item_specializations: { ...itemSpecializations, [selectedItemId]: targetSpecializationLevel },
           location_key: locationKey,
           city_key: cityKey,
@@ -387,7 +425,7 @@ export default function CraftCalculator() {
       setProfitability(null);
       setError(resolveCraftApiErrorMessage(caughtError));
     });
-  }, [hasValidSelectedItem, selectedItemId, enchantmentLevel, quantity, categoryMasteryLevel, targetSpecializationLevel, categorySpecializations, itemSpecializations, locationKey, cityKey, hideoutBiomeKey, hideoutTerritoryLevel, hideoutZoneQuality, availableFocus, useFocus, pricingMode, materialPrices, journalUnitPrice, saleUnitPrice, taxRate, stationFeeRate, focusUnitPrice]);
+  }, [hasValidSelectedItem, selectedItemId, enchantmentLevel, quantity, categoryMasteryLevel, targetSpecializationLevel, itemSpecializations, locationKey, cityKey, hideoutBiomeKey, hideoutTerritoryLevel, hideoutZoneQuality, availableFocus, useFocus, pricingMode, materialPrices, journalUnitPrice, saleUnitPrice, taxRate, stationFeeRate, focusUnitPrice]);
 
   const marketPrefillAvailable = Object.keys(marketPriceHints).length > 0;
 
@@ -465,12 +503,6 @@ export default function CraftCalculator() {
       </div>
 
       <div className="craft-controls craft-bonus-grid">
-        <label>Spé catégorie (T4) de l'item cible <input type="number" min={0} max={100} value={categorySpecializations[selectedItemId] ?? categoryMasteryLevel} onChange={(e) => { const value = Math.max(0, Math.min(100, Number(e.target.value) || 0)); setCategoryMasteryLevel(value); setCategorySpecializations((prev) => ({ ...prev, [selectedItemId]: value })); }} /></label>
-        <label>Spécialisation item cible <input type="number" min={0} max={100} value={targetSpecializationLevel} onChange={(e) => {
-          const value = Math.max(0, Math.min(100, Number(e.target.value) || 0));
-          setTargetSpecializationLevel(value);
-          setItemSpecializations((prev) => ({ ...prev, [selectedItemId]: value }));
-        }} /></label>
         <label>Location
           <select value={locationKey} onChange={(e) => setLocationKey(e.target.value)}>
             <option value="none">Sans bonus</option>
@@ -535,31 +567,35 @@ export default function CraftCalculator() {
         <label className="craft-checkbox"><input type="checkbox" checked={useFocus} onChange={(e) => setUseFocus(e.target.checked)} /> Valoriser le focus</label>
       </div>
 
-      {specializationOptions.length > 0 && (
+      {specializations?.items?.length ? (
         <div className="craft-bonus-grid">
           <strong>Spécialisations de la catégorie (impact focus)</strong>
+          <label className="craft-specialization-card">
+            <span className="craft-specialization-title">
+              <img src={specializations.category_mastery_icon} alt="" loading="lazy" />
+              <span>{specializations.category_mastery_item_id} — Spé catégorie (T4, 0-100)</span>
+            </span>
+            <div className="craft-specialization-inputs">
+              <label>
+                T4 catégorie
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={categoryMasteryLevel}
+                  onChange={(event) => setCategoryMasteryLevel(Math.max(0, Math.min(100, Number(event.target.value) || 0)))}
+                />
+              </label>
+            </div>
+          </label>
           <div className="craft-specialization-grid">
-            {specializationOptions.map((option) => (
+            {specializations.items.map((option) => (
               <label key={option.item_id} className="craft-specialization-card">
                 <span className="craft-specialization-title">
                   <img src={option.icon} alt="" loading="lazy" />
                   <span>{option.item_name}</span>
                 </span>
                 <div className="craft-specialization-inputs">
-                  <label>
-                    T4 catégorie
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={categorySpecializations[option.item_id] ?? 0}
-                      onChange={(event) => {
-                        const value = Math.max(0, Math.min(100, Number(event.target.value) || 0));
-                        setCategorySpecializations((prev) => ({ ...prev, [option.item_id]: value }));
-                        if (option.item_id === selectedItemId) setCategoryMasteryLevel(value);
-                      }}
-                    />
-                  </label>
                   <label>
                     T5 item
                     <input

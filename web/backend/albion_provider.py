@@ -19,7 +19,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 AO_BIN_DUMPS_ITEMS_LIST_URL = "https://raw.githubusercontent.com/ao-data/ao-bin-dumps/master/formatted/items.txt"
-TOOLS4ALBION_ITEM_DETAILS_URL_TEMPLATE = "https://www.tools4albion.com/api_info.php?item_id={item_id}"
+GAMEINFO_ITEM_DETAILS_URL_TEMPLATE = "https://gameinfo.albiononline.com/api/gameinfo/items/{item_id}/data"
 ITEMS_LIST_LINE_PREFIX_PATTERN = re.compile(r"^\s*\d+\s*:\s*")
 ITEMS_LIST_TOKEN_PATTERN = re.compile(r'\b((?:T\d+_[A-Z0-9_]+|UNIQUE_[A-Z0-9_]+)(?:@\d+)?)\b')
 
@@ -60,7 +60,7 @@ class AlbionProviderService:
     def __init__(self, store: Store | None = None) -> None:
         self.provider_url = os.getenv("ALBION_PROVIDER_URL", "").strip()
         self.items_list_url = AO_BIN_DUMPS_ITEMS_LIST_URL
-        self.item_details_url_template = TOOLS4ALBION_ITEM_DETAILS_URL_TEMPLATE
+        self.item_details_url_template = GAMEINFO_ITEM_DETAILS_URL_TEMPLATE
         self.icon_base_url = os.getenv("ALBION_ICON_BASE_URL", "https://render.albiononline.com/v1/item").strip().rstrip("/")
         self.timeout_s = float(os.getenv("ALBION_PROVIDER_TIMEOUT_SECONDS", "8"))
         self.memory_ttl_s = int(os.getenv("ALBION_CACHE_MEMORY_TTL_SECONDS", "300"))
@@ -194,6 +194,24 @@ class AlbionProviderService:
             if marker in normalized:
                 return category
         return "unknown"
+
+    @staticmethod
+    def _extract_category_marker(category: str) -> str:
+        return re.sub(r"[^A-Z0-9]", "", str(category or "").upper())
+
+    @classmethod
+    def item_id_matches_category_marker(cls, item_id: str, category: str) -> bool:
+        marker = cls._extract_category_marker(category)
+        if not marker:
+            return False
+        normalized_item_id = str(item_id or "").upper()
+        if not normalized_item_id:
+            return False
+        return (
+            f"_{marker}_" in normalized_item_id
+            or normalized_item_id.endswith(f"_{marker}")
+            or normalized_item_id.endswith(marker)
+        )
 
     def _normalize_category(self, category: str, item_id: str) -> str:
         normalized = str(category or "").strip().lower()
@@ -349,6 +367,7 @@ class AlbionProviderService:
                         "item_id": str(
                             material.get("item_id")
                             or material.get("id")
+                            or material.get("uniqueName")
                             or material.get("ItemTypeId")
                             or material.get("UniqueName")
                             or ""
@@ -436,19 +455,82 @@ class AlbionProviderService:
 
     def _normalize_item_detail(self, item_id: str, payload: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         item_row = payload.get("item") if isinstance(payload.get("item"), dict) else payload
-        recipe_row = payload.get("recipe") or payload.get("materials") or payload.get("CraftingRequirements")
-        if isinstance(recipe_row, list):
-            recipe = self._normalize_recipe({"materials": recipe_row})
-        elif isinstance(recipe_row, dict):
-            recipe = self._normalize_recipe(recipe_row)
+        crafting_requirements = payload.get("craftingRequirements")
+        if isinstance(crafting_requirements, dict):
+            recipe = self._normalize_recipe({"materials": crafting_requirements.get("craftResourceList", [])})
         else:
-            recipe = self._normalize_recipe(payload)
-        item = self._normalize_item({**item_row, "id": item_id})
+            recipe_row = payload.get("recipe") or payload.get("materials") or payload.get("CraftingRequirements")
+            if isinstance(recipe_row, list):
+                recipe = self._normalize_recipe({"materials": recipe_row})
+            elif isinstance(recipe_row, dict):
+                recipe = self._normalize_recipe(recipe_row)
+            else:
+                recipe = self._normalize_recipe(payload)
+
+        localized_names = payload.get("localizedNames") if isinstance(payload.get("localizedNames"), dict) else {}
+        localized_name = (
+            localized_names.get("FR-FR")
+            or localized_names.get("EN-US")
+            or localized_names.get("DE-DE")
+            or ""
+        )
+        normalized_row = {
+            **item_row,
+            "id": payload.get("uniqueName") or item_id,
+            "name": item_row.get("name") or localized_name,
+            "tier": payload.get("tier") if payload.get("tier") is not None else item_row.get("tier"),
+            "category": payload.get("categoryId") or item_row.get("category"),
+            "icon": self._item_icon(str(payload.get("uniqueName") or item_id).strip()),
+            "craftable": payload.get("craftingRequirements") is not None or item_row.get("craftable"),
+        }
+        item = self._normalize_item(normalized_row)
         return item, recipe
 
 
-    @staticmethod
-    def _extract_base_focus_cost(payload: dict[str, Any]) -> int | None:
+    @classmethod
+    def _extract_enchantment_focus_costs(cls, payload: dict[str, Any], item_id: str) -> dict[int, int]:
+        enchantment_focus_costs: dict[int, int] = {}
+        _, requested_enchant = cls.split_enchanted_item_id(item_id)
+
+        crafting_requirements = payload.get("craftingRequirements")
+        if isinstance(crafting_requirements, dict):
+            try:
+                base_focus = int(crafting_requirements.get("craftingFocus"))
+            except (TypeError, ValueError):
+                base_focus = 0
+            if base_focus > 0:
+                enchantment_focus_costs[0] = base_focus
+
+        enchantments_payload = payload.get("enchantments")
+        enchantments_rows = enchantments_payload.get("enchantments") if isinstance(enchantments_payload, dict) else []
+        if isinstance(enchantments_rows, list):
+            for row in enchantments_rows:
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    enchantment_level = int(row.get("enchantmentLevel"))
+                except (TypeError, ValueError):
+                    continue
+                req = row.get("craftingRequirements") if isinstance(row.get("craftingRequirements"), dict) else {}
+                try:
+                    focus_cost = int(req.get("craftingFocus"))
+                except (TypeError, ValueError):
+                    focus_cost = 0
+                if focus_cost > 0 and enchantment_level >= 0:
+                    enchantment_focus_costs[enchantment_level] = focus_cost
+
+        if requested_enchant > 0 and requested_enchant in enchantment_focus_costs:
+            return {requested_enchant: enchantment_focus_costs[requested_enchant], **enchantment_focus_costs}
+        return enchantment_focus_costs
+
+    @classmethod
+    def _extract_base_focus_cost(cls, payload: dict[str, Any], item_id: str) -> int | None:
+        enchantment_focus_costs = cls._extract_enchantment_focus_costs(payload, item_id)
+        _, requested_enchant = cls.split_enchanted_item_id(item_id)
+        if requested_enchant in enchantment_focus_costs:
+            return enchantment_focus_costs[requested_enchant]
+        if 0 in enchantment_focus_costs:
+            return enchantment_focus_costs[0]
         candidates = (
             payload.get("base_focus_cost"),
             payload.get("BaseFocusCost"),
@@ -609,6 +691,7 @@ class AlbionProviderService:
             raise AlbionProviderError("item_not_found", "Item introuvable")
 
         recipe = self._recipes_cache.get(key, [])
+        enchantment_focus_costs: dict[int, int] = {}
         if not recipe:
             detail_payload = await self._fetch_item_detail(key)
             if detail_payload is not None:
@@ -618,7 +701,8 @@ class AlbionProviderService:
                 self._recipes_cache[key] = normalized_recipe
                 self._items_cache = self._merge_items([normalized_item], self._items_cache)
                 self._save_snapshot()
-                extracted_focus_cost = self._extract_base_focus_cost(detail_payload)
+                enchantment_focus_costs = self._extract_enchantment_focus_costs(detail_payload, key)
+                extracted_focus_cost = self._extract_base_focus_cost(detail_payload, key)
                 if extracted_focus_cost is not None and self.store is not None:
                     self.store.craft_upsert_focus_cost(
                         item_id=key,
@@ -641,5 +725,6 @@ class AlbionProviderService:
                 "sync_status": self.get_sync_status(),
                 "base_focus_cost": base_focus_cost,
                 "base_focus_cost_source": base_focus_cost_source,
+                "base_focus_cost_by_enchant": enchantment_focus_costs,
             },
         }

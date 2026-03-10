@@ -404,6 +404,31 @@ async def _fake_catalog_snapshot_specializations(self):
     )
 
 
+async def _fake_item_detail_holy_staff(self, item_id: str):
+    return {
+        "item": {
+            "id": item_id,
+            "name": "Expert's Holy Staff",
+            "category": "holystaff",
+            "craftable": True,
+            "icon": "https://icons/T5_MAIN_HOLYSTAFF.png",
+        },
+        "recipe": [{"item_id": "T5_PLANKS", "item_name": "Planks", "quantity": 16}],
+        "metadata": {},
+    }
+
+
+async def _fake_catalog_snapshot_holy_staff_unknown_category(self):
+    return (
+        [
+            {"id": "T5_MAIN_HOLYSTAFF", "name": "Expert's Holy Staff", "craftable": True, "category": "unknown", "tier": 5, "icon": "https://icons/T5_MAIN_HOLYSTAFF.png"},
+            {"id": "T5_2H_HOLYSTAFF", "name": "Great Holy Staff", "craftable": True, "category": "unknown", "tier": 5, "icon": "https://icons/T5_2H_HOLYSTAFF.png"},
+            {"id": "T5_MAIN_NATURESTAFF", "name": "Nature Staff", "craftable": True, "category": "unknown", "tier": 5, "icon": "https://icons/T5_MAIN_NATURESTAFF.png"},
+        ],
+        {},
+    )
+
+
 def test_craft_specializations_lists_category_items_without_tier_filter(monkeypatch, tmp_path):
     monkeypatch.setenv("DATA_PATH", str(tmp_path / "state.json"))
     monkeypatch.setenv("BANK_SQLITE_PATH", str(tmp_path / "bank.sqlite3"))
@@ -413,7 +438,24 @@ def test_craft_specializations_lists_category_items_without_tier_filter(monkeypa
 
     response = client.get("/api/craft/specializations/ITEM_TEST")
     assert response.status_code == 200
-    rows = response.json()
+    payload = response.json()
 
-    assert [row["item_id"] for row in rows] == ["ITEM_OTHER", "ITEM_TEST"]
-    assert all(row["category"] == "nature_staff" for row in rows)
+    assert payload["category"] == "nature_staff"
+    assert payload["category_mastery_item_id"] == "T4_MAIN_NATURESTAFF"
+    assert [row["item_id"] for row in payload["items"]] == ["ITEM_OTHER", "ITEM_TEST"]
+
+
+def test_craft_specializations_matches_category_marker_when_catalog_categories_are_unknown(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATA_PATH", str(tmp_path / "state.json"))
+    monkeypatch.setenv("BANK_SQLITE_PATH", str(tmp_path / "bank.sqlite3"))
+    monkeypatch.setattr(backend_app.AlbionProviderService, "get_item_detail", _fake_item_detail_holy_staff)
+    monkeypatch.setattr(backend_app.AlbionProviderService, "get_catalog_snapshot", _fake_catalog_snapshot_holy_staff_unknown_category)
+    client = TestClient(backend_app.create_app())
+
+    response = client.get("/api/craft/specializations/T5_MAIN_HOLYSTAFF")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["category"] == "holystaff"
+    assert payload["category_mastery_item_id"] == "T4_MAIN_HOLYSTAFF"
+    assert [row["item_id"] for row in payload["items"]] == ["T5_MAIN_HOLYSTAFF", "T5_2H_HOLYSTAFF"]

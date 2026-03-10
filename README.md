@@ -154,6 +154,9 @@ Un service web séparé est disponible sous `web/`:
 - Dashboard: nouvel onglet **Craft calculator** pour estimer les matériaux consommés (bonus ville/HO), ajuster les prix unitaires et projeter le profit net après taxe marché.
 - Dashboard craft: ajout du mode prix `manuel/prérempli`, saisie du livre d'imbuer et endpoint backend de simulation rentabilité avec breakdown ligne par ligne (matériaux, focus, revenus, profit, marge).
 - Dashboard craft: correction du fallback provider quand le détail item distant renvoie un payload vide (erreur API propre au lieu d'exception 500), sélection des items enchantés bloquée côté autocomplete (l'enchantement passe uniquement par le menu dédié), et saisie des spécialisations catégorie/item en duo visuel T4/T5 pour chaque item de la même catégorie (focus calculé avec ces deux niveaux).
+- Dashboard craft: refonte du filtrage des spécialisations via les données officielles Albion (`/api/gameinfo/items/{item}/data`) : catégorie récupérée via `categoryId` + fallback robuste par marqueur d'ID (`HOLYSTAFF`, etc.) pour éviter les items hors famille.
+- Dashboard craft: UI spécialisations refaite en 2 niveaux simples (spé catégorie via icône `T4_MAIN_*`, puis spés items via icônes `T5_*`) avec sauvegarde automatique des valeurs **par catégorie et par utilisateur**.
+- Dashboard craft: exploitation du `craftingFocus` GameInfo par enchantement (base + `enchantments[]`) pour calculer le coût focus correct selon le niveau choisi.
 - Dashboard: écran non connecté corrigé pour utiliser toute la largeur (suppression de l'effet de colonne latérale vide).
 
 - Dashboard: bannières d’authentification (succès/session reprise/erreur OAuth) lues depuis les query params puis supprimées de l’URL après affichage.

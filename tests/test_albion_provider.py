@@ -7,7 +7,7 @@ from albionbot.storage.store import Store
 
 from web.backend.albion_provider import (
     AO_BIN_DUMPS_ITEMS_LIST_URL,
-    TOOLS4ALBION_ITEM_DETAILS_URL_TEMPLATE,
+    GAMEINFO_ITEM_DETAILS_URL_TEMPLATE,
     AlbionProviderError,
     AlbionProviderService,
 )
@@ -98,7 +98,7 @@ def test_albion_provider_fetches_item_detail_on_demand(tmp_path, monkeypatch):
     monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
 
     provider = AlbionProviderService()
-    assert provider.item_details_url_template == TOOLS4ALBION_ITEM_DETAILS_URL_TEMPLATE
+    assert provider.item_details_url_template == GAMEINFO_ITEM_DETAILS_URL_TEMPLATE
     provider._items_cache = [
         {"id": "T4_BAG", "name": "T4_BAG", "tier": 0, "enchant": 0, "icon": "https://icons/T4_BAG.png", "category": "unknown", "craftable": True}
     ]
@@ -116,6 +116,74 @@ def test_albion_provider_fetches_item_detail_on_demand(tmp_path, monkeypatch):
     assert detail["item"]["name"] == "Adept's Bag"
     assert detail["recipe"][0]["item_id"] == "T4_CLOTH"
 
+
+
+
+
+def test_albion_provider_normalizes_gameinfo_detail_payload(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    provider = AlbionProviderService()
+    provider._items_cache = [
+        {"id": "T5_MAIN_HOLYSTAFF", "name": "T5_MAIN_HOLYSTAFF", "tier": 5, "enchant": 0, "icon": "https://icons/T5_MAIN_HOLYSTAFF.png", "category": "unknown", "craftable": True}
+    ]
+
+    async def fake_fetch_item_detail(item_id: str):
+        assert item_id == "T5_MAIN_HOLYSTAFF"
+        return {
+            "uniqueName": "T5_MAIN_HOLYSTAFF",
+            "tier": 5,
+            "categoryId": "holystaff",
+            "localizedNames": {"FR-FR": "Bâton béni de l'expert"},
+            "craftingRequirements": {
+                "craftResourceList": [
+                    {"uniqueName": "T5_PLANKS", "count": 16},
+                    {"uniqueName": "T5_CLOTH", "count": 8},
+                ]
+            },
+        }
+
+    monkeypatch.setattr(provider, "_fetch_item_detail", fake_fetch_item_detail)
+
+    detail = _run(provider.get_item_detail("T5_MAIN_HOLYSTAFF"))
+    assert detail["item"]["category"] == "holystaff"
+    assert detail["item"]["name"] == "Bâton béni de l'expert"
+    assert [row["item_id"] for row in detail["recipe"]] == ["T5_PLANKS", "T5_CLOTH"]
+
+
+def test_albion_provider_extracts_focus_cost_by_enchantment_from_gameinfo_payload(tmp_path, monkeypatch):
+    snapshot = tmp_path / "albion_snapshot.json"
+    monkeypatch.setenv("ALBION_PROVIDER_URL", "")
+    monkeypatch.setenv("ALBION_CACHE_SNAPSHOT_PATH", str(snapshot))
+
+    provider = AlbionProviderService()
+    provider._items_cache = [
+        {"id": "T5_MAIN_HOLYSTAFF", "name": "T5_MAIN_HOLYSTAFF", "tier": 5, "enchant": 0, "icon": "https://icons/T5_MAIN_HOLYSTAFF.png", "category": "holystaff", "craftable": True},
+        {"id": "T5_MAIN_HOLYSTAFF@2", "name": "T5_MAIN_HOLYSTAFF .2", "tier": 5, "enchant": 2, "icon": "https://icons/T5_MAIN_HOLYSTAFF.png", "category": "holystaff", "craftable": True}
+    ]
+
+    async def fake_fetch_item_detail(item_id: str):
+        return {
+            "uniqueName": "T5_MAIN_HOLYSTAFF",
+            "tier": 5,
+            "categoryId": "holystaff",
+            "localizedNames": {"EN-US": "Expert's Holy Staff"},
+            "craftingRequirements": {"craftingFocus": 2251, "craftResourceList": [{"uniqueName": "T5_PLANKS", "count": 16}]},
+            "enchantments": {
+                "enchantments": [
+                    {"enchantmentLevel": 1, "craftingRequirements": {"craftingFocus": 3939}},
+                    {"enchantmentLevel": 2, "craftingRequirements": {"craftingFocus": 6893}},
+                ]
+            },
+        }
+
+    monkeypatch.setattr(provider, "_fetch_item_detail", fake_fetch_item_detail)
+
+    detail = _run(provider.get_item_detail("T5_MAIN_HOLYSTAFF@2"))
+    assert detail["metadata"]["base_focus_cost"] is None
+    assert detail["metadata"]["base_focus_cost_by_enchant"][2] == 6893
 
 
 def test_albion_provider_errors_when_no_source_and_no_cache(tmp_path, monkeypatch):

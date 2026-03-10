@@ -53,7 +53,7 @@ from .schemas import (
     CraftItemDetailDTO,
     CraftSimulationRequestDTO,
     CraftSimulationResultDTO,
-    CraftSpecializationOptionDTO,
+    CraftSpecializationsDTO,
     CraftProfitabilityRequestDTO,
     CraftProfitabilityResultDTO,
     CraftFocusCostBulkUpsertRequestDTO,
@@ -611,10 +611,11 @@ def create_app() -> FastAPI:
                 detail={"code": exc.code, "message": exc.message, "details": {"last_sync_error": albion_provider.last_sync_error}},
             ) from exc
 
-    @app.get("/api/craft/specializations/{item_id}", response_model=list[CraftSpecializationOptionDTO])
+    @app.get("/api/craft/specializations/{item_id}", response_model=CraftSpecializationsDTO)
     async def craft_specializations(item_id: str):
         base_item_id, _ = albion_provider.split_enchanted_item_id(item_id)
         try:
+            target_detail = await albion_provider.get_item_detail(base_item_id)
             items, _ = await albion_provider.get_catalog_snapshot()
         except AlbionProviderError as exc:
             raise HTTPException(
@@ -624,10 +625,24 @@ def create_app() -> FastAPI:
 
         target_item = next((row for row in items if row.get("id") == base_item_id), None)
         if target_item is None:
+            target_item = target_detail.get("item")
+
+        if not isinstance(target_item, dict):
             raise HTTPException(status_code=404, detail={"code": "item_not_found", "message": "Item introuvable"})
 
-        target_category = str(target_item.get("category", ""))
+        target_category = str(target_detail.get("item", {}).get("category") or target_item.get("category", ""))
+        has_explicit_target_category = bool(target_category and target_category != "unknown")
         rows: list[dict[str, object]] = []
+
+        def _with_tier(base_id: str, tier: int) -> str:
+            raw = str(base_id or "")
+            if not raw.startswith("T"):
+                return raw
+            marker = raw.find("_")
+            if marker <= 1:
+                return raw
+            return f"T{tier}{raw[marker:]}"
+
         for row in items:
             row_id = str(row.get("id", ""))
             row_base_id, row_enchant = albion_provider.split_enchanted_item_id(row_id)
@@ -635,14 +650,18 @@ def create_app() -> FastAPI:
                 continue
             if not bool(row.get("craftable", False)):
                 continue
-            if str(row.get("category", "")) != target_category:
+            row_category = str(row.get("category", ""))
+            category_match = row_category == target_category and row_category != "unknown"
+            marker_match = albion_provider.item_id_matches_category_marker(row_base_id, target_category)
+            if has_explicit_target_category and not category_match and not marker_match:
+                continue
+            if not has_explicit_target_category and not marker_match:
                 continue
             rows.append(
                 {
                     "item_id": row_base_id,
                     "item_name": str(row.get("name", row_base_id)),
-                    "icon": str(row.get("icon", "")),
-                    "category": str(row.get("category", "")),
+                    "icon": f"{albion_provider.icon_base_url}/{_with_tier(row_base_id, 5)}.png",
                     "tier": int(row.get("tier") or 0),
                 }
             )
@@ -650,7 +669,15 @@ def create_app() -> FastAPI:
         dedup: dict[str, dict[str, object]] = {}
         for row in rows:
             dedup[str(row["item_id"])] = row
-        return sorted(dedup.values(), key=lambda row: str(row.get("item_name", "")))
+        ordered_rows = sorted(dedup.values(), key=lambda row: str(row.get("item_name", "")))
+        marker = albion_provider._extract_category_marker(target_category)
+        category_mastery_item_id = f"T4_MAIN_{marker}" if marker else _with_tier(base_item_id, 4)
+        return {
+            "category": target_category,
+            "category_mastery_item_id": category_mastery_item_id,
+            "category_mastery_icon": f"{albion_provider.icon_base_url}/{category_mastery_item_id}.png",
+            "items": ordered_rows,
+        }
 
 
     @app.get("/api/admin/craft/focus-costs", response_model=list[CraftFocusCostEntryDTO])
@@ -733,7 +760,15 @@ def create_app() -> FastAPI:
             craftable_by_item_id = {row["id"]: bool(row.get("craftable", False)) for row in items}
 
             base_focus_cost_by_item_id: dict[str, int] = {}
-            raw_focus_cost = item_detail.get("metadata", {}).get("base_focus_cost")
+            metadata = item_detail.get("metadata", {}) if isinstance(item_detail.get("metadata"), dict) else {}
+            by_enchant = metadata.get("base_focus_cost_by_enchant") if isinstance(metadata.get("base_focus_cost_by_enchant"), dict) else {}
+            raw_focus_cost = None
+            if payload.enchantment_level > 0:
+                raw_focus_cost = by_enchant.get(payload.enchantment_level)
+                if raw_focus_cost is None:
+                    raw_focus_cost = by_enchant.get(str(payload.enchantment_level))
+            if raw_focus_cost is None:
+                raw_focus_cost = metadata.get("base_focus_cost")
             if raw_focus_cost is not None:
                 try:
                     parsed_focus_cost = int(raw_focus_cost)
