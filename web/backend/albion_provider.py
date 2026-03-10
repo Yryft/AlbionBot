@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from json import JSONDecodeError
 import logging
 import os
 import time
@@ -420,7 +421,13 @@ class AlbionProviderService:
             except httpx.HTTPError as exc:
                 raise AlbionProviderError("item_detail_unreachable", "Détail item indisponible") from exc
 
-        payload = response.json()
+        try:
+            payload = response.json()
+        except (JSONDecodeError, ValueError) as exc:
+            body = (response.text or "").strip()
+            if response.status_code == 404 or not body:
+                raise AlbionProviderError("item_not_found", "Item introuvable") from exc
+            raise AlbionProviderError("provider_invalid_payload", "Payload détail item invalide") from exc
         if isinstance(payload, dict):
             return payload
         if isinstance(payload, list) and payload and isinstance(payload[0], dict):

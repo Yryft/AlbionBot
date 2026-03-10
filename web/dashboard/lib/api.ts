@@ -218,6 +218,7 @@ export type CraftSimulationRequestDTO = {
   enchantment_level: number;
   quantity: number;
   category_mastery_level: number;
+  category_specializations?: Record<string, number>;
   item_specializations: Record<string, number>;
   location_key: string;
   city_key?: string;

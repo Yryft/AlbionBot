@@ -220,11 +220,14 @@ Stockage/sync:
 Le dashboard propose désormais un flux complet de simulation de rentabilité:
 - saisie des prix unitaires matériau par matériau + coût livre d'imbuer + prix de vente final,
 - mode **Prix manuel** et mode **Prérempli** (activé si des prix marché sont exposés par l'API provider),
+- sélection d'item en **ID de base uniquement** (les variantes enchantées restent gérées par le menu `enchantment_level`),
+- saisie des spécialisations pour tous les items craftables de la même catégorie/tier que l'item cible,
 - récapitulatif des coûts/revenus: matériaux, focus implicite (si valorisé), brut/net, profit et marge.
 
 API associée:
 - `POST /api/craft/simulate`: calcule les quantités brutes/nettes et le focus (`enchantment_level` explicite, 0..4, localisation détaillée par ville/HO).
 - `POST /api/craft/profitability`: agrège les prix d'entrée et retourne un breakdown ligne par ligne + KPI de rentabilité.
+- `GET /api/craft/specializations/{item_id}`: retourne la liste des items de spécialisation non enchantés de la même catégorie (sans filtre de tier).
 - `GET/PUT /api/user/preferences/craft`: persistance des préférences utilisateur (spés, item, localisation, prix) entre sessions.
 
 
@@ -239,7 +242,8 @@ Le endpoint `POST /api/craft/simulate` consomme:
 - `hideout_territory_level` (optionnel `1..9`, mode `hideout`)
 - `hideout_zone_quality` (optionnel `1..6`, mode `hideout`)
 - `category_mastery_level` (0..100)
-- `item_specializations` (`{ item_id: level }`, chaque level borné 0..100)
+- `category_specializations` (`{ item_id: level }`, chaque level borné 0..100, utilisé pour la partie « T4 catégorie »)
+- `item_specializations` (`{ item_id: level }`, chaque level borné 0..100, utilisé pour la partie « T5 item »)
 
 Formule appliquée:
 

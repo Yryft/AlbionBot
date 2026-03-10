@@ -10,6 +10,16 @@ const itemRows = [
     name: 'Adept Broadsword',
     tier: 4,
     enchant: 0,
+    icon: 'https://icons/T4_MAIN_SWORD.png',
+    category: 'sword',
+    craftable: true,
+  },
+  {
+    id: 'T4_MAIN_SWORD@2',
+    name: 'Adept Broadsword .2',
+    tier: 4,
+    enchant: 2,
+    icon: 'https://icons/T4_MAIN_SWORD.png',
     category: 'weapon',
     craftable: true,
   },
@@ -34,6 +44,9 @@ describe('CraftCalculator', () => {
       const url = typeof input === 'string' ? input : input.toString();
 
       if (url.includes('/api/craft/items?q=')) {
+        if (url.includes('item-introuvable')) {
+          return jsonResponse([]);
+        }
         return jsonResponse(itemRows);
       }
       if (url.includes('/api/user/preferences/craft') && init?.method === 'PUT') {
@@ -54,6 +67,17 @@ describe('CraftCalculator', () => {
           intermediate_materials: [],
           applied_yields: {},
         });
+      }
+      if (url.includes('/api/craft/specializations/')) {
+        return jsonResponse([
+          {
+            item_id: 'T4_MAIN_SWORD',
+            item_name: 'Adept Broadsword',
+            icon: 'https://icons/T4_MAIN_SWORD.png',
+            category: 'weapon',
+            tier: 4,
+          },
+        ]);
       }
       if (url.includes(`/api/craft/items/${itemRows[0].id}`)) {
         return jsonResponse({ metadata: { market_prices: {} } });
@@ -83,7 +107,7 @@ describe('CraftCalculator', () => {
     vi.restoreAllMocks();
   });
 
-  it('n'envoie pas de nouvelle simulation quand la recherche autocomplete ne retourne aucun item', async () => {
+  it("n'envoie pas de nouvelle simulation quand la recherche autocomplete ne retourne aucun item", async () => {
     render(<CraftCalculator />);
 
     await waitFor(() => expect(simulateCalls).toBeGreaterThan(0));

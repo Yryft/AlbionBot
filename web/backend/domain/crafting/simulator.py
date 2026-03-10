@@ -27,6 +27,7 @@ class CraftSimulationInput:
     item_id: str
     quantity: int
     category_mastery_level: int
+    category_specializations: dict[str, int]
     item_specializations: dict[str, int]
     available_focus: int
     base_focus_cost_by_item_id: dict[str, int]
@@ -127,6 +128,8 @@ def simulate_crafting(
     _validate_level(simulation_input.category_mastery_level, "category_mastery_level")
     for item_id, specialization in simulation_input.item_specializations.items():
         _validate_level(specialization, f"item_specializations[{item_id}]")
+    for item_id, specialization in simulation_input.category_specializations.items():
+        _validate_level(specialization, f"category_specializations[{item_id}]")
     if simulation_input.available_focus < 0:
         raise CraftSimulationError("invalid_available_focus", "Le focus disponible ne peut pas être négatif")
 
@@ -140,8 +143,12 @@ def simulate_crafting(
 
     target_category = simulation_input.item_category_by_item_id.get(simulation_input.item_id, "")
     target_specialization = simulation_input.item_specializations.get(simulation_input.item_id, 0)
-    target_efficiency = calculate_aggregated_focus_efficiency(
+    target_category_mastery = simulation_input.category_specializations.get(
+        simulation_input.item_id,
         simulation_input.category_mastery_level,
+    )
+    target_efficiency = calculate_aggregated_focus_efficiency(
+        target_category_mastery,
         target_specialization,
     )
     target_base_focus_cost = simulation_input.base_focus_cost_by_item_id.get(simulation_input.item_id)
@@ -164,7 +171,11 @@ def simulate_crafting(
             if intermediate_base_cost is None or int(intermediate_base_cost) <= 0:
                 continue
             intermediate_category = simulation_input.item_category_by_item_id.get(intermediate_item_id, "")
-            category_mastery = simulation_input.category_mastery_level if intermediate_category == target_category else 0
+            category_mastery = (
+                simulation_input.category_specializations.get(intermediate_item_id, target_category_mastery)
+                if intermediate_category == target_category
+                else 0
+            )
             efficiency = calculate_aggregated_focus_efficiency(
                 category_mastery,
                 simulation_input.item_specializations.get(intermediate_item_id, 0),

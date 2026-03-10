@@ -334,6 +334,7 @@ class CraftSimulationRequestDTO(BaseModel):
     enchantment_level: int = Field(default=0, ge=0, le=4)
     quantity: int = Field(gt=0, le=100000)
     category_mastery_level: int = Field(ge=0, le=100)
+    category_specializations: dict[str, int] = Field(default_factory=dict)
     item_specializations: dict[str, int] = Field(default_factory=dict)
     location_key: str = Field(default="none", min_length=1)
     city_key: str | None = None
@@ -342,6 +343,14 @@ class CraftSimulationRequestDTO(BaseModel):
     hideout_zone_quality: int | None = Field(default=None, ge=1, le=6)
     available_focus: int = Field(ge=0)
     use_focus: bool = True
+
+
+class CraftSpecializationOptionDTO(BaseModel):
+    item_id: str
+    item_name: str
+    icon: str
+    category: str
+    tier: int
 
 
 

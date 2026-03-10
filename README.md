@@ -153,6 +153,7 @@ Un service web séparé est disponible sous `web/`:
 - Dashboard: panneau admin serveur pour gérer les permissions bot (`raid_manager`, `bank_manager`, `ticket_manager`) par rôles et membres (IDs Discord), désormais isolé dans un onglet dédié **Administration**.
 - Dashboard: nouvel onglet **Craft calculator** pour estimer les matériaux consommés (bonus ville/HO), ajuster les prix unitaires et projeter le profit net après taxe marché.
 - Dashboard craft: ajout du mode prix `manuel/prérempli`, saisie du livre d'imbuer et endpoint backend de simulation rentabilité avec breakdown ligne par ligne (matériaux, focus, revenus, profit, marge).
+- Dashboard craft: correction du fallback provider quand le détail item distant renvoie un payload vide (erreur API propre au lieu d'exception 500), sélection des items enchantés bloquée côté autocomplete (l'enchantement passe uniquement par le menu dédié), et saisie des spécialisations catégorie/item en duo visuel T4/T5 pour chaque item de la même catégorie (focus calculé avec ces deux niveaux).
 - Dashboard: écran non connecté corrigé pour utiliser toute la largeur (suppression de l'effet de colonne latérale vide).
 
 - Dashboard: bannières d’authentification (succès/session reprise/erreur OAuth) lues depuis les query params puis supprimées de l’URL après affichage.

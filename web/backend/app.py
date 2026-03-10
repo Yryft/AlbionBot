@@ -53,6 +53,7 @@ from .schemas import (
     CraftItemDetailDTO,
     CraftSimulationRequestDTO,
     CraftSimulationResultDTO,
+    CraftSpecializationOptionDTO,
     CraftProfitabilityRequestDTO,
     CraftProfitabilityResultDTO,
     CraftFocusCostBulkUpsertRequestDTO,
@@ -610,6 +611,47 @@ def create_app() -> FastAPI:
                 detail={"code": exc.code, "message": exc.message, "details": {"last_sync_error": albion_provider.last_sync_error}},
             ) from exc
 
+    @app.get("/api/craft/specializations/{item_id}", response_model=list[CraftSpecializationOptionDTO])
+    async def craft_specializations(item_id: str):
+        base_item_id, _ = albion_provider.split_enchanted_item_id(item_id)
+        try:
+            items, _ = await albion_provider.get_catalog_snapshot()
+        except AlbionProviderError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={"code": exc.code, "message": exc.message, "details": {"last_sync_error": albion_provider.last_sync_error}},
+            ) from exc
+
+        target_item = next((row for row in items if row.get("id") == base_item_id), None)
+        if target_item is None:
+            raise HTTPException(status_code=404, detail={"code": "item_not_found", "message": "Item introuvable"})
+
+        target_category = str(target_item.get("category", ""))
+        rows: list[dict[str, object]] = []
+        for row in items:
+            row_id = str(row.get("id", ""))
+            row_base_id, row_enchant = albion_provider.split_enchanted_item_id(row_id)
+            if row_enchant != 0:
+                continue
+            if not bool(row.get("craftable", False)):
+                continue
+            if str(row.get("category", "")) != target_category:
+                continue
+            rows.append(
+                {
+                    "item_id": row_base_id,
+                    "item_name": str(row.get("name", row_base_id)),
+                    "icon": str(row.get("icon", "")),
+                    "category": str(row.get("category", "")),
+                    "tier": int(row.get("tier") or 0),
+                }
+            )
+
+        dedup: dict[str, dict[str, object]] = {}
+        for row in rows:
+            dedup[str(row["item_id"])] = row
+        return sorted(dedup.values(), key=lambda row: str(row.get("item_name", "")))
+
 
     @app.get("/api/admin/craft/focus-costs", response_model=list[CraftFocusCostEntryDTO])
     async def list_craft_focus_costs(guild_id: str, request: Request, limit: int = 500):
@@ -731,6 +773,7 @@ def create_app() -> FastAPI:
                     item_id=resolved_item_id,
                     quantity=payload.quantity,
                     category_mastery_level=payload.category_mastery_level,
+                    category_specializations=dict(payload.category_specializations),
                     item_specializations=specialization_by_item_id,
                     available_focus=payload.available_focus,
                     base_focus_cost_by_item_id=base_focus_cost_by_item_id,
