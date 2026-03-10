@@ -149,7 +149,7 @@ Un service web séparé est disponible sous `web/`:
 - Périmètre raids dashboard aligné sur les commandes bot de référence: ouverture (`raid_open`), édition (`raid_edit`), fermeture explicite (`raid_close`) et gestion roster (inscription/retrait).
 - Frontend: `web/dashboard` (navigation type Discord).
 - Dashboard: prévisualisation du message raid dans le formulaire avant confirmation, alignée sur le rendu bot exact (embed + composants interactifs).
-- Dashboard: écran non connecté simplifié avec présentation du bot et un bouton unique de connexion Discord.
+- Dashboard: écran non connecté avec deux CTA Discord distincts (reprise de session ou nouvelle authentification forcée) et option de changement de compte dans le menu utilisateur connecté.
 - Dashboard: panneau admin serveur pour gérer les permissions bot (`raid_manager`, `bank_manager`, `ticket_manager`) par rôles et membres (IDs Discord), désormais isolé dans un onglet dédié **Administration**.
 - Dashboard: nouvel onglet **Craft calculator** pour estimer les matériaux consommés (bonus ville/HO), ajuster les prix unitaires et projeter le profit net après taxe marché.
 - Dashboard craft: ajout du mode prix `manuel/prérempli`, saisie du livre d'imbuer et endpoint backend de simulation rentabilité avec breakdown ligne par ligne (matériaux, focus, revenus, profit, marge).

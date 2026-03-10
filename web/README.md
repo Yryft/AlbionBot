@@ -107,6 +107,7 @@ En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` q
 ## Nouveautés dashboard
 
 - Messages d’authentification UI via query params (`logged_in`, `resumed`, `auth_error`) avec nettoyage automatique de l’URL après affichage (pas de réapparition au refresh).
+- Auth Discord clarifiée côté UX: deux CTA distincts (`Continuer avec Discord` pour reprendre la session existante, `Utiliser un autre compte` pour forcer `?force=1`) + action `Changer de compte` dans le menu session connectée.
 
 - Bouton **Déconnexion** côté interface.
 - Actions raids alignées bot: ouverture, édition, fermeture explicite et gestion roster.
@@ -139,7 +140,7 @@ En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` q
 
 - Prévisualisation du message raid ajoutée dans le bloc **Raid opener** avant soumission.
 - Preview Raid opener renforcée: rendu backend du message **exact** (embed + composants interactifs) via `POST /api/actions/raids/preview`, en réutilisant la logique bot côté API.
-- Écran non-authentifié recentré sur une présentation AlbionBot + CTA unique de connexion Discord.
+- Écran non-authentifié recentré sur une présentation AlbionBot + deux CTA de connexion Discord (continuer la session ou forcer une nouvelle authentification).
 - Nouveaux endpoints admin dashboard: `GET /api/guilds/{guild_id}/permissions` et `PUT /api/guilds/{guild_id}/permissions/{permission_key}` pour gérer les permissions par rôles et membres.
 - Navigation dashboard ajustée: le panneau administratif (permissions) est déplacé dans un onglet dédié **Administration** pour séparer les opérations admin du dashboard opérationnel quotidien.
 - Écran d'accueil non connecté corrigé: la page occupe désormais toute la largeur utile (plus de colonne latérale vide héritée de la vue connectée).
