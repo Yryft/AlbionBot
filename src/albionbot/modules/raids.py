@@ -1489,7 +1489,7 @@ class RaidModule:
             interaction: nextcord.Interaction,
             coffre_value: str = nextcord.SlashOption(description="Valeur coffre"),
             silver_bags: str = nextcord.SlashOption(description="Valeur sacs d'argent"),
-            maps: str = nextcord.SlashOption(description="Maps (lignes: tier;prix;finish[1/0])", required=False, default=""),
+            maps: str = nextcord.SlashOption(description="Maps (séparées par virgules: tier;prix;finish[1/0])", required=False, default=""),
             add_players: str = nextcord.SlashOption(description="Ajouter joueurs (mentions/ids)", required=False, default=""),
             remove_players: str = nextcord.SlashOption(description="Retirer joueurs (mentions/ids)", required=False, default=""),
             rl_override: Optional[nextcord.Member] = nextcord.SlashOption(description="Override RL", required=False),
@@ -1545,12 +1545,18 @@ class RaidModule:
                 to_remove = set(parse_ids(remove_players))
                 players = [uid for uid in players if uid not in to_remove]
 
-                maps_lines = [ln.strip() for ln in maps.splitlines() if ln.strip()]
+                if "\n" in maps or "\r" in maps:
+                    return await modal_interaction.response.send_message(
+                        "Format maps invalide: sépare les maps avec des virgules, pas des retours à la ligne.",
+                        ephemeral=True,
+                    )
+
+                maps_entries = [entry.strip() for entry in maps.split(",") if entry.strip()]
                 map_rows = []
                 maps_cost = 0
                 finished_maps_count = 0
-                for ln in maps_lines:
-                    parts = [x.strip() for x in ln.split(";")]
+                for entry in maps_entries:
+                    parts = [x.strip() for x in entry.split(";")]
                     if len(parts) < 2:
                         continue
                     tier = parts[0]
