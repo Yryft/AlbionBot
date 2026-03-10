@@ -69,15 +69,19 @@ describe('CraftCalculator', () => {
         });
       }
       if (url.includes('/api/craft/specializations/')) {
-        return jsonResponse([
-          {
-            item_id: 'T4_MAIN_SWORD',
-            item_name: 'Adept Broadsword',
-            icon: 'https://icons/T4_MAIN_SWORD.png',
-            category: 'weapon',
-            tier: 4,
-          },
-        ]);
+        return jsonResponse({
+          category: 'sword',
+          category_mastery_item_id: 'T4_MAIN_SWORD',
+          category_mastery_icon: 'https://icons/T4_MAIN_SWORD.png',
+          items: [
+            {
+              item_id: 'T4_MAIN_SWORD',
+              item_name: 'Adept Broadsword',
+              icon: 'https://icons/T5_MAIN_SWORD.png',
+              tier: 4,
+            },
+          ],
+        });
       }
       if (url.includes(`/api/craft/items/${itemRows[0].id}`)) {
         return jsonResponse({ metadata: { market_prices: {} } });

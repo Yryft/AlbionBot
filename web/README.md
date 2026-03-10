@@ -227,8 +227,10 @@ Le dashboard propose désormais un flux complet de simulation de rentabilité:
 API associée:
 - `POST /api/craft/simulate`: calcule les quantités brutes/nettes et le focus (`enchantment_level` explicite, 0..4, localisation détaillée par ville/HO).
 - `POST /api/craft/profitability`: agrège les prix d'entrée et retourne un breakdown ligne par ligne + KPI de rentabilité.
-- `GET /api/craft/specializations/{item_id}`: retourne la liste des items de spécialisation non enchantés de la même catégorie (sans filtre de tier).
+- `GET /api/craft/specializations/{item_id}`: retourne la liste des items de spécialisation non enchantés de la même catégorie (sans filtre de tier), avec catégorie cible issue de l'API officielle Albion (`categoryId`) et fallback par marqueur d'ID (`HOLYSTAFF`, etc.) si le catalogue local n'est pas catégorisé.
+- Format spécialisation dashboard: un bloc `category_mastery` (icône `T4_MAIN_<CATEGORY>`, 0-100) + liste des items de la catégorie en icônes `T5_*` (0-100 par item), pour refléter le workflow réel de spécialisation craft.
 - `GET/PUT /api/user/preferences/craft`: persistance des préférences utilisateur (spés, item, localisation, prix) entre sessions.
+- Les préférences craft incluent désormais `category_presets` (sauvegarde des spés par catégorie et par utilisateur).
 
 
 ## Formule détaillée de focus (version agrégée)

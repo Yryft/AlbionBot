@@ -345,12 +345,23 @@ class CraftSimulationRequestDTO(BaseModel):
     use_focus: bool = True
 
 
-class CraftSpecializationOptionDTO(BaseModel):
+class CraftSpecializationItemDTO(BaseModel):
     item_id: str
     item_name: str
     icon: str
-    category: str
     tier: int
+
+
+class CraftSpecializationsDTO(BaseModel):
+    category: str
+    category_mastery_item_id: str
+    category_mastery_icon: str
+    items: List[CraftSpecializationItemDTO] = Field(default_factory=list)
+
+
+class CraftCategoryPresetDTO(BaseModel):
+    category_mastery_level: int = Field(default=0, ge=0, le=100)
+    item_specializations: dict[str, int] = Field(default_factory=dict)
 
 
 
@@ -374,6 +385,7 @@ class CraftUserPreferencesDTO(BaseModel):
     sale_unit_price: float = Field(default=0.0, ge=0.0)
     station_fee_rate: float = Field(default=0.0, ge=0.0, le=100.0)
     pricing_mode: str = Field(default="manual", min_length=1)
+    category_presets: dict[str, CraftCategoryPresetDTO] = Field(default_factory=dict)
 
 class CraftSimulationMaterialDTO(BaseModel):
     item_id: str
