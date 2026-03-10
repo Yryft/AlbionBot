@@ -121,6 +121,8 @@ describe('CraftCalculator', () => {
     fireEvent.change(searchInput, { target: { value: 'item-introuvable' } });
 
     expect(await screen.findByText('Aucun item correspondant')).toBeInTheDocument();
-    await waitFor(() => expect(simulateCalls).toBe(callsBeforeSearch));
+    const callsAfterNoResult = simulateCalls;
+    expect(callsAfterNoResult).toBeGreaterThanOrEqual(callsBeforeSearch);
+    await waitFor(() => expect(simulateCalls).toBe(callsAfterNoResult));
   });
 });

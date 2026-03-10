@@ -430,6 +430,18 @@ textarea:disabled:hover {
   width: 100%;
 }
 
+.craft-material-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.craft-material-name img {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+}
+
 .craft-head {
   background: #2a2f3c;
   font-weight: 700;
