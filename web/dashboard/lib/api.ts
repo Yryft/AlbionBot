@@ -4,17 +4,20 @@ export type ApiErrorPayload = {
   code?: string;
   message?: string;
   details?: Record<string, unknown>;
+  status?: number;
 };
 
 export class ApiError extends Error {
   code?: string;
   details?: Record<string, unknown>;
+  status?: number;
 
   constructor(message: string, payload?: ApiErrorPayload) {
     super(message);
     this.name = 'ApiError';
     this.code = payload?.code;
     this.details = payload?.details;
+    this.status = payload?.status;
   }
 }
 
@@ -270,6 +273,10 @@ export function setCsrfToken(token: string): void {
   csrfTokenCache = token;
 }
 
+export function clearCsrfToken(): void {
+  csrfTokenCache = '';
+}
+
 function getCookie(name: string): string {
   if (typeof document === 'undefined') {
     return '';
@@ -288,17 +295,17 @@ async function buildApiError(res: Response, path: string): Promise<ApiError> {
   try {
     const payload = (await res.json()) as { detail?: unknown };
     if (typeof payload.detail === 'string') {
-      return new ApiError(payload.detail);
+      return new ApiError(payload.detail, { status: res.status });
     }
     if (payload.detail && typeof payload.detail === 'object') {
       const detail = payload.detail as ApiErrorPayload;
       const message = detail.message || `API error (${res.status}) on ${path}`;
-      return new ApiError(message, detail);
+      return new ApiError(message, { ...detail, status: res.status });
     }
   } catch {
     // ignore parsing issues and fallback to status-based error
   }
-  return new ApiError(`API error (${res.status}) on ${path}`);
+  return new ApiError(`API error (${res.status}) on ${path}`, { status: res.status });
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
