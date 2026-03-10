@@ -185,7 +185,7 @@ Warnings non bloquants (option inconnue) remontent en `spec_warnings[]` sur les 
 ## Provider craft Albion (backend)
 
 Nouveaux endpoints backend:
-- `GET /api/craft/items?q=<texte>&limit=<n>`: recherche/autocomplete items craftables.
+- `GET /api/craft/items?q=<texte>&limit=<n>`: recherche/autocomplete limitée aux items craftables (non craftables filtrés côté provider + UI).
 - `GET /api/craft/items/{item_id}`: détail craft (recette + icône + métadonnées provider).
 - `POST /api/admin/craft/cache/invalidate?guild_id=<id>`: invalidation manuelle cache (admin serveur + CSRF).
 - `GET /api/craft/metadata`: statut de synchronisation (source/checksum/erreur).
@@ -221,8 +221,10 @@ Le dashboard propose désormais un flux complet de simulation de rentabilité:
 - saisie des prix unitaires matériau par matériau + coût livre d'imbuer + prix de vente final,
 - mode **Prix manuel** et mode **Prérempli** (activé si des prix marché sont exposés par l'API provider),
 - sélection d'item en **ID de base uniquement** (les variantes enchantées restent gérées par le menu `enchantment_level`),
-- saisie des spécialisations pour tous les items craftables de la même catégorie/tier que l'item cible,
+- panneau des spécialisations toujours visible (chargement, état vide explicite),
+- saisie des spécialisations pour tous les items craftables de la même catégorie que l'item cible,
 - récapitulatif des coûts/revenus: matériaux, focus implicite (si valorisé), brut/net, profit et marge.
+- tableau matériaux enrichi avec les icônes des items de recette.
 
 API associée:
 - `POST /api/craft/simulate`: calcule les quantités brutes/nettes et le focus (`enchantment_level` explicite, 0..4, localisation détaillée par ville/HO).

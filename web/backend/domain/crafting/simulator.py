@@ -40,6 +40,7 @@ class CraftSimulationInput:
 class MaterialQuantity:
     item_id: str
     item_name: str
+    icon: str
     gross_quantity: int
     net_quantity: int
 
@@ -92,7 +93,6 @@ def expand_materials(
     quantity: int,
     recipes_by_item_id: Dict[str, list[dict]],
     craftable_by_item_id: Dict[str, bool],
-    names_by_item_id: Dict[str, str],
 ) -> tuple[dict[str, int], dict[str, int]]:
     if quantity <= 0:
         raise CraftSimulationError("invalid_quantity", "La quantité doit être strictement positive")
@@ -124,6 +124,7 @@ def simulate_crafting(
     recipes_by_item_id: Dict[str, list[dict]],
     craftable_by_item_id: Dict[str, bool],
     names_by_item_id: Dict[str, str],
+    icons_by_item_id: Dict[str, str],
 ) -> CraftSimulationResult:
     _validate_level(simulation_input.category_mastery_level, "category_mastery_level")
     for item_id, specialization in simulation_input.item_specializations.items():
@@ -138,7 +139,6 @@ def simulate_crafting(
         quantity=simulation_input.quantity,
         recipes_by_item_id=recipes_by_item_id,
         craftable_by_item_id=craftable_by_item_id,
-        names_by_item_id=names_by_item_id,
     )
 
     target_category = simulation_input.item_category_by_item_id.get(simulation_input.item_id, "")
@@ -189,8 +189,8 @@ def simulate_crafting(
 
     total_return_rate = _compute_total_return_rate(simulation_input.yields, simulation_input.use_focus)
 
-    base_materials = _to_material_rows(base_totals, names_by_item_id, total_return_rate)
-    intermediate_materials = _to_material_rows(intermediate_totals, names_by_item_id, total_return_rate)
+    base_materials = _to_material_rows(base_totals, names_by_item_id, icons_by_item_id, total_return_rate)
+    intermediate_materials = _to_material_rows(intermediate_totals, names_by_item_id, icons_by_item_id, total_return_rate)
 
     items_with_focus = simulation_input.quantity if not simulation_input.use_focus else simulation_input.available_focus // focus_per_item
 
@@ -212,7 +212,7 @@ def simulate_crafting(
     )
 
 
-def _to_material_rows(totals: dict[str, int], names_by_item_id: Dict[str, str], total_return_rate: float) -> list[MaterialQuantity]:
+def _to_material_rows(totals: dict[str, int], names_by_item_id: Dict[str, str], icons_by_item_id: Dict[str, str], total_return_rate: float) -> list[MaterialQuantity]:
     rows: list[MaterialQuantity] = []
     for item_id in sorted(totals.keys()):
         gross = totals[item_id]
@@ -221,6 +221,7 @@ def _to_material_rows(totals: dict[str, int], names_by_item_id: Dict[str, str], 
             MaterialQuantity(
                 item_id=item_id,
                 item_name=names_by_item_id.get(item_id, item_id),
+                icon=icons_by_item_id.get(item_id, ""),
                 gross_quantity=gross,
                 net_quantity=net,
             )

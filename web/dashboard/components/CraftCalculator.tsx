@@ -34,6 +34,7 @@ type CategoryPreset = {
 type MaterialRow = {
   item_id: string;
   item_name: string;
+  icon: string;
   gross_quantity: number;
   net_quantity: number;
 };
@@ -143,6 +144,7 @@ export default function CraftCalculator() {
   const [categoryPresets, setCategoryPresets] = useState<Record<string, CategoryPreset>>({});
   const [itemSpecializations, setItemSpecializations] = useState<Record<string, number>>({});
   const [specializations, setSpecializations] = useState<SpecializationsPayload | null>(null);
+  const [specializationsLoading, setSpecializationsLoading] = useState(false);
   const [enchantmentLevel, setEnchantmentLevel] = useState(0);
   const [locationKey, setLocationKey] = useState('city');
   const [cityKey, setCityKey] = useState('lymhurst');
@@ -175,13 +177,14 @@ export default function CraftCalculator() {
           return payload as CraftItem[];
         })
         .then((rows) => {
+          const craftableRows = rows.filter((row) => row.craftable);
           const dedup = new Map<string, CraftItem>();
-          for (const row of rows) {
+          for (const row of craftableRows) {
             const baseId = row.id.split('@')[0];
             if (!dedup.has(baseId)) dedup.set(baseId, { ...row, id: baseId, enchant: 0 });
           }
           const baseRows = Array.from(dedup.values());
-          setItems(rows);
+          setItems(craftableRows);
           setSearchResults(baseRows);
           setSelectedItemId((prev) => (prev || baseRows.length === 0 ? prev : baseRows[0].id));
         })
@@ -278,9 +281,11 @@ export default function CraftCalculator() {
   useEffect(() => {
     if (!hasValidSelectedItem) {
       setSpecializations(null);
+      setSpecializationsLoading(false);
       return;
     }
     const controller = new AbortController();
+    setSpecializationsLoading(true);
     fetch(`${API_BASE}/api/craft/specializations/${encodeURIComponent(selectedItemId)}`, { signal: controller.signal })
       .then(async (r) => {
         if (!r.ok) throw new Error(`spec_${r.status}`);
@@ -303,9 +308,10 @@ export default function CraftCalculator() {
       })
       .catch(() => {
         setSpecializations(null);
-      });
+      })
+      .finally(() => setSpecializationsLoading(false));
     return () => controller.abort();
-  }, [hasValidSelectedItem, selectedItemId, categoryPresets, categoryMasteryLevel, targetSpecializationLevel]);
+  }, [hasValidSelectedItem, selectedItemId]);
 
   useEffect(() => {
     if (!specializations) return;
@@ -568,9 +574,12 @@ export default function CraftCalculator() {
         <label className="craft-checkbox"><input type="checkbox" checked={useFocus} onChange={(e) => setUseFocus(e.target.checked)} /> Valoriser le focus</label>
       </div>
 
-      {specializations?.items?.length ? (
-        <div className="craft-bonus-grid">
-          <strong>Spécialisations de la catégorie (impact focus)</strong>
+      <div className="craft-bonus-grid">
+        <strong>Spécialisations de la catégorie (impact focus)</strong>
+        {specializationsLoading ? <p className="muted">Chargement des spécialisations…</p> : null}
+        {!specializationsLoading && !specializations?.items?.length ? <p className="muted">Spécialisations indisponibles pour cet item.</p> : null}
+        {specializations?.items?.length ? (
+          <>
           <label className="craft-specialization-card">
             <span className="craft-specialization-title">
               <img src={specializations.category_mastery_icon} alt="" loading="lazy" />
@@ -615,8 +624,9 @@ export default function CraftCalculator() {
               </label>
             ))}
           </div>
-        </div>
-      ) : null}
+          </>
+        ) : null}
+      </div>
 
       {error && <p className="muted">{error}</p>}
 
@@ -632,7 +642,10 @@ export default function CraftCalculator() {
               const line = profitability?.material_lines.find((l) => l.item_id === row.item_id);
               return (
                 <div key={row.item_id} className="craft-row">
-                  <span>{row.item_name}</span>
+                  <span className="craft-material-name">
+                    {row.icon ? <img src={row.icon} alt="" loading="lazy" /> : null}
+                    <span>{row.item_name}</span>
+                  </span>
                   <span>{row.gross_quantity}</span>
                   <span>{row.net_quantity}</span>
                   <label>

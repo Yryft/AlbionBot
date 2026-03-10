@@ -757,6 +757,7 @@ def create_app() -> FastAPI:
 
             items, recipes = await albion_provider.get_catalog_snapshot()
             names_by_item_id = {row["id"]: row.get("name", row["id"]) for row in items}
+            icons_by_item_id = {row["id"]: str(row.get("icon", "")) for row in items}
             craftable_by_item_id = {row["id"]: bool(row.get("craftable", False)) for row in items}
 
             base_focus_cost_by_item_id: dict[str, int] = {}
@@ -826,6 +827,7 @@ def create_app() -> FastAPI:
                 recipes_by_item_id=recipes,
                 craftable_by_item_id=craftable_by_item_id,
                 names_by_item_id=names_by_item_id,
+                icons_by_item_id=icons_by_item_id,
             )
 
             return {

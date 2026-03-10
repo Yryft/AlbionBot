@@ -658,9 +658,11 @@ class AlbionProviderService:
 
     async def search_items(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
         await self.refresh(force=False)
+        max_limit = max(1, min(limit, 50))
         if self.store is not None:
-            rows = self.store.craft_search_items(query=query, limit=limit, include_inactive=False)
+            rows = self.store.craft_search_items(query=query, limit=max_limit * 4, include_inactive=False)
             if rows:
+                filtered_rows = [row for row in rows if self._to_bool(row.get("craftable"), default=False)]
                 return [
                     {
                         "id": str(row.get("item_id", "")),
@@ -671,13 +673,13 @@ class AlbionProviderService:
                         "category": str(row.get("category", "unknown")),
                         "craftable": self._to_bool(row.get("craftable"), default=False),
                     }
-                    for row in rows
+                    for row in filtered_rows[:max_limit]
                 ]
         q = query.strip().lower()
-        rows = self._items_cache
+        rows = [item for item in self._items_cache if self._to_bool(item.get("craftable"), default=False)]
         if q:
             rows = [item for item in rows if q in item["name"].lower() or q in item["id"].lower()]
-        return rows[: max(1, min(limit, 50))]
+        return rows[:max_limit]
 
     async def get_item_detail(self, item_id: str) -> dict[str, Any]:
         await self.refresh(force=False)

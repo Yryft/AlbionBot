@@ -390,6 +390,7 @@ class CraftUserPreferencesDTO(BaseModel):
 class CraftSimulationMaterialDTO(BaseModel):
     item_id: str
     item_name: str
+    icon: str = ""
     gross_quantity: int
     net_quantity: int
 
