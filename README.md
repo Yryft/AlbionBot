@@ -157,6 +157,7 @@ Un service web séparé est disponible sous `web/`:
 - Dashboard craft: refonte du filtrage des spécialisations via les données officielles Albion (`/api/gameinfo/items/{item}/data`) : catégorie récupérée via `categoryId` + fallback robuste par marqueur d'ID (`HOLYSTAFF`, etc.) pour éviter les items hors famille.
 - Dashboard craft: UI spécialisations refaite en 2 niveaux simples (spé catégorie via icône `T4_MAIN_*`, puis spés items via icônes `T5_*`) avec sauvegarde automatique des valeurs **par catégorie et par utilisateur**.
 - Dashboard craft: exploitation du `craftingFocus` GameInfo par enchantement (base + `enchantments[]`) pour calculer le coût focus correct selon le niveau choisi.
+- Dashboard craft: correction du rendu JSX du calculateur (section spécialisations) pour rétablir un build front stable en production.
 - Dashboard: écran non connecté corrigé pour utiliser toute la largeur (suppression de l'effet de colonne latérale vide).
 
 - Dashboard: bannières d’authentification (succès/session reprise/erreur OAuth) lues depuis les query params puis supprimées de l’URL après affichage.
