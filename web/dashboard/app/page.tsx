@@ -221,15 +221,16 @@ export default function HomePage() {
     let nextBanner: AuthBanner | null = null;
     if (authError) {
       const errorMap: Record<string, string> = {
-        denied: "L'autorisation Discord a été refusée.",
-        state_mismatch: 'La vérification de sécurité OAuth a échoué. Relance la connexion.',
-        session_expired: 'La session a expiré pendant la connexion.',
-        callback_failed: 'Le retour OAuth Discord a échoué.',
+        state_invalid: 'La vérification de sécurité a échoué. Merci de relancer la connexion Discord.',
+        code_missing: "Le code d'autorisation Discord est manquant. Clique sur réessayer.",
+        token_invalid: 'La validation du token Discord a échoué. Merci de recommencer la connexion.',
+        oauth_denied: "Tu as refusé l'autorisation Discord. Autorise l'accès pour continuer.",
+        callback_failed: 'Le retour OAuth Discord a échoué de façon inattendue. Merci de réessayer.',
       };
       nextBanner = {
         tone: 'error',
         message: 'Impossible de finaliser la connexion Discord.',
-        detail: errorMap[authError] ?? `Détail: ${authError}`,
+        detail: errorMap[authError] ?? 'Une erreur de connexion est survenue. Merci de réessayer.',
         showRetry: true,
       };
     } else if (resumed) {

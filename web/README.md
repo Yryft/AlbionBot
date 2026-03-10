@@ -107,6 +107,12 @@ En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` q
 ## Nouveautés dashboard
 
 - Messages d’authentification UI via query params (`logged_in`, `resumed`, `auth_error`) avec nettoyage automatique de l’URL après affichage (pas de réapparition au refresh).
+- Codes `auth_error` supportés (simples et stables):
+  - `state_invalid`: contrôle de sécurité OAuth invalide
+  - `code_missing`: code OAuth absent au retour Discord
+  - `token_invalid`: échange/validation token impossible
+  - `oauth_denied`: autorisation refusée par l’utilisateur sur Discord
+  - `callback_failed`: erreur OAuth inattendue côté backend
 - Auth Discord clarifiée côté UX: deux CTA distincts (`Continuer avec Discord` pour reprendre la session existante, `Utiliser un autre compte` pour forcer `?force=1`) + action `Changer de compte` dans le menu session connectée.
 
 - Bouton **Déconnexion** côté interface.

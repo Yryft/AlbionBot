@@ -5,7 +5,7 @@ import secrets
 import asyncio
 import contextlib
 import logging
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -330,6 +330,25 @@ def create_app() -> FastAPI:
     cookie_samesite_default = _resolve_cookie_samesite()
     post_login_redirect = os.getenv("DASHBOARD_POST_LOGIN_REDIRECT", "/").strip() or "/"
 
+    def build_post_login_redirect(**params: str) -> str:
+        parts = urlsplit(post_login_redirect)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        for key, value in params.items():
+            if value is None:
+                query.pop(key, None)
+            else:
+                query[key] = value
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+    def oauth_error_redirect(auth_error_code: str, *, reason: str, exc: Exception | None = None) -> RedirectResponse:
+        if exc is not None:
+            logger.exception("OAuth callback error (%s): %s", auth_error_code, reason)
+        else:
+            logger.warning("OAuth callback error (%s): %s", auth_error_code, reason)
+        redirect = RedirectResponse(build_post_login_redirect(auth_error=auth_error_code), status_code=302)
+        redirect.delete_cookie(STATE_COOKIE, path="/")
+        return redirect
+
     def parse_discord_id(raw_id: str, field_name: str) -> int:
         value = (raw_id or "").strip()
         if not value.isdigit() or int(value) <= 0:
@@ -396,7 +415,7 @@ def create_app() -> FastAPI:
         return redirect
 
     @app.get("/auth/discord/callback")
-    def auth_discord_callback(request: Request, code: str = "", state: str = ""):
+    def auth_discord_callback(request: Request, code: str = "", state: str = "", error: str = "", error_description: str = ""):
         if oauth_service is None:
             raise _oauth_not_configured_error()
         secure_cookies, cookie_samesite = _resolve_cookie_policy_for_request(
@@ -404,21 +423,40 @@ def create_app() -> FastAPI:
             default_secure=secure_cookies_default,
             default_samesite=cookie_samesite_default,
         )
+        if error:
+            oauth_error_code = "oauth_denied" if error == "access_denied" else "callback_failed"
+            return oauth_error_redirect(
+                oauth_error_code,
+                reason=f"discord_error={error}, description={error_description}",
+            )
+
         state_cookie = request.cookies.get(STATE_COOKIE, "")
         if not state or state != state_cookie:
-            raise HTTPException(status_code=400, detail="State OAuth invalide")
+            return oauth_error_redirect("state_invalid", reason=f"state={state!r}, cookie={state_cookie!r}")
         if not code:
-            raise HTTPException(status_code=400, detail="Code OAuth manquant")
+            return oauth_error_redirect("code_missing", reason="authorization code missing")
 
-        tokens = oauth_service.exchange_code(code)
+        try:
+            tokens = oauth_service.exchange_code(code)
+        except HTTPException as exc:
+            return oauth_error_redirect("token_invalid", reason=f"exchange_code failed: {exc.detail}", exc=exc)
+        except Exception as exc:
+            return oauth_error_redirect("callback_failed", reason="unexpected error while exchanging code", exc=exc)
+
         access_token = tokens.get("access_token", "")
         refresh_token = tokens.get("refresh_token", "")
         expires_in = int(tokens.get("expires_in", 3600))
         if not access_token or not refresh_token:
-            raise HTTPException(status_code=400, detail="Réponse OAuth invalide")
+            return oauth_error_redirect("token_invalid", reason="missing access_token or refresh_token in OAuth response")
 
-        user = oauth_service.fetch_user(access_token)
-        user_guilds = oauth_service.fetch_user_guilds(access_token)
+        try:
+            user = oauth_service.fetch_user(access_token)
+            user_guilds = oauth_service.fetch_user_guilds(access_token)
+        except HTTPException as exc:
+            return oauth_error_redirect("token_invalid", reason=f"token rejected by Discord APIs: {exc.detail}", exc=exc)
+        except Exception as exc:
+            return oauth_error_redirect("callback_failed", reason="unexpected error while fetching Discord user data", exc=exc)
+
         session = oauth_service.sessions.create(
             access_token=access_token,
             refresh_token=refresh_token,
@@ -429,7 +467,7 @@ def create_app() -> FastAPI:
             user_agent=str(request.headers.get("user-agent", "") or ""),
         )
 
-        redirect = RedirectResponse(f"{post_login_redirect}?logged_in=1", status_code=302)
+        redirect = RedirectResponse(build_post_login_redirect(logged_in="1"), status_code=302)
         set_session_cookies(redirect, session, secure=secure_cookies, same_site=cookie_samesite)
         redirect.delete_cookie(STATE_COOKIE, path="/")
         return redirect
