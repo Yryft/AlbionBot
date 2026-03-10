@@ -31,6 +31,7 @@ Commandes principales :
 - `/comp_wizard`, `/comp_edit`, `/comp_delete`, `/comp_list`
 - `/raid_open`, `/raid_edit`, `/raid_list`, `/raid_close`, `/raid_assistant`
 - `/loot_scout_limits`, `/loot_split`
+- Format `maps` de `/loot_split` : chaque map est `tier;prix;finish` et les maps sont séparées par des virgules (`,`).
 
 ### 2) Banque
 - Balance par membre.
