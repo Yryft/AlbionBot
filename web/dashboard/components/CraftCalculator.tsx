@@ -9,6 +9,7 @@ type CraftItem = {
   enchant: number;
   category: string;
   craftable: boolean;
+  icon: string;
 };
 
 type SpecializationOption = {
@@ -615,7 +616,7 @@ export default function CraftCalculator() {
             ))}
           </div>
         </div>
-      )}
+      ) : null}
 
       {error && <p className="muted">{error}</p>}
 
