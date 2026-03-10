@@ -106,6 +106,8 @@ En local, pense aussi à démarrer le frontend avec `NEXT_PUBLIC_API_BASE_URL` q
 
 ## Nouveautés dashboard
 
+- Messages d’authentification UI via query params (`logged_in`, `resumed`, `auth_error`) avec nettoyage automatique de l’URL après affichage (pas de réapparition au refresh).
+
 - Bouton **Déconnexion** côté interface.
 - Actions raids alignées bot: ouverture, édition, fermeture explicite et gestion roster.
 - Endpoint `GET /api/guilds/{guild_id}/discord-directory` pour alimenter les autocomplétions (channels text/voice + membres).

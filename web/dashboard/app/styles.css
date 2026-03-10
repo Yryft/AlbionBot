@@ -125,8 +125,41 @@ ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
 input, select, textarea { border-radius: 8px; border: 1px solid #3b3d44; background: #1e1f22; color: #fff; padding: 8px; }
 .raid-item { display: flex; flex-direction: column; border: 1px solid #3b3d44; border-radius: 8px; padding: 8px; }
 .split { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
-.error-banner { background: #f23f43; border-radius: 8px; padding: 8px; margin: 0; }
-.info-banner { background: #1f2a44; border: 1px solid #405f9b; color: #dbe6ff; border-radius: 8px; padding: 8px 10px; margin: 0; }
+.auth-banner {
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.auth-banner p {
+  margin: 0;
+}
+
+.success-banner {
+  background: #194b36;
+  border: 1px solid #2f8a63;
+  color: #daf5e9;
+}
+
+.error-banner,
+.auth-banner.error-banner {
+  background: #f23f43;
+  border-radius: 8px;
+  padding: 8px;
+  margin: 0;
+}
+
+.info-banner,
+.auth-banner.info-banner {
+  background: #1f2a44;
+  border: 1px solid #405f9b;
+  color: #dbe6ff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 0;
+}
 .muted, small { color: #b5bac1; }
 .inline-filters { display: flex; gap: 16px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
 .check { display: flex !important; align-items: center; gap: 6px; }
