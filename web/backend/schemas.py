@@ -304,6 +304,7 @@ class CraftRecipeMaterialDTO(BaseModel):
 class CraftItemDetailDTO(BaseModel):
     item: CraftItemDTO
     recipe: List[CraftRecipeMaterialDTO] = Field(default_factory=list)
+    recipes: List[List[CraftRecipeMaterialDTO]] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
 
 
@@ -331,6 +332,7 @@ class CraftFocusCostEntryDTO(BaseModel):
 
 class CraftSimulationRequestDTO(BaseModel):
     item_id: str
+    recipe_index: int | None = None
     enchantment_level: int = Field(default=0, ge=0, le=4)
     quantity: int = Field(gt=0, le=100000)
     category_mastery_level: int = Field(ge=0, le=100)
@@ -354,6 +356,7 @@ class CraftSpecializationItemDTO(BaseModel):
 
 class CraftSpecializationsDTO(BaseModel):
     category: str
+    category_id: str | None = None
     category_mastery_item_id: str
     category_mastery_icon: str
     items: List[CraftSpecializationItemDTO] = Field(default_factory=list)
@@ -397,6 +400,8 @@ class CraftSimulationMaterialDTO(BaseModel):
 
 class CraftSimulationResultDTO(BaseModel):
     item_id: str
+    category_id: str | None = None
+    fce: int = 0
     focus_efficiency: float
     focus_per_item: int
     total_focus: int
@@ -404,6 +409,9 @@ class CraftSimulationResultDTO(BaseModel):
     base_materials: List[CraftSimulationMaterialDTO] = Field(default_factory=list)
     intermediate_materials: List[CraftSimulationMaterialDTO] = Field(default_factory=list)
     applied_yields: dict = Field(default_factory=dict)
+    recipe_index: int = 0
+    available_recipes: int = 1
+    warnings: List[str] = Field(default_factory=list)
 
 
 class CraftProfitabilityPricingMode(str, Enum):

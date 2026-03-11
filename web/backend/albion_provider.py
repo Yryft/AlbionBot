@@ -15,6 +15,7 @@ from typing import Any
 from albionbot.storage.store import Store
 
 import httpx
+from .gameinfo_client import GameInfoClient, GameInfoError, GameInfoNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,12 @@ class AlbionProviderService:
         self.item_details_url_template = GAMEINFO_ITEM_DETAILS_URL_TEMPLATE
         self.icon_base_url = os.getenv("ALBION_ICON_BASE_URL", "https://render.albiononline.com/v1/item").strip().rstrip("/")
         self.timeout_s = float(os.getenv("ALBION_PROVIDER_TIMEOUT_SECONDS", "8"))
+        self.gameinfo_client = GameInfoClient(
+            base_url=os.getenv("GAMEINFO_BASE_URL", "gameinfo"),
+            timeout_s=self.timeout_s,
+            max_retries=int(os.getenv("GAMEINFO_MAX_RETRIES", "3")),
+            max_concurrency=int(os.getenv("GAMEINFO_MAX_CONCURRENCY", "8")),
+        )
         self.memory_ttl_s = int(os.getenv("ALBION_CACHE_MEMORY_TTL_SECONDS", "300"))
         self.snapshot_path = Path(os.getenv("ALBION_CACHE_SNAPSHOT_PATH", "data/albion_provider_snapshot.json").strip())
         self.sync_interval_s = int(os.getenv("ALBION_SYNC_INTERVAL_SECONDS", "86400"))
@@ -432,26 +439,42 @@ class AlbionProviderService:
     async def _fetch_item_detail(self, item_id: str) -> dict[str, Any] | None:
         if not self.item_details_url_template:
             return None
-        endpoint = self.item_details_url_template.format(item_id=item_id)
-        async with httpx.AsyncClient(timeout=self.timeout_s) as client:
-            try:
-                response = await client.get(endpoint)
-                response.raise_for_status()
-            except httpx.HTTPError as exc:
-                raise AlbionProviderError("item_detail_unreachable", "Détail item indisponible") from exc
-
+        endpoint = f"/api/gameinfo/items/{item_id}/data"
         try:
-            payload = response.json()
-        except (JSONDecodeError, ValueError) as exc:
-            body = (response.text or "").strip()
-            if response.status_code == 404 or not body:
-                raise AlbionProviderError("item_not_found", "Item introuvable") from exc
-            raise AlbionProviderError("provider_invalid_payload", "Payload détail item invalide") from exc
+            payload = await self.gameinfo_client.get_json(endpoint)
+        except GameInfoNotFoundError as exc:
+            raise AlbionProviderError("item_not_found", "Item introuvable") from exc
+        except GameInfoError as exc:
+            raise AlbionProviderError("item_detail_unreachable", exc.message) from exc
         if isinstance(payload, dict):
             return payload
         if isinstance(payload, list) and payload and isinstance(payload[0], dict):
             return payload[0]
         raise AlbionProviderError("provider_invalid_payload", "Payload détail item invalide")
+
+
+    def _normalize_recipes(self, payload: dict[str, Any]) -> list[list[dict[str, Any]]]:
+        recipes: list[list[dict[str, Any]]] = []
+        recipe_candidates = payload.get("recipes")
+        if isinstance(recipe_candidates, list):
+            for row in recipe_candidates:
+                if isinstance(row, dict):
+                    normalized = self._normalize_recipe(row)
+                elif isinstance(row, list):
+                    normalized = self._normalize_recipe({"materials": row})
+                else:
+                    continue
+                if normalized:
+                    recipes.append(normalized)
+        if not recipes:
+            crafting_requirements = payload.get("craftingRequirements")
+            if isinstance(crafting_requirements, list):
+                for req in crafting_requirements:
+                    if isinstance(req, dict):
+                        normalized = self._normalize_recipe({"materials": req.get("craftResourceList", [])})
+                        if normalized:
+                            recipes.append(normalized)
+        return recipes
 
     def _normalize_item_detail(self, item_id: str, payload: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         item_row = payload.get("item") if isinstance(payload.get("item"), dict) else payload
@@ -693,6 +716,7 @@ class AlbionProviderService:
             raise AlbionProviderError("item_not_found", "Item introuvable")
 
         recipe = self._recipes_cache.get(key, [])
+        detail_payload: dict[str, Any] | None = None
         enchantment_focus_costs: dict[int, int] = {}
         if not recipe:
             detail_payload = await self._fetch_item_detail(key)
@@ -716,9 +740,13 @@ class AlbionProviderService:
 
         base_focus_cost, base_focus_cost_source = self._resolve_focus_cost_metadata(item)
 
+        recipes = self._normalize_recipes(detail_payload) if detail_payload is not None else []
+        if not recipes and recipe:
+            recipes = [recipe]
         return {
             "item": item,
             "recipe": recipe,
+            "recipes": recipes,
             "metadata": {
                 "source": "albion_provider",
                 "snapshot_age_seconds": max(0, int(time.time() - self._last_refresh_ts)),

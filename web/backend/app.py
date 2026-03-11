@@ -26,6 +26,7 @@ from .auth import (
 from .authorization import DashboardAuthorizationService
 from .albion_provider import AlbionProviderError, AlbionProviderService
 from .domain.crafting import CraftSimulationError, CraftSimulationInput, FocusYieldConfig, simulate_crafting
+from .domain.crafting.fce import FCECoefficientStore, compute_fce
 from .schemas import (
     BalanceEntryDTO,
     BankActionHistoryEntryDTO,
@@ -53,6 +54,7 @@ from .schemas import (
     CraftItemDetailDTO,
     CraftSimulationRequestDTO,
     CraftSimulationResultDTO,
+    CraftSpecializationItemDTO,
     CraftSpecializationsDTO,
     CraftProfitabilityRequestDTO,
     CraftProfitabilityResultDTO,
@@ -278,6 +280,7 @@ def create_app() -> FastAPI:
     albion_provider = AlbionProviderService(store=store)
     command_bus = CommandBus(rate_limiter=RateLimiter(), audit_logger=AuditLogger())
     oauth_service = _build_oauth_service()
+    fce_store = FCECoefficientStore()
     authorizer = DashboardAuthorizationService(store, oauth_service) if oauth_service is not None else None
 
     app = FastAPI(title="AlbionBot Dashboard API", version="0.1.0")
@@ -611,6 +614,25 @@ def create_app() -> FastAPI:
                 detail={"code": exc.code, "message": exc.message, "details": {"last_sync_error": albion_provider.last_sync_error}},
             ) from exc
 
+    @app.get("/api/craft/categories/{category_id}/items", response_model=list[CraftSpecializationItemDTO])
+    async def craft_category_items(category_id: str):
+        items, _ = await albion_provider.get_catalog_snapshot()
+        rows: dict[str, dict[str, object]] = {}
+        for row in items:
+            row_id = str(row.get("id", ""))
+            base_id, enchant = albion_provider.split_enchanted_item_id(row_id)
+            if enchant != 0 or not bool(row.get("craftable", False)):
+                continue
+            if str(row.get("category", "")) != category_id:
+                continue
+            rows[base_id] = {
+                "item_id": base_id,
+                "item_name": str(row.get("name", base_id)),
+                "icon": str(row.get("icon", "")),
+                "tier": int(row.get("tier") or 0),
+            }
+        return sorted(rows.values(), key=lambda it: str(it.get("item_name", "")))
+
     @app.get("/api/craft/specializations/{item_id}", response_model=CraftSpecializationsDTO)
     async def craft_specializations(item_id: str):
         base_item_id, _ = albion_provider.split_enchanted_item_id(item_id)
@@ -623,60 +645,37 @@ def create_app() -> FastAPI:
                 detail={"code": exc.code, "message": exc.message, "details": {"last_sync_error": albion_provider.last_sync_error}},
             ) from exc
 
-        target_item = next((row for row in items if row.get("id") == base_item_id), None)
-        if target_item is None:
-            target_item = target_detail.get("item")
+        target_item = target_detail.get("item", {}) if isinstance(target_detail.get("item"), dict) else {}
+        target_category = str(target_item.get("category") or "")
+        if not target_category or target_category == "unknown":
+            target_category = albion_provider._infer_category_from_item_id(base_item_id)
 
-        if not isinstance(target_item, dict):
-            raise HTTPException(status_code=404, detail={"code": "item_not_found", "message": "Item introuvable"})
-
-        target_category = str(target_detail.get("item", {}).get("category") or target_item.get("category", ""))
-        has_explicit_target_category = bool(target_category and target_category != "unknown")
-        rows: list[dict[str, object]] = []
-
-        def _with_tier(base_id: str, tier: int) -> str:
-            raw = str(base_id or "")
-            if not raw.startswith("T"):
-                return raw
-            marker = raw.find("_")
-            if marker <= 1:
-                return raw
-            return f"T{tier}{raw[marker:]}"
-
-        for row in items:
-            row_id = str(row.get("id", ""))
-            row_base_id, row_enchant = albion_provider.split_enchanted_item_id(row_id)
-            if row_enchant != 0:
-                continue
-            if not bool(row.get("craftable", False)):
-                continue
-            row_category = str(row.get("category", ""))
-            category_match = row_category == target_category and row_category != "unknown"
-            marker_match = albion_provider.item_id_matches_category_marker(row_base_id, target_category)
-            if has_explicit_target_category and not category_match and not marker_match:
-                continue
-            if not has_explicit_target_category and not marker_match:
-                continue
-            rows.append(
-                {
-                    "item_id": row_base_id,
-                    "item_name": str(row.get("name", row_base_id)),
-                    "icon": f"{albion_provider.icon_base_url}/{_with_tier(row_base_id, 5)}.png",
+        rows = await craft_category_items(target_category)
+        marker = albion_provider._extract_category_marker(target_category)
+        if not rows and marker:
+            all_items, _ = await albion_provider.get_catalog_snapshot()
+            fallback_rows: dict[str, dict[str, object]] = {}
+            for row in all_items:
+                row_id = str(row.get("id", ""))
+                base_id, enchant = albion_provider.split_enchanted_item_id(row_id)
+                if enchant != 0 or not bool(row.get("craftable", False)):
+                    continue
+                if not albion_provider.item_id_matches_category_marker(base_id, target_category):
+                    continue
+                fallback_rows[base_id] = {
+                    "item_id": base_id,
+                    "item_name": str(row.get("name", base_id)),
+                    "icon": str(row.get("icon", "")),
                     "tier": int(row.get("tier") or 0),
                 }
-            )
-
-        dedup: dict[str, dict[str, object]] = {}
-        for row in rows:
-            dedup[str(row["item_id"])] = row
-        ordered_rows = sorted(dedup.values(), key=lambda row: str(row.get("item_name", "")))
-        marker = albion_provider._extract_category_marker(target_category)
-        category_mastery_item_id = f"T4_MAIN_{marker}" if marker else _with_tier(base_item_id, 4)
+            rows = sorted(fallback_rows.values(), key=lambda it: str(it.get("item_name", "")))
+        category_mastery_item_id = f"T4_MAIN_{marker}" if marker else base_item_id
         return {
             "category": target_category,
+            "category_id": target_category,
             "category_mastery_item_id": category_mastery_item_id,
             "category_mastery_icon": f"{albion_provider.icon_base_url}/{category_mastery_item_id}.png",
-            "items": ordered_rows,
+            "items": rows,
         }
 
 
@@ -763,28 +762,15 @@ def create_app() -> FastAPI:
             base_focus_cost_by_item_id: dict[str, int] = {}
             metadata = item_detail.get("metadata", {}) if isinstance(item_detail.get("metadata"), dict) else {}
             by_enchant = metadata.get("base_focus_cost_by_enchant") if isinstance(metadata.get("base_focus_cost_by_enchant"), dict) else {}
-            raw_focus_cost = None
-            if payload.enchantment_level > 0:
-                raw_focus_cost = by_enchant.get(payload.enchantment_level)
-                if raw_focus_cost is None:
-                    raw_focus_cost = by_enchant.get(str(payload.enchantment_level))
+            raw_focus_cost = by_enchant.get(payload.enchantment_level) if payload.enchantment_level > 0 else None
+            if raw_focus_cost is None and payload.enchantment_level > 0:
+                raw_focus_cost = by_enchant.get(str(payload.enchantment_level))
             if raw_focus_cost is None:
                 raw_focus_cost = metadata.get("base_focus_cost")
             if raw_focus_cost is not None:
-                try:
-                    parsed_focus_cost = int(raw_focus_cost)
-                except (TypeError, ValueError) as exc:
-                    raise CraftSimulationError(
-                        "invalid_focus_cost",
-                        "Coût focus invalide pour cet item.",
-                        details={"item_id": resolved_item_id, "raw_value": raw_focus_cost},
-                    ) from exc
+                parsed_focus_cost = int(raw_focus_cost)
                 if parsed_focus_cost <= 0:
-                    raise CraftSimulationError(
-                        "invalid_focus_cost",
-                        "Coût focus invalide pour cet item.",
-                        details={"item_id": resolved_item_id, "raw_value": raw_focus_cost},
-                    )
+                    raise CraftSimulationError("invalid_focus_cost", "Coût focus invalide pour cet item.", details={"item_id": resolved_item_id})
                 base_focus_cost_by_item_id[resolved_item_id] = parsed_focus_cost
 
             if store is not None:
@@ -801,37 +787,68 @@ def create_app() -> FastAPI:
                     if row_focus_cost > 0:
                         base_focus_cost_by_item_id[candidate_id] = row_focus_cost
 
+            category_id = str(item.get("category") or "unknown")
+            fce_by_item_id: dict[str, int] = {}
+            warnings: list[str] = []
+
             specialization_by_item_id = dict(payload.item_specializations)
             specialization_by_item_id.setdefault(resolved_item_id, specialization_by_item_id.get(base_item_id, 0))
 
-            simulation = simulate_crafting(
-                simulation_input=CraftSimulationInput(
-                    item_id=resolved_item_id,
-                    quantity=payload.quantity,
+            for candidate_id in set([resolved_item_id, *recipes.keys()]):
+                coeffs, exact = fce_store.get(category_id, candidate_id)
+                if not exact:
+                    warnings.append(f"Coefficients FCE génériques utilisés pour {candidate_id}")
+                fce_by_item_id[candidate_id] = compute_fce(
                     category_mastery_level=payload.category_mastery_level,
-                    category_specializations=dict(payload.category_specializations),
-                    item_specializations=specialization_by_item_id,
-                    available_focus=payload.available_focus,
-                    base_focus_cost_by_item_id=base_focus_cost_by_item_id,
-                    item_category_by_item_id={row["id"]: str(row.get("category", "")) for row in items},
-                    use_focus=payload.use_focus,
-                    yields=FocusYieldConfig(
-                        base_return_rate=0.152,
-                        location_return_rate_bonus=location["location_return_rate_bonus"],
-                        hideout_return_rate_bonus=location["hideout_return_rate_bonus"],
-                        focus_return_rate_bonus=location["focus_return_rate_bonus"],
-                        additional_return_rate_bonus=location["additional_return_rate_bonus"],
+                    category_specialization_level=int(payload.category_specializations.get(candidate_id, 0)),
+                    item_specialization_level=int(specialization_by_item_id.get(candidate_id, 0)),
+                    coeffs=coeffs,
+                )
+
+            candidate_recipes = item_detail.get("recipes") if isinstance(item_detail.get("recipes"), list) else []
+            if not candidate_recipes:
+                candidate_recipes = [item_detail.get("recipe", [])]
+
+            simulations = []
+            for idx, recipe in enumerate(candidate_recipes):
+                sim = simulate_crafting(
+                    simulation_input=CraftSimulationInput(
+                        item_id=resolved_item_id,
+                        quantity=payload.quantity,
+                        category_mastery_level=payload.category_mastery_level,
+                        category_specializations=dict(payload.category_specializations),
+                        item_specializations=specialization_by_item_id,
+                        available_focus=payload.available_focus,
+                        base_focus_cost_by_item_id=base_focus_cost_by_item_id,
+                        item_category_by_item_id={row["id"]: str(row.get("category", "")) for row in items},
+                        fce_by_item_id=fce_by_item_id,
+                        use_focus=payload.use_focus,
+                        yields=FocusYieldConfig(
+                            base_return_rate=0.152,
+                            location_return_rate_bonus=location["location_return_rate_bonus"],
+                            hideout_return_rate_bonus=location["hideout_return_rate_bonus"],
+                            focus_return_rate_bonus=location["focus_return_rate_bonus"],
+                            additional_return_rate_bonus=location["additional_return_rate_bonus"],
+                        ),
                     ),
-                ),
-                recipe=item_detail.get("recipe", []),
-                recipes_by_item_id=recipes,
-                craftable_by_item_id=craftable_by_item_id,
-                names_by_item_id=names_by_item_id,
-                icons_by_item_id=icons_by_item_id,
-            )
+                    recipe=recipe,
+                    recipes_by_item_id=recipes,
+                    craftable_by_item_id=craftable_by_item_id,
+                    names_by_item_id=names_by_item_id,
+                    icons_by_item_id=icons_by_item_id,
+                )
+                simulations.append((idx, sim))
+
+            if payload.recipe_index is None:
+                recipe_index, simulation = min(simulations, key=lambda row: row[1].total_focus)
+            else:
+                recipe_index = max(0, min(payload.recipe_index, len(simulations) - 1))
+                simulation = simulations[recipe_index][1]
 
             return {
                 "item_id": resolved_item_id,
+                "category_id": category_id,
+                "fce": simulation.fce,
                 "focus_efficiency": simulation.focus_efficiency,
                 "focus_per_item": simulation.focus_per_item,
                 "total_focus": simulation.total_focus,
@@ -839,6 +856,9 @@ def create_app() -> FastAPI:
                 "base_materials": [row.__dict__ for row in simulation.base_materials],
                 "intermediate_materials": [row.__dict__ for row in simulation.intermediate_materials],
                 "applied_yields": simulation.applied_yields,
+                "recipe_index": recipe_index,
+                "available_recipes": len(candidate_recipes),
+                "warnings": sorted(set(warnings)),
             }
         except CraftSimulationError as exc:
             raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "details": exc.details}) from exc

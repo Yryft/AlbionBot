@@ -41,6 +41,8 @@ type MaterialRow = {
 
 type SimulationResponse = {
   item_id: string;
+  category_id?: string | null;
+  fce?: number;
   focus_efficiency: number;
   focus_per_item: number;
   total_focus: number;
@@ -48,6 +50,9 @@ type SimulationResponse = {
   base_materials: MaterialRow[];
   intermediate_materials: MaterialRow[];
   applied_yields: Record<string, number>;
+  recipe_index?: number;
+  available_recipes?: number;
+  warnings?: string[];
 };
 
 type ProfitabilityLine = {
@@ -162,6 +167,7 @@ export default function CraftCalculator() {
   const [materialPrices, setMaterialPrices] = useState<Record<string, number>>({});
   const [marketPriceHints, setMarketPriceHints] = useState<Record<string, number>>({});
   const [simulation, setSimulation] = useState<SimulationResponse | null>(null);
+  const [recipeIndex, setRecipeIndex] = useState<number>(-1);
   const [profitability, setProfitability] = useState<ProfitabilityResponse | null>(null);
   const [error, setError] = useState('');
   const [prefsLoaded, setPrefsLoaded] = useState(false);
@@ -388,6 +394,7 @@ export default function CraftCalculator() {
           hideout_zone_quality: hideoutZoneQuality,
           available_focus: availableFocus,
           use_focus: useFocus,
+          recipe_index: recipeIndex >= 0 ? recipeIndex : null,
         }),
       });
       if (!simulationRes.ok) {
@@ -432,7 +439,7 @@ export default function CraftCalculator() {
       setProfitability(null);
       setError(resolveCraftApiErrorMessage(caughtError));
     });
-  }, [hasValidSelectedItem, selectedItemId, enchantmentLevel, quantity, categoryMasteryLevel, targetSpecializationLevel, itemSpecializations, locationKey, cityKey, hideoutBiomeKey, hideoutTerritoryLevel, hideoutZoneQuality, availableFocus, useFocus, pricingMode, materialPrices, journalUnitPrice, saleUnitPrice, taxRate, stationFeeRate, focusUnitPrice]);
+  }, [hasValidSelectedItem, selectedItemId, enchantmentLevel, quantity, categoryMasteryLevel, targetSpecializationLevel, itemSpecializations, locationKey, cityKey, hideoutBiomeKey, hideoutTerritoryLevel, hideoutZoneQuality, availableFocus, useFocus, pricingMode, materialPrices, journalUnitPrice, saleUnitPrice, taxRate, stationFeeRate, focusUnitPrice, recipeIndex]);
 
   const marketPrefillAvailable = Object.keys(marketPriceHints).length > 0;
 
@@ -491,6 +498,16 @@ export default function CraftCalculator() {
         <label>
           Quantité
           <input type="number" min={1} value={quantity} onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))} />
+        </label>
+
+        <label>
+          Recipe
+          <select value={recipeIndex} onChange={(e) => setRecipeIndex(Number(e.target.value))}>
+            <option value={-1}>Auto</option>
+            {Array.from({ length: Math.max(0, (simulation?.available_recipes ?? 1) - 0) }).map((_, idx) => (
+              <option key={idx} value={idx}>Recipe {String.fromCharCode(65 + idx)}</option>
+            ))}
+          </select>
         </label>
         <label>
           Enchantement
