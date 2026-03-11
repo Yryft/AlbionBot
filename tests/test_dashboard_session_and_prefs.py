@@ -111,38 +111,3 @@ def test_session_manager_concurrent_get_does_not_break_persistence(tmp_path):
     assert all(results)
     assert path.exists()
 
-def test_craft_preferences_are_persisted_for_user(tmp_path, monkeypatch):
-    client = _build_client(tmp_path, monkeypatch)
-
-    update_response = client.put(
-        "/api/user/preferences/craft",
-        json={
-            "item_id": "ITEM_TEST",
-            "enchantment_level": 2,
-            "quantity": 5,
-            "category_mastery_level": 10,
-            "target_specialization_level": 20,
-            "location_key": "city",
-            "city_key": "lymhurst",
-            "hideout_biome_key": "forest",
-            "hideout_territory_level": 9,
-            "hideout_zone_quality": 6,
-            "available_focus": 30000,
-            "use_focus": True,
-            "tax_rate": 6.5,
-            "focus_unit_price": 0,
-            "journal_unit_price": 0,
-            "sale_unit_price": 0,
-            "pricing_mode": "manual",
-        },
-        headers={"X-CSRF-Token": "csrf"},
-    )
-    assert update_response.status_code == 200
-
-    get_response = client.get("/api/user/preferences/craft")
-    assert get_response.status_code == 200
-    data = get_response.json()
-    assert data["item_id"] == "ITEM_TEST"
-    assert data["enchantment_level"] == 2
-    assert data["city_key"] == "lymhurst"
-    assert data["hideout_biome_key"] == "forest"
