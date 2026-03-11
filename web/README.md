@@ -251,8 +251,8 @@ Le endpoint `POST /api/craft/simulate` consomme:
 
 Formule appliquée:
 
-- `eff(item) = min(0.5, mastery_cat_appliquee(item)*0.002 + spec_item(item)*0.003)`
-- `focus_unit(item) = ceil(base_focus_cost(item) * (1 - eff(item)))` (min 1)
+- `FCE(item) = mastery_cat*coef_mastery + spec_cat*coef_cat + spec_item*coef_item` (coefficients issus de `fce_coefficients.json`)
+- `focus_unit(item) = ceil(base_focus_cost(item) * (0.5 ** (FCE(item) / 10000)))` (min 1)
 - `total_focus = focus_cible + somme(focus_intermediaires_craftables_avec_focus_cost)`
 
 Règle `mastery_cat_appliquee(item)`:
@@ -262,11 +262,21 @@ Règle `mastery_cat_appliquee(item)`:
   - catégorie différente: `0`
 
 ### Exemple chiffré
-- Cible: `base_focus_cost=100`, `category_mastery=100`, `spec=100`.
-  - `eff=0.5` ⇒ `focus_unit=50`.
-- Intermédiaire craftable: `base_focus_cost=60`, même catégorie, `spec=50`, quantité `20`.
-  - `eff= min(0.5, 100*0.002 + 50*0.003)=0.35`
-  - `focus_unit=ceil(60*0.65)=39`
-  - `focus_intermediaire=39*20=780`
-- Si quantité cible `10`: `focus_cible=50*10=500`
-- `total_focus=500+780=1280`
+- Cible: `base_focus_cost=1000`, `FCE=10000` -> `focus_unit=500`.
+- Intermédiaire craftable: `base_focus_cost=640`, `FCE=5000`, quantité `20` -> `focus_unit=453`, `focus_intermediaire=9060`.
+
+## Craft helper (focus & catégories)
+
+- Le backend utilise maintenant un client GameInfo partagé (`web/backend/gameinfo_client.py`) avec retries, backoff+jitter, cache conditionnel (`ETag` / `Last-Modified`) et limite de concurrence.
+- Les spécialisations craft sont pilotées par `categoryId` GameInfo avec fallback par marqueur d'ID si la catégorie manque.
+- Nouveau endpoint: `GET /api/craft/categories/{categoryId}/items` (items de base seulement, triés par nom).
+- Le calcul focus utilise un modèle FCE exponentiel: `ceil(baseFocus * (0.5 ** (FCE / 10000)))`.
+- Les coefficients FCE sont externalisés dans `web/backend/data/fce_coefficients.json`.
+
+### Mettre à jour les coefficients FCE
+
+1. Ouvrir `web/backend/data/fce_coefficients.json`.
+2. Modifier `default` pour le fallback global.
+3. Ajouter/mettre à jour une entrée par catégorie (`holy_staff`, etc.).
+4. Ajouter un override précis par item (`"T5_MAIN_HOLYSTAFF_AVALON"`, etc.) si nécessaire.
+5. Relancer les tests backend craft.
