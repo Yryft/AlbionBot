@@ -284,3 +284,47 @@ class GuildPermissionUpdateRequestDTO(BaseModel):
     user_ids: List[str] = Field(default_factory=list)
 
 
+
+
+class CraftingIngredientDTO(BaseModel):
+    itemId: str
+    count: int
+    enchantScaled: bool = False
+    effectiveEnchant: int = 0
+
+
+class CraftingRecipeDTO(BaseModel):
+    recipeId: str
+    name: str
+    ingredients: List[CraftingIngredientDTO] = Field(default_factory=list)
+
+
+class CraftingItemDTO(BaseModel):
+    id: str
+    name: str
+    tier: int
+    enchant: int
+
+
+class CraftingRRRDTO(BaseModel):
+    lpb: float
+    rrr: float
+
+
+class CraftingItemResponseDTO(BaseModel):
+    item: CraftingItemDTO
+    categoryId: str
+    iconUrl: str
+    baseFocusCost: int
+    fceTotal: int
+    focusCost: int
+    recipes: List[CraftingRecipeDTO] = Field(default_factory=list)
+    rrrByLocation: CraftingRRRDTO
+
+
+class CraftingProfileUpdateDTO(BaseModel):
+    profile: dict = Field(default_factory=dict)
+
+
+class CraftingProfileResponseDTO(BaseModel):
+    profile: dict = Field(default_factory=dict)

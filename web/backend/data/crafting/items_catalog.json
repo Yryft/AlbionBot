@@ -1,0 +1,23 @@
+[
+  {
+    "baseItemId": "2H_HOLYSTAFF_HELL",
+    "representativeT5Id": "T5_2H_HOLYSTAFF_HELL",
+    "label": "Hallowfall",
+    "categoryId": "holystaff",
+    "typeKey": "hallowfall"
+  },
+  {
+    "baseItemId": "2H_HOLYSTAFF_CRYSTAL",
+    "representativeT5Id": "T5_2H_HOLYSTAFF_CRYSTAL",
+    "label": "Lifetouch",
+    "categoryId": "holystaff",
+    "typeKey": "lifetouch"
+  },
+  {
+    "baseItemId": "2H_CROSSBOW_HEAVY",
+    "representativeT5Id": "T5_2H_CROSSBOW_HEAVY",
+    "label": "Heavy Crossbow",
+    "categoryId": "crossbow",
+    "typeKey": "heavy_crossbow"
+  }
+]

@@ -1,0 +1,5 @@
+{
+  "1": {"normal": 0.08, "excellent": 0.12},
+  "2": {"normal": 0.12, "excellent": 0.17},
+  "3": {"normal": 0.16, "excellent": 0.22}
+}

@@ -1,0 +1,6 @@
+{
+  "clusters": {
+    "caerleon_city": {"city": "caerleon", "clusterQuality": "normal"},
+    "roads_blue": {"biome": "roads", "clusterQuality": "excellent"}
+  }
+}

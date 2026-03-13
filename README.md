@@ -8,6 +8,7 @@ Bot Discord + dashboard web pour gérer raids, balances/lootsplit, tickets et ad
 - Consultation des tickets
 - Authentification Discord pour le dashboard
 - Permissions par guilde (admin/roles/users)
+- Crafting Assistant (focus, recettes multi-recipes, RRR par localisation)
 
 ## Lancer le projet
 1. Installer les dépendances Python.
@@ -17,3 +18,8 @@ Bot Discord + dashboard web pour gérer raids, balances/lootsplit, tickets et ad
 
 ## Tests
 Exécuter `pytest` à la racine.
+
+## Crafting Assistant
+- Endpoint backend: `GET /crafting/item/{id}?tier=&enchant=` (+ paramètres de spécialisations et localisation).
+- Profil de spécialisations persisté par utilisateur via `GET/PUT /api/crafting/profile`.
+- Données offline versionnées dans `web/backend/data/crafting/` (catalogue, recettes, coefficients, modifiers).
