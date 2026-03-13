@@ -1,0 +1,22 @@
+{
+  "T8_2H_HOLYSTAFF_HELL": [
+    {
+      "recipeId": "hallowfall-ancient",
+      "name": "Relique ancienne",
+      "ingredients": [
+        { "itemId": "T8_METALBAR", "count": 16, "enchantScaled": true },
+        { "itemId": "T8_CLOTH", "count": 8, "enchantScaled": true },
+        { "itemId": "ARTEFACT_OLD_HOLY", "count": 1, "enchantScaled": false }
+      ]
+    },
+    {
+      "recipeId": "hallowfall-runic",
+      "name": "Relique runique",
+      "ingredients": [
+        { "itemId": "T8_METALBAR", "count": 14, "enchantScaled": true },
+        { "itemId": "T8_CLOTH", "count": 10, "enchantScaled": true },
+        { "itemId": "ARTEFACT_RUNIC_HOLY", "count": 1, "enchantScaled": false }
+      ]
+    }
+  ]
+}

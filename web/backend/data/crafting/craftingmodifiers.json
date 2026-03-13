@@ -1,0 +1,18 @@
+{
+  "city": {
+    "caerleon": 0.24,
+    "lymhurst": 0.15,
+    "default": 0.12
+  },
+  "outlands": {
+    "default": 0.35
+  },
+  "roads": {
+    "default": 0.28
+  },
+  "hideout": {
+    "default": 0.4
+  },
+  "focusBonus": 0.44,
+  "dailyBonus": 0.10
+}
