@@ -181,6 +181,43 @@ export type BankBalanceDTO = {
   balance: number;
 };
 
+
+export type CraftingCatalogItemDTO = {
+  baseItemId: string;
+  representativeT5Id: string;
+  label: string;
+  categoryId: string;
+  typeKey: string;
+};
+
+export type CraftingIngredientDTO = {
+  itemId: string;
+  count: number;
+  enchantScaled: boolean;
+  effectiveEnchant: number;
+};
+
+export type CraftingRecipeDTO = {
+  recipeId: string;
+  name: string;
+  ingredients: CraftingIngredientDTO[];
+};
+
+export type CraftingItemResponseDTO = {
+  item: { id: string; name: string; tier: number; enchant: number };
+  categoryId: string;
+  iconUrl: string;
+  baseFocusCost: number;
+  fceTotal: number;
+  focusCost: number;
+  recipes: CraftingRecipeDTO[];
+  rrrByLocation: { lpb: number; rrr: number };
+};
+
+export type CraftingProfileDTO = {
+  profile: Record<string, number>;
+};
+
 export type BankActionHistoryEntryDTO = {
   action_id: string;
   guild_id: string;

@@ -1,0 +1,23 @@
+{
+  "default": {
+    "groupPerLevel": 10,
+    "categoryPerLevel": 15,
+    "otherItemPerLevel": 30,
+    "itemPerLevel": 250
+  },
+  "categories": {
+    "holystaff": {
+      "categoryPerLevel": 15,
+      "otherItemPerLevel": 30
+    },
+    "crossbow": {
+      "categoryPerLevel": 15,
+      "otherItemPerLevel": 30
+    }
+  },
+  "items": {
+    "T8_2H_HOLYSTAFF_HELL": {
+      "itemPerLevel": 250
+    }
+  }
+}

@@ -24,6 +24,7 @@ from .auth import (
     set_session_cookies,
 )
 from .authorization import DashboardAuthorizationService
+from .crafting import CraftingService
 from .schemas import (
     BalanceEntryDTO,
     BankActionHistoryEntryDTO,
@@ -41,6 +42,9 @@ from .schemas import (
     RaidOpenPreviewDTO,
     RaidOpenPreviewRequestDTO,
     RaidOpenRequestDTO,
+    CraftingItemResponseDTO,
+    CraftingProfileResponseDTO,
+    CraftingProfileUpdateDTO,
     RaidTemplateUpdateRequestDTO,
     TemplateMutationResultDTO,
     RaidUpdateRequestDTO,
@@ -184,6 +188,7 @@ def create_app() -> FastAPI:
         bank_sqlite_path=bank_sqlite_path,
     )
     service = DashboardService(store, bank_allow_negative=_env_bool("BANK_ALLOW_NEGATIVE", True))
+    crafting_service = CraftingService()
     command_bus = CommandBus(rate_limiter=RateLimiter(), audit_logger=AuditLogger())
     oauth_service = _build_oauth_service()
     authorizer = DashboardAuthorizationService(store, oauth_service) if oauth_service is not None else None
@@ -457,6 +462,67 @@ def create_app() -> FastAPI:
             "raid_count": len(service.store.raids),
             "template_count": len(service.store.templates),
         }
+
+    @app.get("/api/crafting/catalog")
+    async def list_crafting_catalog():
+        return crafting_service.list_craftable_items()
+
+    @app.get("/api/crafting/categories/{category_id}/types")
+    async def list_crafting_category_types(category_id: str):
+        return crafting_service.list_category_types(category_id)
+
+    @app.get("/api/crafting/profile", response_model=CraftingProfileResponseDTO)
+    async def get_crafting_profile(request: Request):
+        if oauth_service is None:
+            return CraftingProfileResponseDTO(profile={})
+        session = await require_session(request, oauth_service)
+        profile = store.get_dashboard_user_profile(int(session.user.id), "crafting_specializations") or {}
+        return CraftingProfileResponseDTO(profile=profile)
+
+    @app.put("/api/crafting/profile", response_model=CraftingProfileResponseDTO)
+    async def set_crafting_profile(payload: CraftingProfileUpdateDTO, request: Request):
+        if oauth_service is None:
+            raise _oauth_not_configured_error()
+        session = await require_session(request, oauth_service)
+        store.set_dashboard_user_profile(int(session.user.id), "crafting_specializations", dict(payload.profile or {}))
+        return CraftingProfileResponseDTO(profile=dict(payload.profile or {}))
+
+    @app.get("/crafting/item/{item_id}", response_model=CraftingItemResponseDTO)
+    async def get_crafting_item(
+        item_id: str,
+        tier: int = 5,
+        enchant: int = 0,
+        group_level: int = 0,
+        category_level: int = 0,
+        item_level: int = 0,
+        others_level: int = 0,
+        location_kind: str = "city",
+        location_key: str = "caerleon",
+        with_focus: bool = False,
+        with_daily_bonus: bool = False,
+        hideout_level: int = 1,
+        map_quality: str = "normal",
+    ):
+        payload = await crafting_service.build_item_payload(
+            item_id=item_id,
+            tier=tier,
+            enchant=enchant,
+            spec_profile={
+                "group": group_level,
+                "category": category_level,
+                "item": item_level,
+                "others": others_level,
+            },
+            location={
+                "kind": location_kind,
+                "key": location_key,
+                "withFocus": with_focus,
+                "withDailyBonus": with_daily_bonus,
+                "hideoutLevel": hideout_level,
+                "mapQuality": map_quality,
+            },
+        )
+        return payload
 
     @app.get("/api/my/raids")
     def list_my_raids(request: Request):
