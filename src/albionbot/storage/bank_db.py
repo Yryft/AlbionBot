@@ -207,6 +207,96 @@ class BankDB:
                 """
             )
 
+        self._init_feature_schema()
+
+    def _init_feature_schema(self) -> None:
+        self._exec(
+            """
+            CREATE TABLE IF NOT EXISTS craft_profiles (
+                guild_id BIGINT NOT NULL,
+                user_id BIGINT NOT NULL,
+                category_specs_json TEXT NOT NULL DEFAULT '{}',
+                item_specs_json TEXT NOT NULL DEFAULT '{}',
+                preferences_json TEXT NOT NULL DEFAULT '{}',
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (guild_id, user_id)
+            );
+            """
+        )
+        self._exec(
+            """
+            CREATE TABLE IF NOT EXISTS craft_presets (
+                preset_id TEXT PRIMARY KEY,
+                guild_id BIGINT NOT NULL,
+                user_id BIGINT NOT NULL,
+                name TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            """
+        )
+        self._exec("CREATE INDEX IF NOT EXISTS idx_craft_presets_owner ON craft_presets(guild_id, user_id, updated_at DESC);")
+
+        self._exec(
+            """
+            CREATE TABLE IF NOT EXISTS killboard_trackers (
+                tracker_id TEXT PRIMARY KEY,
+                guild_id BIGINT NOT NULL,
+                albion_server TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                target_name TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                post_channel_id BIGINT,
+                created_by BIGINT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                UNIQUE(guild_id, albion_server, kind, target_id)
+            );
+            """
+        )
+        self._exec("CREATE INDEX IF NOT EXISTS idx_killboard_trackers_guild ON killboard_trackers(guild_id, enabled);")
+        self._exec(
+            """
+            CREATE TABLE IF NOT EXISTS killboard_events (
+                albion_server TEXT NOT NULL,
+                event_id BIGINT NOT NULL,
+                occurred_at INTEGER NOT NULL,
+                killer_id TEXT,
+                killer_name TEXT,
+                killer_guild_id TEXT,
+                victim_id TEXT,
+                victim_name TEXT,
+                victim_guild_id TEXT,
+                killer_average_ip REAL,
+                victim_average_ip REAL,
+                assist_count INTEGER NOT NULL DEFAULT 0,
+                kill_fame BIGINT NOT NULL DEFAULT 0,
+                estimated_value INTEGER,
+                payload_json TEXT NOT NULL,
+                image_path TEXT,
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (albion_server, event_id)
+            );
+            """
+        )
+        self._exec("CREATE INDEX IF NOT EXISTS idx_killboard_events_time ON killboard_events(occurred_at DESC);")
+        self._exec(
+            """
+            CREATE TABLE IF NOT EXISTS killboard_event_posts (
+                albion_server TEXT NOT NULL,
+                event_id BIGINT NOT NULL,
+                guild_id BIGINT NOT NULL,
+                channel_id BIGINT NOT NULL,
+                message_id BIGINT,
+                posted_at INTEGER NOT NULL,
+                PRIMARY KEY (albion_server, event_id, guild_id),
+                FOREIGN KEY (albion_server, event_id) REFERENCES killboard_events(albion_server, event_id) ON DELETE CASCADE
+            );
+            """
+        )
+
     # -----------------------------
     # Low-level exec helpers
     # -----------------------------
@@ -564,6 +654,187 @@ class BankDB:
                     self.mark_action_undone(a.action_id, int(a.undone_at))
                 imported += 1
         return imported
+
+    def get_craft_profile(self, guild_id: int, user_id: int) -> Dict[str, Any]:
+        row = self._fetchone(
+            "SELECT category_specs_json, item_specs_json, preferences_json FROM craft_profiles WHERE guild_id = ? AND user_id = ?;"
+            if self.kind == "sqlite"
+            else "SELECT category_specs_json, item_specs_json, preferences_json FROM craft_profiles WHERE guild_id = %s AND user_id = %s;",
+            (int(guild_id), int(user_id)),
+        )
+        if not row:
+            return {"category_specs": {}, "item_specs": {}, "preferences": {}}
+        import json
+        return {
+            "category_specs": json.loads(str(row.get("category_specs_json") or "{}")),
+            "item_specs": json.loads(str(row.get("item_specs_json") or "{}")),
+            "preferences": json.loads(str(row.get("preferences_json") or "{}")),
+        }
+
+    def upsert_craft_profile(self, guild_id: int, user_id: int, category_specs: Dict[str, Any], item_specs: Dict[str, Any], preferences: Dict[str, Any]) -> None:
+        import json
+        now = int(time.time())
+        if self.kind == "postgres":
+            self._exec(
+                """
+                INSERT INTO craft_profiles(guild_id, user_id, category_specs_json, item_specs_json, preferences_json, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (guild_id, user_id)
+                DO UPDATE SET category_specs_json = EXCLUDED.category_specs_json,
+                              item_specs_json = EXCLUDED.item_specs_json,
+                              preferences_json = EXCLUDED.preferences_json,
+                              updated_at = EXCLUDED.updated_at;
+                """,
+                (int(guild_id), int(user_id), json.dumps(category_specs), json.dumps(item_specs), json.dumps(preferences), now),
+            )
+        else:
+            self._exec(
+                """
+                INSERT INTO craft_profiles(guild_id, user_id, category_specs_json, item_specs_json, preferences_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(guild_id, user_id)
+                DO UPDATE SET category_specs_json = excluded.category_specs_json,
+                              item_specs_json = excluded.item_specs_json,
+                              preferences_json = excluded.preferences_json,
+                              updated_at = excluded.updated_at;
+                """,
+                (int(guild_id), int(user_id), json.dumps(category_specs), json.dumps(item_specs), json.dumps(preferences), now),
+            )
+
+    def list_craft_presets(self, guild_id: int, user_id: int) -> List[dict]:
+        rows = self._fetchall(
+            "SELECT preset_id, name, payload_json, updated_at FROM craft_presets WHERE guild_id = ? AND user_id = ? ORDER BY updated_at DESC;"
+            if self.kind == "sqlite"
+            else "SELECT preset_id, name, payload_json, updated_at FROM craft_presets WHERE guild_id = %s AND user_id = %s ORDER BY updated_at DESC;",
+            (int(guild_id), int(user_id)),
+        )
+        import json
+        return [{"preset_id": str(r["preset_id"]), "name": str(r["name"]), "payload": json.loads(str(r["payload_json"] or "{}")), "updated_at": int(r["updated_at"])} for r in rows]
+
+    def upsert_craft_preset(self, preset_id: str, guild_id: int, user_id: int, name: str, payload: Dict[str, Any]) -> None:
+        import json
+        now = int(time.time())
+        if self.kind == "postgres":
+            self._exec(
+                """
+                INSERT INTO craft_presets(preset_id, guild_id, user_id, name, payload_json, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (preset_id)
+                DO UPDATE SET name = EXCLUDED.name, payload_json = EXCLUDED.payload_json, updated_at = EXCLUDED.updated_at;
+                """,
+                (str(preset_id), int(guild_id), int(user_id), str(name), json.dumps(payload), now, now),
+            )
+        else:
+            self._exec(
+                """
+                INSERT INTO craft_presets(preset_id, guild_id, user_id, name, payload_json, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(preset_id)
+                DO UPDATE SET name = excluded.name, payload_json = excluded.payload_json, updated_at = excluded.updated_at;
+                """,
+                (str(preset_id), int(guild_id), int(user_id), str(name), json.dumps(payload), now, now),
+            )
+
+    def list_all_killboard_trackers(self) -> List[dict]:
+        return self._fetchall("SELECT * FROM killboard_trackers ORDER BY updated_at DESC;" if self.kind == "sqlite" else "SELECT * FROM killboard_trackers ORDER BY updated_at DESC;")
+
+    def list_killboard_trackers(self, guild_id: int) -> List[dict]:
+        rows = self._fetchall(
+            "SELECT * FROM killboard_trackers WHERE guild_id = ? ORDER BY updated_at DESC;" if self.kind == "sqlite" else "SELECT * FROM killboard_trackers WHERE guild_id = %s ORDER BY updated_at DESC;",
+            (int(guild_id),),
+        )
+        return rows
+
+    def upsert_killboard_tracker(self, tracker: Dict[str, Any]) -> None:
+        now = int(time.time())
+        if self.kind == "postgres":
+            self._exec(
+                """
+                INSERT INTO killboard_trackers(tracker_id, guild_id, albion_server, kind, target_id, target_name, enabled, post_channel_id, created_by, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (tracker_id)
+                DO UPDATE SET target_name=EXCLUDED.target_name, enabled=EXCLUDED.enabled, post_channel_id=EXCLUDED.post_channel_id, updated_at=EXCLUDED.updated_at;
+                """,
+                (tracker['tracker_id'], int(tracker['guild_id']), tracker['albion_server'], tracker['kind'], tracker['target_id'], tracker.get('target_name',''), int(bool(tracker.get('enabled',True))), tracker.get('post_channel_id'), int(tracker['created_by']), now, now),
+            )
+        else:
+            self._exec(
+                """
+                INSERT INTO killboard_trackers(tracker_id, guild_id, albion_server, kind, target_id, target_name, enabled, post_channel_id, created_by, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tracker_id)
+                DO UPDATE SET target_name=excluded.target_name, enabled=excluded.enabled, post_channel_id=excluded.post_channel_id, updated_at=excluded.updated_at;
+                """,
+                (tracker['tracker_id'], int(tracker['guild_id']), tracker['albion_server'], tracker['kind'], tracker['target_id'], tracker.get('target_name',''), int(bool(tracker.get('enabled',True))), tracker.get('post_channel_id'), int(tracker['created_by']), now, now),
+            )
+
+    def delete_killboard_tracker(self, tracker_id: str) -> None:
+        self._exec("DELETE FROM killboard_trackers WHERE tracker_id = ?;" if self.kind == "sqlite" else "DELETE FROM killboard_trackers WHERE tracker_id = %s;", (str(tracker_id),))
+
+    def upsert_killboard_event(self, event: Dict[str, Any]) -> None:
+        import json
+        now = int(time.time())
+        if self.kind == "postgres":
+            self._exec(
+                """
+                INSERT INTO killboard_events(albion_server, event_id, occurred_at, killer_id, killer_name, killer_guild_id, victim_id, victim_name, victim_guild_id, killer_average_ip, victim_average_ip, assist_count, kill_fame, estimated_value, payload_json, image_path, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (albion_server, event_id)
+                DO UPDATE SET payload_json=EXCLUDED.payload_json, image_path=COALESCE(EXCLUDED.image_path, killboard_events.image_path);
+                """,
+                (event['albion_server'], int(event['event_id']), int(event['occurred_at']), event.get('killer_id'), event.get('killer_name'), event.get('killer_guild_id'), event.get('victim_id'), event.get('victim_name'), event.get('victim_guild_id'), event.get('killer_average_ip'), event.get('victim_average_ip'), int(event.get('assist_count',0)), int(event.get('kill_fame',0)), event.get('estimated_value'), json.dumps(event.get('payload',{})), event.get('image_path'), now),
+            )
+        else:
+            self._exec(
+                """
+                INSERT INTO killboard_events(albion_server, event_id, occurred_at, killer_id, killer_name, killer_guild_id, victim_id, victim_name, victim_guild_id, killer_average_ip, victim_average_ip, assist_count, kill_fame, estimated_value, payload_json, image_path, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(albion_server, event_id)
+                DO UPDATE SET payload_json=excluded.payload_json, image_path=COALESCE(excluded.image_path, killboard_events.image_path);
+                """,
+                (event['albion_server'], int(event['event_id']), int(event['occurred_at']), event.get('killer_id'), event.get('killer_name'), event.get('killer_guild_id'), event.get('victim_id'), event.get('victim_name'), event.get('victim_guild_id'), event.get('killer_average_ip'), event.get('victim_average_ip'), int(event.get('assist_count',0)), int(event.get('kill_fame',0)), event.get('estimated_value'), json.dumps(event.get('payload',{})), event.get('image_path'), now),
+            )
+
+    def list_killboard_events(self, guild_id: int, limit: int = 50) -> List[dict]:
+        rows = self._fetchall(
+            """
+            SELECT DISTINCT e.* FROM killboard_events e
+            JOIN killboard_event_posts p ON p.albion_server = e.albion_server AND p.event_id = e.event_id
+            WHERE p.guild_id = ?
+            ORDER BY e.occurred_at DESC
+            LIMIT ?;
+            """ if self.kind == "sqlite" else
+            """
+            SELECT DISTINCT e.* FROM killboard_events e
+            JOIN killboard_event_posts p ON p.albion_server = e.albion_server AND p.event_id = e.event_id
+            WHERE p.guild_id = %s
+            ORDER BY e.occurred_at DESC
+            LIMIT %s;
+            """, (int(guild_id), int(limit)))
+        return rows
+
+    def mark_killboard_posted(self, albion_server: str, event_id: int, guild_id: int, channel_id: int, message_id: Optional[int]) -> None:
+        now = int(time.time())
+        if self.kind == "postgres":
+            self._exec(
+                """
+                INSERT INTO killboard_event_posts(albion_server, event_id, guild_id, channel_id, message_id, posted_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (albion_server, event_id, guild_id)
+                DO UPDATE SET channel_id=EXCLUDED.channel_id, message_id=EXCLUDED.message_id, posted_at=EXCLUDED.posted_at;
+                """,
+                (albion_server, int(event_id), int(guild_id), int(channel_id), message_id, now),
+            )
+        else:
+            self._exec(
+                """
+                INSERT INTO killboard_event_posts(albion_server, event_id, guild_id, channel_id, message_id, posted_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(albion_server, event_id, guild_id)
+                DO UPDATE SET channel_id=excluded.channel_id, message_id=excluded.message_id, posted_at=excluded.posted_at;
+                """,
+                (albion_server, int(event_id), int(guild_id), int(channel_id), message_id, now),
+            )
 
     # -----------------------------
     # Maintenance

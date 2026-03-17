@@ -13,7 +13,9 @@ import {
   MeDTO,
   CraftingCatalogItemDTO,
   CraftingItemResponseDTO,
-  CraftingProfileDTO,
+  CraftProfileDTO,
+  KillboardTrackerDTO,
+  KillboardEventDTO,
   RaidDTO,
   RaidOpenPreviewDTO,
   RaidRosterDTO,
@@ -34,7 +36,7 @@ const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 const discordLoginUrl = `${apiBase}/auth/discord/login`;
 const discordForceLoginUrl = `${apiBase}/auth/discord/login?force=1`;
 
-type TabKey = 'active' | 'raids' | 'balances' | 'tickets' | 'crafting' | 'admin';
+type TabKey = 'active' | 'raids' | 'balances' | 'tickets' | 'crafting' | 'killboard' | 'admin';
 type RaidSort = 'start_desc' | 'start_asc' | 'status';
 type LoadState = {
   health: boolean;
@@ -143,49 +145,15 @@ export default function HomePage() {
   const [permissionBindings, setPermissionBindings] = useState<GuildPermissionBindingDTO[]>([]);
   const [permissionRoleInputs, setPermissionRoleInputs] = useState<Record<string, string>>({});
   const [permissionUserInputs, setPermissionUserInputs] = useState<Record<string, string>>({});
+  const [craftCatalog, setCraftCatalog] = useState<CraftingCatalogItemDTO[]>([]);
+  const [craftTypeKey, setCraftTypeKey] = useState('2H_HOLYSTAFF_HELL');
+  const [craftTier, setCraftTier] = useState(8);
+  const [craftEnchant, setCraftEnchant] = useState(0);
+  const [craftData, setCraftData] = useState<CraftingItemResponseDTO | null>(null);
+  const [craftProfile, setCraftProfile] = useState<CraftProfileDTO>({ category_specs: {}, item_specs: {}, preferences: {} });
+  const [killboardTrackers, setKillboardTrackers] = useState<KillboardTrackerDTO[]>([]);
+  const [killboardEvents, setKillboardEvents] = useState<KillboardEventDTO[]>([]);
 
-  const [craftingCatalog, setCraftingCatalog] = useState<CraftingCatalogItemDTO[]>([]);
-  const [craftingItemId, setCraftingItemId] = useState('T8_2H_HOLYSTAFF_HELL');
-  const [craftingTier, setCraftingTier] = useState(8);
-  const [craftingEnchant, setCraftingEnchant] = useState(0);
-  const [craftingData, setCraftingData] = useState<CraftingItemResponseDTO | null>(null);
-  const [craftingProfile, setCraftingProfile] = useState<Record<string, number>>({ group: 0, category: 0, item: 0, others: 0 });
-  const [craftingLocationKind, setCraftingLocationKind] = useState('city');
-  const [craftingLocationKey, setCraftingLocationKey] = useState('caerleon');
-  const [craftingWithFocus, setCraftingWithFocus] = useState(false);
-  const [craftingWithDaily, setCraftingWithDaily] = useState(false);
-
-
-  async function loadCrafting(): Promise<void> {
-    try {
-      const catalog = await apiGet<CraftingCatalogItemDTO[]>('/api/crafting/catalog');
-      setCraftingCatalog(catalog);
-      const profileResp = await apiGetSafe<CraftingProfileDTO>('/api/crafting/profile');
-      if (profileResp?.profile) {
-        setCraftingProfile((prev) => ({ ...prev, ...profileResp.profile }));
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  }
-
-  async function refreshCraftingItem(nextProfile?: Record<string, number>): Promise<void> {
-    const profile = nextProfile || craftingProfile;
-    const params = new URLSearchParams({
-      tier: String(craftingTier),
-      enchant: String(craftingEnchant),
-      group_level: String(profile.group || 0),
-      category_level: String(profile.category || 0),
-      item_level: String(profile.item || 0),
-      others_level: String(profile.others || 0),
-      location_kind: craftingLocationKind,
-      location_key: craftingLocationKey,
-      with_focus: craftingWithFocus ? '1' : '0',
-      with_daily_bonus: craftingWithDaily ? '1' : '0',
-    });
-    const item = await apiGet<CraftingItemResponseDTO>(`/crafting/item/${craftingItemId}?${params.toString()}`);
-    setCraftingData(item);
-  }
 
   async function ensureSessionAfterOAuth(): Promise<void> {
     for (let attempt = 1; attempt <= 4; attempt += 1) {
@@ -269,12 +237,36 @@ export default function HomePage() {
     }
   }
 
-  useEffect(() => { void loadDashboard(); void loadCrafting(); }, []);
+  async function loadCraftingData(): Promise<void> {
+    if (!selectedGuildId) return;
+    const catalog = await apiGet<CraftingCatalogItemDTO[]>('/api/craft/catalog');
+    setCraftCatalog(catalog);
+    const profile = await apiGetSafe<CraftProfileDTO>(`/api/craft/profile?guild_id=${selectedGuildId}`);
+    if (profile) setCraftProfile(profile);
+    const payload = await apiGet<CraftingItemResponseDTO>(`/api/craft/item/${craftTypeKey}?tier=${craftTier}&enchant=${craftEnchant}`);
+    setCraftData(payload);
+  }
 
+  async function loadKillboardData(): Promise<void> {
+    if (!selectedGuildId) return;
+    const [trackers, events] = await Promise.all([
+      apiGet<KillboardTrackerDTO[]>(`/api/killboard/trackers?guild_id=${selectedGuildId}`),
+      apiGet<KillboardEventDTO[]>(`/api/killboard/events?guild_id=${selectedGuildId}`),
+    ]);
+    setKillboardTrackers(trackers);
+    setKillboardEvents(events);
+  }
 
   useEffect(() => {
-    void refreshCraftingItem();
-  }, [craftingItemId, craftingTier, craftingEnchant, craftingLocationKind, craftingLocationKey, craftingWithFocus, craftingWithDaily]);
+    if (activeTab === 'crafting') {
+      void loadCraftingData();
+    }
+    if (activeTab === 'killboard') {
+      void loadKillboardData();
+    }
+  }, [activeTab, selectedGuildId, craftTypeKey, craftTier, craftEnchant]);
+
+  useEffect(() => { void loadDashboard(); }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -882,6 +874,7 @@ export default function HomePage() {
           <button type="button" className={activeTab === 'balances' ? 'tab active' : 'tab'} onClick={() => setActiveTab('balances')}>Balances & Lootsplit</button>
           <button type="button" className={activeTab === 'tickets' ? 'tab active' : 'tab'} onClick={() => setActiveTab('tickets')}>Tous les tickets</button>
           <button type="button" className={activeTab === 'crafting' ? 'tab active' : 'tab'} onClick={() => setActiveTab('crafting')}>Crafting Assistant</button>
+          <button type="button" className={activeTab === 'killboard' ? 'tab active' : 'tab'} onClick={() => setActiveTab('killboard')}>Killboard</button>
           {isSelectedGuildAdmin && <button type="button" className={activeTab === 'admin' ? 'tab active' : 'tab'} onClick={() => setActiveTab('admin')}>Administration</button>}
         </div>
 
@@ -1181,56 +1174,45 @@ Support;2;ip=false;roles=234567890123456789,345678901234567890`}</pre>
         )}
 
 
+
         {canUseDashboard && activeTab === 'crafting' && (
-          <section>
+          <section className="panel fade-in">
             <h2>Crafting Assistant</h2>
-            <div className="card">
-              <label>Item</label>
-              <select value={craftingItemId} onChange={(e) => setCraftingItemId(e.target.value)}>
-                {craftingCatalog.map((item) => (
-                  <option key={item.baseItemId} value={`T${craftingTier}_${item.baseItemId}`}>{item.label}</option>
-                ))}
-              </select>
-              <label>Tier</label>
-              <input type="number" min={4} max={8} value={craftingTier} onChange={(e) => setCraftingTier(Number(e.target.value))} />
-              <label>Enchant</label>
-              <select value={craftingEnchant} onChange={(e) => setCraftingEnchant(Number(e.target.value))}>
-                <option value={0}>flat</option><option value={1}>.1</option><option value={2}>.2</option><option value={3}>.3</option><option value={4}>.4</option>
-              </select>
-              <h3>Spécialisations</h3>
-              <div className="inline-filters">
-                <label>Group <input type="number" min={0} max={100} value={craftingProfile.group || 0} onChange={(e) => setCraftingProfile((p) => ({ ...p, group: Number(e.target.value) }))} /></label>
-                <label>Category <input type="number" min={0} max={100} value={craftingProfile.category || 0} onChange={(e) => setCraftingProfile((p) => ({ ...p, category: Number(e.target.value) }))} /></label>
-                <label>Item <input type="number" min={0} max={100} value={craftingProfile.item || 0} onChange={(e) => setCraftingProfile((p) => ({ ...p, item: Number(e.target.value) }))} /></label>
-                <label>Others <input type="number" min={0} max={100} value={craftingProfile.others || 0} onChange={(e) => setCraftingProfile((p) => ({ ...p, others: Number(e.target.value) }))} /></label>
-                <button type="button" onClick={async () => { await apiPut<CraftingProfileDTO>('/api/crafting/profile', { profile: craftingProfile }); await refreshCraftingItem(craftingProfile); }}>Sauvegarder profil</button>
-                <button type="button" onClick={() => void refreshCraftingItem(craftingProfile)}>Recalculer</button>
-              </div>
-              <h3>RRR</h3>
-              <div className="inline-filters">
-                <select value={craftingLocationKind} onChange={(e) => setCraftingLocationKind(e.target.value)}>
-                  <option value="city">City</option><option value="outlands">Outlands</option><option value="roads">Roads</option><option value="hideout">Hideout</option>
+            <div className="form-grid">
+              <label>Type item
+                <select value={craftTypeKey} onChange={(e) => setCraftTypeKey(e.target.value)}>
+                  {(craftCatalog || []).map((item) => <option key={item.typeKey} value={item.typeKey}>{item.label}</option>)}
                 </select>
-                <input value={craftingLocationKey} onChange={(e) => setCraftingLocationKey(e.target.value)} placeholder="location key" />
-                <label className="check"><input type="checkbox" checked={craftingWithFocus} onChange={(e) => setCraftingWithFocus(e.target.checked)} />Focus</label>
-                <label className="check"><input type="checkbox" checked={craftingWithDaily} onChange={(e) => setCraftingWithDaily(e.target.checked)} />Daily bonus</label>
-              </div>
+              </label>
+              <label>Tier<input type="number" min={4} max={8} value={craftTier} onChange={(e) => setCraftTier(Number(e.target.value))} /></label>
+              <label>Enchant
+                <select value={craftEnchant} onChange={(e) => setCraftEnchant(Number(e.target.value))}>
+                  <option value={0}>flat</option><option value={1}>.1</option><option value={2}>.2</option><option value={3}>.3</option><option value={4}>.4</option>
+                </select>
+              </label>
+              <button type="button" onClick={() => void loadCraftingData()}>Recalculer</button>
             </div>
-            {craftingData && (
-              <div className="card">
-                <p><strong>Base Focus:</strong> {craftingData.baseFocusCost} | <strong>FCE:</strong> {craftingData.fceTotal} | <strong>Focus réel:</strong> {craftingData.focusCost}</p>
-                <p><strong>LPB:</strong> {craftingData.rrrByLocation.lpb.toFixed(3)} | <strong>RRR:</strong> {(craftingData.rrrByLocation.rrr * 100).toFixed(2)}%</p>
-                <h3>Recettes</h3>
-                {craftingData.recipes.map((recipe) => (
-                  <article key={recipe.recipeId}>
-                    <strong>{recipe.name}</strong>
-                    <ul>
-                      {recipe.ingredients.map((ing) => <li key={`${recipe.recipeId}-${ing.itemId}`}>{ing.itemId} x{ing.count} {ing.enchantScaled ? `(scaled .${craftingEnchant})` : '(fixed .0)'}</li>)}
-                    </ul>
-                  </article>
-                ))}
-              </div>
+            {craftData && (
+              <article className="preview-box">
+                <p><strong>{craftData.item.name}</strong> T{craftData.item.tier}.{craftData.item.enchant}</p>
+                <p>Focus: {craftData.focusCost} (base {craftData.baseFocusCost})</p>
+                <p>LPB {craftData.rrrByLocation.lpb.toFixed(3)} / RRR {(craftData.rrrByLocation.rrr * 100).toFixed(2)}%</p>
+                {craftData.recipes.map((recipe) => <p key={recipe.recipeId}>• {recipe.name} ({recipe.ingredients.length} resources)</p>)}
+              </article>
             )}
+          </section>
+        )}
+
+        {canUseDashboard && activeTab === 'killboard' && (
+          <section className="panel fade-in">
+            <h2>Killboard</h2>
+            <div className="inline-actions">
+              <button type="button" onClick={async () => { await apiPost('/api/killboard/poll', {}); await loadKillboardData(); }}>Poll maintenant</button>
+            </div>
+            <h3>Trackers</h3>
+            <ul>{killboardTrackers.map((t) => <li key={t.tracker_id}>{t.kind} {t.target_name} [{t.albion_server}]</li>)}</ul>
+            <h3>Events</h3>
+            <ul>{killboardEvents.map((e) => <li key={`${e.albion_server}-${e.event_id}`}>{e.killer_name} → {e.victim_name} ({e.kill_fame.toLocaleString('fr-FR')} fame)</li>)}</ul>
           </section>
         )}
 

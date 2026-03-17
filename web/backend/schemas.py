@@ -286,6 +286,8 @@ class GuildPermissionUpdateRequestDTO(BaseModel):
 
 
 
+
+
 class CraftingIngredientDTO(BaseModel):
     itemId: str
     count: int
@@ -294,13 +296,18 @@ class CraftingIngredientDTO(BaseModel):
 
 
 class CraftingRecipeDTO(BaseModel):
+    variantKey: str
     recipeId: str
     name: str
+    baseFocusCost: int = 0
+    craftTime: int = 0
+    source: str = ""
     ingredients: List[CraftingIngredientDTO] = Field(default_factory=list)
 
 
 class CraftingItemDTO(BaseModel):
     id: str
+    typeKey: str
     name: str
     tier: int
     enchant: int
@@ -322,9 +329,57 @@ class CraftingItemResponseDTO(BaseModel):
     rrrByLocation: CraftingRRRDTO
 
 
-class CraftingProfileUpdateDTO(BaseModel):
-    profile: dict = Field(default_factory=dict)
+class CraftProfileUpdateDTO(BaseModel):
+    category_specs: dict = Field(default_factory=dict)
+    item_specs: dict = Field(default_factory=dict)
+    preferences: dict = Field(default_factory=dict)
 
 
-class CraftingProfileResponseDTO(BaseModel):
-    profile: dict = Field(default_factory=dict)
+class CraftProfileResponseDTO(BaseModel):
+    category_specs: dict = Field(default_factory=dict)
+    item_specs: dict = Field(default_factory=dict)
+    preferences: dict = Field(default_factory=dict)
+
+
+class CraftPresetCreateDTO(BaseModel):
+    name: str
+    payload: dict = Field(default_factory=dict)
+    preset_id: Optional[str] = None
+
+
+class CraftPresetDTO(BaseModel):
+    preset_id: str
+    name: str
+    payload: dict = Field(default_factory=dict)
+    updated_at: int
+
+
+class KillboardTrackerCreateDTO(BaseModel):
+    albion_server: Literal["europe", "americas", "asia"] = "europe"
+    kind: Literal["guild", "player"]
+    target_id: str
+    target_name: str
+    post_channel_id: Optional[str] = None
+
+
+class KillboardTrackerDTO(BaseModel):
+    tracker_id: str
+    guild_id: str
+    albion_server: str
+    kind: str
+    target_id: str
+    target_name: str
+    post_channel_id: Optional[str] = None
+    enabled: bool = True
+
+
+class KillboardEventDTO(BaseModel):
+    albion_server: str
+    event_id: int
+    occurred_at: int
+    killer_name: str = ""
+    victim_name: str = ""
+    kill_fame: int = 0
+    assist_count: int = 0
+    image_path: Optional[str] = None
+    payload_json: str = "{}"
