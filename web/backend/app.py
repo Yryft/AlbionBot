@@ -25,6 +25,7 @@ from .auth import (
 )
 from .authorization import DashboardAuthorizationService
 from .crafting import CraftingService
+from .killboard import KillboardService
 from .schemas import (
     BalanceEntryDTO,
     BankActionHistoryEntryDTO,
@@ -39,12 +40,17 @@ from .schemas import (
     DiscordGuildDTO,
     DiscordUserDTO,
     MeDTO,
+    CraftingItemResponseDTO,
+    CraftProfileResponseDTO,
+    CraftProfileUpdateDTO,
+    CraftPresetCreateDTO,
+    CraftPresetDTO,
+    KillboardTrackerCreateDTO,
+    KillboardTrackerDTO,
+    KillboardEventDTO,
     RaidOpenPreviewDTO,
     RaidOpenPreviewRequestDTO,
     RaidOpenRequestDTO,
-    CraftingItemResponseDTO,
-    CraftingProfileResponseDTO,
-    CraftingProfileUpdateDTO,
     RaidTemplateUpdateRequestDTO,
     TemplateMutationResultDTO,
     RaidUpdateRequestDTO,
@@ -188,7 +194,8 @@ def create_app() -> FastAPI:
         bank_sqlite_path=bank_sqlite_path,
     )
     service = DashboardService(store, bank_allow_negative=_env_bool("BANK_ALLOW_NEGATIVE", True))
-    crafting_service = CraftingService()
+    crafting_service = CraftingService(store=store)
+    killboard_service = KillboardService(store=store)
     command_bus = CommandBus(rate_limiter=RateLimiter(), audit_logger=AuditLogger())
     oauth_service = _build_oauth_service()
     authorizer = DashboardAuthorizationService(store, oauth_service) if oauth_service is not None else None
@@ -463,66 +470,90 @@ def create_app() -> FastAPI:
             "template_count": len(service.store.templates),
         }
 
-    @app.get("/api/crafting/catalog")
-    async def list_crafting_catalog():
+
+    @app.get("/api/craft/catalog")
+    async def list_craft_catalog():
         return crafting_service.list_craftable_items()
 
-    @app.get("/api/crafting/categories/{category_id}/types")
-    async def list_crafting_category_types(category_id: str):
-        return crafting_service.list_category_types(category_id)
-
-    @app.get("/api/crafting/profile", response_model=CraftingProfileResponseDTO)
-    async def get_crafting_profile(request: Request):
-        if oauth_service is None:
-            return CraftingProfileResponseDTO(profile={})
-        session = await require_session(request, oauth_service)
-        profile = store.get_dashboard_user_profile(int(session.user.id), "crafting_specializations") or {}
-        return CraftingProfileResponseDTO(profile=profile)
-
-    @app.put("/api/crafting/profile", response_model=CraftingProfileResponseDTO)
-    async def set_crafting_profile(payload: CraftingProfileUpdateDTO, request: Request):
-        if oauth_service is None:
-            raise _oauth_not_configured_error()
-        session = await require_session(request, oauth_service)
-        store.set_dashboard_user_profile(int(session.user.id), "crafting_specializations", dict(payload.profile or {}))
-        return CraftingProfileResponseDTO(profile=dict(payload.profile or {}))
-
-    @app.get("/crafting/item/{item_id}", response_model=CraftingItemResponseDTO)
-    async def get_crafting_item(
-        item_id: str,
-        tier: int = 5,
-        enchant: int = 0,
-        group_level: int = 0,
-        category_level: int = 0,
-        item_level: int = 0,
-        others_level: int = 0,
-        location_kind: str = "city",
-        location_key: str = "caerleon",
-        with_focus: bool = False,
-        with_daily_bonus: bool = False,
-        hideout_level: int = 1,
-        map_quality: str = "normal",
-    ):
-        payload = await crafting_service.build_item_payload(
-            item_id=item_id,
+    @app.get("/api/craft/item/{type_key}", response_model=CraftingItemResponseDTO)
+    async def get_craft_item(type_key: str, tier: int = 5, enchant: int = 0, group_level: int = 0, category_level: int = 0, item_level: int = 0, others_level: int = 0, location_kind: str = "city", location_key: str = "caerleon", with_focus: bool = False, with_daily_bonus: bool = False, hideout_level: int = 1, map_quality: str = "normal"):
+        return await crafting_service.build_item_payload(
+            type_key=type_key,
             tier=tier,
             enchant=enchant,
-            spec_profile={
-                "group": group_level,
-                "category": category_level,
-                "item": item_level,
-                "others": others_level,
-            },
-            location={
-                "kind": location_kind,
-                "key": location_key,
-                "withFocus": with_focus,
-                "withDailyBonus": with_daily_bonus,
-                "hideoutLevel": hideout_level,
-                "mapQuality": map_quality,
-            },
+            spec_profile={"group": group_level, "category": category_level, "item": item_level, "others": others_level},
+            location={"kind": location_kind, "key": location_key, "withFocus": with_focus, "withDailyBonus": with_daily_bonus, "hideoutLevel": hideout_level, "mapQuality": map_quality},
         )
-        return payload
+
+    @app.get("/api/craft/profile", response_model=CraftProfileResponseDTO)
+    async def get_craft_profile(guild_id: str, request: Request):
+        if oauth_service is None:
+            raise _oauth_not_configured_error()
+        session = require_session(request, oauth_service)
+        profile = crafting_service.get_user_profile(int(guild_id), int(session.user.id))
+        return CraftProfileResponseDTO(**profile)
+
+    @app.put("/api/craft/profile", response_model=CraftProfileResponseDTO)
+    async def set_craft_profile(guild_id: str, payload: CraftProfileUpdateDTO, request: Request):
+        if oauth_service is None:
+            raise _oauth_not_configured_error()
+        session = require_session(request, oauth_service)
+        profile = crafting_service.set_user_profile(int(guild_id), int(session.user.id), dict(payload.category_specs or {}), dict(payload.item_specs or {}), dict(payload.preferences or {}))
+        return CraftProfileResponseDTO(**profile)
+
+    @app.get("/api/craft/presets", response_model=list[CraftPresetDTO])
+    async def list_craft_presets(guild_id: str, request: Request):
+        if oauth_service is None:
+            raise _oauth_not_configured_error()
+        session = require_session(request, oauth_service)
+        return [CraftPresetDTO(**row) for row in crafting_service.list_presets(int(guild_id), int(session.user.id))]
+
+    @app.post("/api/craft/presets", response_model=CraftPresetDTO)
+    async def create_craft_preset(guild_id: str, payload: CraftPresetCreateDTO, request: Request):
+        if oauth_service is None:
+            raise _oauth_not_configured_error()
+        session = require_session(request, oauth_service)
+        saved = crafting_service.save_preset(int(guild_id), int(session.user.id), payload.name, dict(payload.payload or {}), payload.preset_id)
+        return CraftPresetDTO(**saved)
+
+    @app.get("/api/killboard/trackers", response_model=list[KillboardTrackerDTO])
+    def list_killboard_trackers(guild_id: str, request: Request):
+        resolved_guild_id = parse_discord_id(guild_id, "guild_id")
+        if authorizer is not None:
+            authorizer.ensure_action_allowed(request, action="raid_list", guild_id=resolved_guild_id)
+        rows = killboard_service.list_trackers(resolved_guild_id)
+        return [KillboardTrackerDTO(
+            tracker_id=str(r['tracker_id']), guild_id=str(r['guild_id']), albion_server=str(r['albion_server']), kind=str(r['kind']), target_id=str(r['target_id']), target_name=str(r.get('target_name') or ''), post_channel_id=str(r['post_channel_id']) if r.get('post_channel_id') else None, enabled=bool(int(r.get('enabled', 1)))
+        ) for r in rows]
+
+    @app.post("/api/killboard/trackers", response_model=KillboardTrackerDTO)
+    def create_killboard_tracker(guild_id: str, payload: KillboardTrackerCreateDTO, request: Request):
+        ensure_csrf_for_mutation(request)
+        resolved_guild_id = parse_discord_id(guild_id, "guild_id")
+        if authorizer is not None:
+            authorizer.ensure_action_allowed(request, action="raid_list", guild_id=resolved_guild_id)
+        session = require_session(request, oauth_service) if oauth_service is not None else None
+        row = killboard_service.add_tracker(resolved_guild_id, int(session.user.id) if session else 0, payload.albion_server, payload.kind, payload.target_id, payload.target_name, int(payload.post_channel_id) if payload.post_channel_id else None)
+        return KillboardTrackerDTO(**{**row, 'guild_id': str(row['guild_id']), 'post_channel_id': str(row['post_channel_id']) if row.get('post_channel_id') else None})
+
+    @app.delete("/api/killboard/trackers/{tracker_id}")
+    def delete_killboard_tracker(tracker_id: str, request: Request):
+        ensure_csrf_for_mutation(request)
+        killboard_service.delete_tracker(tracker_id)
+        return {"ok": True}
+
+    @app.post("/api/killboard/poll")
+    async def run_killboard_poll(request: Request):
+        ensure_csrf_for_mutation(request)
+        posted = await killboard_service.poll_once()
+        return {"ok": True, "posted": posted}
+
+    @app.get("/api/killboard/events", response_model=list[KillboardEventDTO])
+    def list_killboard_events(guild_id: str, request: Request):
+        resolved_guild_id = parse_discord_id(guild_id, "guild_id")
+        if authorizer is not None:
+            authorizer.ensure_action_allowed(request, action="raid_list", guild_id=resolved_guild_id)
+        return [KillboardEventDTO(**row) for row in killboard_service.list_events(resolved_guild_id)]
 
     @app.get("/api/my/raids")
     def list_my_raids(request: Request):

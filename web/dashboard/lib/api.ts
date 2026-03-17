@@ -182,6 +182,8 @@ export type BankBalanceDTO = {
 };
 
 
+
+
 export type CraftingCatalogItemDTO = {
   baseItemId: string;
   representativeT5Id: string;
@@ -198,13 +200,17 @@ export type CraftingIngredientDTO = {
 };
 
 export type CraftingRecipeDTO = {
+  variantKey: string;
   recipeId: string;
   name: string;
+  baseFocusCost: number;
+  craftTime: number;
+  source: string;
   ingredients: CraftingIngredientDTO[];
 };
 
 export type CraftingItemResponseDTO = {
-  item: { id: string; name: string; tier: number; enchant: number };
+  item: { id: string; typeKey: string; name: string; tier: number; enchant: number };
   categoryId: string;
   iconUrl: string;
   baseFocusCost: number;
@@ -214,10 +220,41 @@ export type CraftingItemResponseDTO = {
   rrrByLocation: { lpb: number; rrr: number };
 };
 
-export type CraftingProfileDTO = {
-  profile: Record<string, number>;
+export type CraftProfileDTO = {
+  category_specs: Record<string, number>;
+  item_specs: Record<string, number>;
+  preferences: Record<string, unknown>;
 };
 
+export type CraftPresetDTO = {
+  preset_id: string;
+  name: string;
+  payload: Record<string, unknown>;
+  updated_at: number;
+};
+
+export type KillboardTrackerDTO = {
+  tracker_id: string;
+  guild_id: string;
+  albion_server: string;
+  kind: 'guild' | 'player';
+  target_id: string;
+  target_name: string;
+  post_channel_id?: string | null;
+  enabled: boolean;
+};
+
+export type KillboardEventDTO = {
+  albion_server: string;
+  event_id: number;
+  occurred_at: number;
+  killer_name: string;
+  victim_name: string;
+  kill_fame: number;
+  assist_count: number;
+  image_path?: string | null;
+  payload_json: string;
+};
 export type BankActionHistoryEntryDTO = {
   action_id: string;
   guild_id: string;

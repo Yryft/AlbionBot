@@ -11,7 +11,8 @@ Endpoints principaux:
 - Bank/balances
 - Tickets
 - Permissions de guilde
-- Crafting Assistant dashboard + endpoint `/crafting/item/{id}`
+- Crafting Assistant (`/api/craft/*`)
+- Killboard (`/api/killboard/*`)
 
 ## Frontend
 Le dashboard affiche des onglets:
@@ -19,7 +20,10 @@ Le dashboard affiche des onglets:
 - Tous les raids
 - Balances & Lootsplit
 - Tous les tickets
+- Crafting Assistant
+- Killboard
 - Administration (si admin)
 
-## Données crafting offline
-`web/backend/data/crafting/` contient les index utilisés pour éviter de spammer GameInfo (catalogue et multi-recettes), les coefficients focus et les modifiers de return rate.
+## Variables utiles
+- `BANK_DATABASE_URL` / `BANK_SQLITE_PATH`: persistance SQL
+- `DASHBOARD_CORS_ORIGINS`: CORS dashboard

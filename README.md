@@ -1,6 +1,6 @@
 # AlbionBot
 
-Bot Discord + dashboard web pour gérer raids, balances/lootsplit, tickets et administration.
+Bot Discord + dashboard web pour gérer raids, balances/lootsplit, tickets, crafting et killboard.
 
 ## Fonctionnalités
 - Gestion de raids (templates, ouverture, roster, signup/leave)
@@ -8,7 +8,8 @@ Bot Discord + dashboard web pour gérer raids, balances/lootsplit, tickets et ad
 - Consultation des tickets
 - Authentification Discord pour le dashboard
 - Permissions par guilde (admin/roles/users)
-- Crafting Assistant (focus, recettes multi-recipes, RRR par localisation)
+- Crafting Assistant (catalogue craftable, multi-recettes, focus, RRR, presets)
+- Killboard (trackers guild/player, polling, événements persistés, rendu image)
 
 ## Lancer le projet
 1. Installer les dépendances Python.
@@ -17,9 +18,5 @@ Bot Discord + dashboard web pour gérer raids, balances/lootsplit, tickets et ad
 4. Lancer le frontend dashboard (`web/dashboard`).
 
 ## Tests
-Exécuter `pytest` à la racine.
-
-## Crafting Assistant
-- Endpoint backend: `GET /crafting/item/{id}?tier=&enchant=` (+ paramètres de spécialisations et localisation).
-- Profil de spécialisations persisté par utilisateur via `GET/PUT /api/crafting/profile`.
-- Données offline versionnées dans `web/backend/data/crafting/` (catalogue, recettes, coefficients, modifiers).
+- `pytest -q`
+- `npm test -- --run` dans `web/dashboard` (si dépendances frontend installées)

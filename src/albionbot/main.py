@@ -9,6 +9,7 @@ from .config import load_config
 from .modules.bank import BankModule
 from .modules.raids import RaidModule
 from .modules.tickets import TicketModule
+from .modules.killboard import KillboardModule
 from .storage.store import Store
 from .utils.discord import parse_ids
 from .utils.permissions import (
@@ -48,6 +49,7 @@ def _build_help_lines(member: nextcord.Member, cfg, store: Store) -> List[str]:
         "• `/raid_assistant` — Assistant interactif pour les raids.",
         "• `/ticket_open [type_key]` — Ouvrir un ticket.",
         "• `/ticket_close [reason]` — Fermer ton ticket (raison optionnelle).",
+        "• `/killboard_list` — Voir les trackers killboard configurés.",
     ]
 
     if is_raid_manager:
@@ -120,6 +122,7 @@ def main():
     raids = RaidModule(bot, store, cfg)
     bank = BankModule(bot, store, cfg)
     tickets = TicketModule(bot, store, cfg)
+    killboard = KillboardModule(bot, store, cfg)
 
     guild_kwargs = {"guild_ids": cfg.guild_ids} if cfg.guild_ids else {}
     rotating_statuses = [
